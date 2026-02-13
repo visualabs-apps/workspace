@@ -33,7 +33,9 @@
   },
   "dependencies": {
     "electron-squirrel-startup": "^1.0.1",
+    "keytar": "^7.9.0",
     "lucide-svelte": "^0.563.0",
+    "svelte-dnd-action": "^0.9.69",
     "uuid": "^13.0.0"
   }
 }

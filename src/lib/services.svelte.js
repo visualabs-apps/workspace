@@ -3,6 +3,7 @@
 // We'll manage the services array and the active service ID here.
 
 import { v4 as uuidv4 } from 'uuid';
+import { tabStore } from './tabs.svelte.js';
 
 export const predefinedServices = [
     { name: 'WhatsApp', url: 'https://web.whatsapp.com', icon: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/WhatsApp.svg/1024px-WhatsApp.svg.png', color: '#25D366' },
@@ -31,6 +32,11 @@ function createServiceStore() {
     let isSideBarCollapsed = $state(false);
     let isAddModalOpen = $state(false);
 
+    // Initialize tabs for existing services
+    storedServices.forEach(service => {
+        tabStore.initServiceTabs(service.id, service.url, service.name);
+    });
+
     // Save to localStorage effect (simple approach for now)
     $effect.root(() => {
         $effect(() => {
@@ -49,7 +55,7 @@ function createServiceStore() {
         toggleSidebar: () => { isSideBarCollapsed = !isSideBarCollapsed },
         setAddModalOpen: (val) => { isAddModalOpen = val },
 
-        addService: (template, customUrl = null, customName = null) => {
+        addService: (template, customUrl = null, customName = null, groupName = null) => {
             const id = uuidv4();
             const service = {
                 id,
@@ -57,6 +63,7 @@ function createServiceStore() {
                 url: customUrl || template.url,
                 icon: template.icon,
                 color: template.color || '#333',
+                groupName: groupName || customName || template.name, // Group name for display
                 partition: `persist:service-${id}`, // Isolated session!
                 isMuted: false,
                 userAgent: '', // Default
@@ -66,11 +73,19 @@ function createServiceStore() {
             };
             services = [...services, service];
             activeServiceId = id;
+
+            // Initialize tabs for this service
+            tabStore.initServiceTabs(id, service.url, service.name);
+
             return service;
         },
 
         removeService: (id) => {
             services = services.filter(s => s.id !== id);
+
+            // Remove tabs for this service
+            tabStore.removeServiceTabs(id);
+
             if (activeServiceId === id && services.length > 0) {
                 activeServiceId = services[0].id;
             } else if (services.length === 0) {
@@ -97,3 +112,4 @@ function createServiceStore() {
 }
 
 export const serviceStore = createServiceStore();
+

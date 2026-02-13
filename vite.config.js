@@ -8,5 +8,5 @@ export default defineConfig({
   build: {
     outDir: 'electron/build'
   },
-  plugins: [svelte(), tailwindcss()],
+  plugins: [svelte(), tailwindcss()]
 })

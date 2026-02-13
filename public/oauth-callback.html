@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth Callback</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            color: white;
+        }
+
+        .container {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1.5rem;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        p {
+            font-size: 0.875rem;
+            opacity: 0.9;
+        }
+
+        .error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.5);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h1 id="status">Completing sign in...</h1>
+        <p id="message">Please wait while we redirect you back.</p>
+    </div>
+
+    <script>
+        // Parse URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        const error = urlParams.get('error');
+        const user = urlParams.get('user');
+
+        // Get opener window (parent that opened this popup)
+        const opener = window.opener;
+
+        if (error) {
+            // OAuth failed
+            document.getElementById('status').textContent = 'Sign in failed';
+            document.getElementById('message').innerHTML = `<div class="error">${error}</div>`;
+
+            if (opener) {
+                opener.postMessage({
+                    type: 'oauth-error',
+                    error: error
+                }, window.location.origin);
+            }
+
+            // Close window after 3 seconds
+            setTimeout(() => {
+                window.close();
+            }, 3000);
+        } else if (token) {
+            // OAuth successful
+            document.getElementById('status').textContent = 'Sign in successful!';
+            document.getElementById('message').textContent = 'Redirecting you back...';
+
+            let userData = null;
+            if (user) {
+                try {
+                    userData = JSON.parse(decodeURIComponent(user));
+                } catch (e) {
+                    console.error('Failed to parse user data:', e);
+                }
+            }
+
+            if (opener) {
+                opener.postMessage({
+                    type: 'oauth-success',
+                    token: token,
+                    user: userData
+                }, window.location.origin);
+            }
+
+            // Close window after 1 second
+            setTimeout(() => {
+                window.close();
+            }, 1000);
+        } else {
+            // No token or error - something went wrong
+            document.getElementById('status').textContent = 'Something went wrong';
+            document.getElementById('message').innerHTML = '<div class="error">No authentication data received.</div>';
+
+            if (opener) {
+                opener.postMessage({
+                    type: 'oauth-error',
+                    error: 'No authentication data received'
+                }, window.location.origin);
+            }
+
+            // Close window after 3 seconds
+            setTimeout(() => {
+                window.close();
+            }, 3000);
+        }
+    </script>
+</body>
+
+</html>

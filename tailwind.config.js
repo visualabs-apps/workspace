@@ -6,7 +6,13 @@ export default {
         "./electron/**/*.{html,svelte,js,ts,}"
     ],
     theme: {
-        extend: {},
+        extend: {
+            colors: {
+                gray: {
+                    850: '#1a1d24',
+                }
+            }
+        },
     },
     plugins: [],
 }
