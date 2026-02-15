@@ -31,14 +31,14 @@
     let services = $derived(serviceStore.services);
     let activeServiceId = $derived(serviceStore.activeServiceId);
     let isAddModalOpen = $derived(serviceStore.isAddModalOpen);
-    
+
     // Filter services based on active workspace
     let workspaceServices = $derived(
-        services.filter(service => 
-            activeWorkspace?.apps?.includes(service.id)
-        )
+        services.filter((service) =>
+            activeWorkspace?.apps?.includes(service.id),
+        ),
     );
-    
+
     let activeService = $derived(
         workspaceServices.find((s) => s.id === activeServiceId),
     );
@@ -48,24 +48,21 @@
     let isNotificationCenterOpen = $derived(
         notificationStore.isNotificationCenterOpen,
     );
-    
+
     // Initialize scraper service on app startup
     onMount(async () => {
         // Wait for auth to be initialized first
         await authStore.init();
-        
-        // Then initialize scraper service if logged in
-        if (authStore.isLoggedIn) {
-            console.log('🚀 Initializing scraper service...');
-            await scraperService.initialize();
-        }
+
+        // Initialize scraper service (no auth required - endpoint is public)
+        console.log("🚀 Initializing scraper service...");
+        await scraperService.initialize();
     });
-    
-    // Re-initialize when user logs in
+
+    // Re-initialize scraper when user logs in (in case it failed before)
     $effect(() => {
         if (isLoggedIn && isAuthInitialized && !scraperService.initialized) {
-            console.log('🔄 User logged in, initializing scraper service...');
-            // Add small delay to ensure token is saved
+            console.log("🔄 Retrying scraper service initialization...");
             setTimeout(() => {
                 scraperService.initialize();
             }, 500);
@@ -76,8 +73,10 @@
     $effect(() => {
         if (workspaceServices.length > 0) {
             // Check if current active service is in workspace
-            const isActiveInWorkspace = workspaceServices.some(s => s.id === activeServiceId);
-            
+            const isActiveInWorkspace = workspaceServices.some(
+                (s) => s.id === activeServiceId,
+            );
+
             if (!isActiveInWorkspace) {
                 // Set first app as active
                 serviceStore.setActive(workspaceServices[0].id);
@@ -88,6 +87,27 @@
     // Initialize auth on mount
     onMount(() => {
         authStore.init();
+
+        // Listen for deep link authentication success
+        if (window.api?.onAuthSuccess) {
+            window.api.onAuthSuccess(async ({ token, workspace }) => {
+                console.log("✅ Authentication successful via deep link");
+
+                // Set token and fetch user data
+                await authStore.setLoggedIn(null, token, 3600);
+
+                // Fetch real user data from server
+                await authStore.fetchUser();
+            });
+        }
+
+        // Listen for deep link authentication error
+        if (window.api?.onAuthError) {
+            window.api.onAuthError(({ error }) => {
+                console.error("❌ Authentication error:", error);
+                // You can show error notification here if needed
+            });
+        }
     });
 
     // Global keyboard shortcuts
@@ -134,7 +154,9 @@
             if (activeService) {
                 const activeTab = tabStore.getActiveTab(activeService.id);
                 if (activeTab) {
-                    tabStore.updateTab(activeService.id, activeTab.id, { zoomLevel: 0 });
+                    tabStore.updateTab(activeService.id, activeTab.id, {
+                        zoomLevel: 0,
+                    });
                 }
             }
         }
@@ -146,11 +168,16 @@
                 const activeTab = tabStore.getActiveTab(activeService.id);
                 if (activeTab) {
                     const currentZoom = activeTab.zoomLevel ?? 0;
-                    const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
+                    const currentPercent = Math.round(
+                        Math.pow(1.2, currentZoom) * 100,
+                    );
                     let newPercent = currentPercent + 10;
                     newPercent = Math.min(500, newPercent);
-                    const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
-                    tabStore.updateTab(activeService.id, activeTab.id, { zoomLevel: newZoomLevel });
+                    const newZoomLevel =
+                        Math.log(newPercent / 100) / Math.log(1.2);
+                    tabStore.updateTab(activeService.id, activeTab.id, {
+                        zoomLevel: newZoomLevel,
+                    });
                 }
             }
         }
@@ -162,11 +189,16 @@
                 const activeTab = tabStore.getActiveTab(activeService.id);
                 if (activeTab) {
                     const currentZoom = activeTab.zoomLevel ?? 0;
-                    const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
+                    const currentPercent = Math.round(
+                        Math.pow(1.2, currentZoom) * 100,
+                    );
                     let newPercent = currentPercent - 10;
                     newPercent = Math.max(25, newPercent);
-                    const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
-                    tabStore.updateTab(activeService.id, activeTab.id, { zoomLevel: newZoomLevel });
+                    const newZoomLevel =
+                        Math.log(newPercent / 100) / Math.log(1.2);
+                    tabStore.updateTab(activeService.id, activeTab.id, {
+                        zoomLevel: newZoomLevel,
+                    });
                 }
             }
         }
@@ -196,7 +228,8 @@
                 (s) => s.id === activeServiceId,
             );
             const nextIndex = e.shiftKey
-                ? (currentIndex - 1 + workspaceServices.length) % workspaceServices.length
+                ? (currentIndex - 1 + workspaceServices.length) %
+                  workspaceServices.length
                 : (currentIndex + 1) % workspaceServices.length;
             if (workspaceServices[nextIndex]) {
                 serviceStore.setActive(workspaceServices[nextIndex].id);
@@ -233,12 +266,18 @@
 
     function handleStartWithTab() {
         // Create a new app with Google as default
-        const newService = serviceStore.addService({
-            name: 'Browser',
-            url: 'https://www.google.com',
-            icon: 'https://www.google.com/favicon.ico',
-            color: '#4285f4'
-        });
+        const newService = serviceStore.addService(
+            {
+                name: "Browser",
+                url: "https://www.google.com",
+                icon: "https://www.google.com/favicon.ico",
+                color: "#4285f4",
+            },
+            null,
+            null,
+            null,
+            activeWorkspace?.id,
+        ); // Pass workspace ID
 
         // Add to active workspace
         if (activeWorkspace && newService) {
@@ -251,7 +290,9 @@
 
 <!-- Show loading screen while checking auth -->
 {#if !isAuthInitialized}
-    <div class="flex h-screen w-screen items-center justify-center bg-gradient-to-r from-[#9d8c6b] via-black to-[#8b4a6b]">
+    <div
+        class="flex h-screen w-screen items-center justify-center bg-gradient-to-r from-[#9d8c6b] via-black to-[#8b4a6b]"
+    >
         <div class="text-center">
             <Loader2
                 class="w-12 h-12 text-pink-400 animate-spin mx-auto mb-4"
@@ -286,22 +327,42 @@
                 <div class="flex-1 relative overflow-hidden">
                     {#if workspaceServices.length === 0}
                         <!-- Empty State -->
-                        <div class="absolute inset-0 flex items-center justify-center p-8">
+                        <div
+                            class="absolute inset-0 flex items-center justify-center p-8"
+                        >
                             <div class="text-center">
                                 <!-- Icon -->
                                 <div class="mb-4 flex justify-center">
-                                    <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
-                                        <svg class="w-10 h-10 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                            <circle cx="12" cy="12" r="10"></circle>
-                                            <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
-                                            <line x1="9" y1="9" x2="9.01" y2="9"></line>
-                                            <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                                    <div
+                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center"
+                                    >
+                                        <svg
+                                            class="w-10 h-10 text-purple-400"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.5"
+                                        >
+                                            <circle cx="12" cy="12" r="10"
+                                            ></circle>
+                                            <path d="M8 14s1.5 2 4 2 4-2 4-2"
+                                            ></path>
+                                            <line x1="9" y1="9" x2="9.01" y2="9"
+                                            ></line>
+                                            <line
+                                                x1="15"
+                                                y1="9"
+                                                x2="15.01"
+                                                y2="9"
+                                            ></line>
                                         </svg>
                                     </div>
                                 </div>
 
                                 <!-- Text -->
-                                <h2 class="text-xl font-semibold text-white mb-6">
+                                <h2
+                                    class="text-xl font-semibold text-white mb-6"
+                                >
                                     There's nothing here, yet.
                                 </h2>
 
@@ -311,34 +372,49 @@
                                         onclick={handleStartWithApp}
                                         class="group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
                                     >
-                                        <Rocket size={16} class="group-hover:translate-y-[-2px] transition-transform" />
+                                        <Rocket
+                                            size={16}
+                                            class="group-hover:translate-y-[-2px] transition-transform"
+                                        />
                                         Start with an app
                                     </button>
                                     <button
                                         onclick={handleStartWithTab}
                                         class="group flex items-center gap-2 px-5 py-2.5 bg-purple-500/80 hover:bg-purple-600/80 text-white text-sm rounded-lg font-medium transition-all hover:scale-105"
                                     >
-                                        <Plus size={16} class="group-hover:rotate-90 transition-transform" />
+                                        <Plus
+                                            size={16}
+                                            class="group-hover:rotate-90 transition-transform"
+                                        />
                                         Start with a tab
                                     </button>
                                 </div>
                             </div>
                         </div>
                     {:else}
-                        <!-- Render ALL workspace services but hide inactive ones (keep alive) -->
-                        {#each workspaceServices as service (service.id)}
+                        <!-- Render ALL services from ALL workspaces (keep alive) -->
+                        <!-- Only show services from active workspace -->
+                        {#each services as service (service.id)}
+                            {@const isInActiveWorkspace =
+                                activeWorkspace?.apps?.includes(service.id)}
+                            {@const isActiveService =
+                                activeServiceId === service.id}
+
                             <div
                                 class="absolute inset-0 w-full h-full"
-                                style:z-index={activeServiceId === service.id
-                                    ? 10
-                                    : 0}
-                                style:visibility={activeServiceId === service.id
+                                style:z-index={isActiveService ? 10 : 0}
+                                style:visibility={isInActiveWorkspace &&
+                                isActiveService
                                     ? "visible"
                                     : "hidden"}
+                                style:pointer-events={isInActiveWorkspace &&
+                                isActiveService
+                                    ? "auto"
+                                    : "none"}
                             >
                                 <ServiceView
                                     {service}
-                                    isActive={activeServiceId === service.id}
+                                    isActive={isActiveService}
                                 />
                             </div>
                         {/each}
@@ -350,7 +426,11 @@
 
     <!-- Modals -->
     {#if isAddModalOpen || isAddAppPopupOpen}
-        <AddServiceModal onClose={() => { isAddAppPopupOpen = false; }} />
+        <AddServiceModal
+            onClose={() => {
+                isAddAppPopupOpen = false;
+            }}
+        />
     {/if}
 
     <!-- Download Panel -->

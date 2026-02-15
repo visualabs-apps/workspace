@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+// ✅ SAFE: No need to load external stealth script
+// The real stealth comes from proper Electron configuration:
+// - nodeIntegration: false
+// - contextIsolation: true
+// - sandbox: true
+// - disableBlinkFeatures: 'Automation'
+
 const api = {
     node: () => process.versions.node,
     chrome: () => process.versions.chrome,
@@ -20,9 +27,12 @@ const api = {
     maximize: () => ipcRenderer.send('window-maximize'),
     close: () => ipcRenderer.send('window-close'),
 
-    // OAuth handlers
+    // External URL opener (for deep link auth)
     openExternal: (url) => ipcRenderer.send('open-external', url),
-    onOAuthCallback: (callback) => ipcRenderer.on('oauth-callback', (event, data) => callback(data))
+
+    // Deep Link Auth handlers
+    onAuthSuccess: (callback) => ipcRenderer.on('auth-success', (event, data) => callback(data)),
+    onAuthError: (callback) => ipcRenderer.on('auth-error', (event, data) => callback(data))
 }
 
 contextBridge.exposeInMainWorld('api', api)

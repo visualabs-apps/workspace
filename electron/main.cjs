@@ -2,11 +2,22 @@
 const { log } = require('console')
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell } = require('electron')
 const path = require('path')
-const http = require('http')
 
 if (require('electron-squirrel-startup')) app.quit();
 
 const isDevEnvironment = process.env.DEV_ENV === 'true'
+
+// ========================================
+// DEEP LINK PROTOCOL REGISTRATION
+// ========================================
+// Register custom protocol 'vleb://' for deep linking
+if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient('vleb', process.execPath, [path.resolve(process.argv[1])]);
+    }
+} else {
+    app.setAsDefaultProtocolClient('vleb');
+}
 
 // enable live reload for electron in dev mode
 if (isDevEnvironment) {
@@ -79,10 +90,18 @@ const createWindow = () => {
         width: 1300,
         height: 600,
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
+            preload: path.join(__dirname, 'preload.cjs'),  // Changed to .cjs
             webviewTag: true,
-            nodeIntegration: false,
-            contextIsolation: true
+            // ✅ SAFE: These settings provide security AND stealth
+            nodeIntegration: false,        // Prevents window.require exposure
+            contextIsolation: true,        // Isolates preload from web content
+            // Note: sandbox disabled for main window to allow preload script
+            // Webviews will still be sandboxed via their own partition
+            sandbox: false,                // Allow preload to use Node.js APIs
+            // ✅ SAFE: Disable automation detection flag
+            disableBlinkFeatures: 'Automation',
+            // ✅ SAFE: Disable remote module (deprecated anyway)
+            enableRemoteModule: false,
         },
         titleBarStyle: 'hidden',
         // titleBarOverlay removed to implement custom controls
@@ -193,54 +212,61 @@ ipcMain.on('show-notification', (event, { title, body }) => {
     }
 });
 
-// OAuth Callback Server
-// This server listens on localhost for OAuth callbacks
-let oauthServer = null;
+// ========================================
+// DEEP LINK HANDLER
+// ========================================
+const keytar = require('keytar');
 
-function startOAuthServer() {
-    if (oauthServer) return;
+/**
+ * Handle deep link authentication
+ * Called when browser redirects to vleb://auth?token=xxx&workspace=yyy
+ */
+async function handleDeepLink(url) {
+    try {
+        console.log('Deep link received:', url);
 
-    oauthServer = http.createServer((req, res) => {
-        const url = new URL(req.url, `http://localhost:3000`);
-        
-        if (url.pathname === '/oauth/callback') {
-            const code = url.searchParams.get('code');
-            const state = url.searchParams.get('state');
-            const error = url.searchParams.get('error');
+        // Parse URL
+        const urlObj = new URL(url);
 
-            if (error) {
-                // Send error to renderer
+        // Check if it's auth callback
+        if (urlObj.protocol === 'vleb:' && urlObj.hostname === 'auth') {
+            const token = urlObj.searchParams.get('token');
+            const workspace = urlObj.searchParams.get('workspace') || 'default';
+
+            if (token) {
+                // Store token securely in keytar (per workspace)
+                await keytar.setPassword('v-leb-workspace', workspace, token);
+
+                console.log(`Token stored for workspace: ${workspace}`);
+
+                // Send token to renderer process
                 if (mainWindow) {
-                    mainWindow.webContents.send('oauth-callback', {
-                        success: false,
-                        error: error
+                    mainWindow.webContents.send('auth-success', {
+                        token,
+                        workspace
+                    });
+
+                    // Show and focus window
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
+            } else {
+                console.error('No token in deep link');
+                if (mainWindow) {
+                    mainWindow.webContents.send('auth-error', {
+                        error: 'No token received'
                     });
                 }
-                
-                res.writeHead(200, { 'Content-Type': 'text/html' });
-                res.end('<html><body><h1>Authentication Failed</h1><p>You can close this window.</p></body></html>');
-            } else if (code) {
-                // Send code and state to renderer to exchange for token
-                if (mainWindow) {
-                    mainWindow.webContents.send('oauth-callback', {
-                        success: true,
-                        code: code,
-                        state: state
-                    });
-                }
-                
-                res.writeHead(200, { 'Content-Type': 'text/html' });
-                res.end('<html><body><h1>Authentication Successful!</h1><p>You can close this window and return to the app.</p><script>setTimeout(() => window.close(), 2000);</script></body></html>');
             }
-        } else {
-            res.writeHead(404);
-            res.end('Not Found');
         }
-    });
-
-    oauthServer.listen(3000, 'localhost', () => {
-        log('OAuth callback server listening on http://localhost:3000');
-    });
+    } catch (error) {
+        console.error('Deep link handling error:', error);
+        if (mainWindow) {
+            mainWindow.webContents.send('auth-error', {
+                error: error.message
+            });
+        }
+    }
 }
 
 // Helper to handle downloads
@@ -317,7 +343,6 @@ function handlePermissions(session) {
 app.on('ready', () => {
     createTray();
     createWindow();
-    startOAuthServer();
 
     // Setup session handlers for default session
     // For partitioned sessions, we need to do this when they are created/accessed
@@ -376,6 +401,38 @@ app.on('certificate-error', (event, webContents, url, error, certificate, callba
     event.preventDefault();
     callback(true);
 });
+
+// ========================================
+// DEEP LINK EVENT LISTENERS
+// ========================================
+
+// Handle deep link on macOS
+app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
+});
+
+// Handle deep link on Windows/Linux
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    app.quit();
+} else {
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        // Someone tried to run a second instance, we should focus our window.
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
+
+        // The commandLine is array of strings in which last element is deep link url
+        // Handle deep link for Windows/Linux
+        const url = commandLine.find((arg) => arg.startsWith('vleb://'));
+        if (url) {
+            handleDeepLink(url);
+        }
+    });
+}
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.

@@ -1,51 +1,52 @@
 // Workspace Store - manages multiple workspaces
-// Each workspace contains a collection of apps
+// Each workspace has its own services and partition
 
 import { v4 as uuidv4 } from 'uuid';
 
-// Predefined workspace colors
+// Workspace color presets
 export const workspaceColors = [
-    { name: 'Purple', value: 'from-purple-500 to-indigo-600', bg: 'bg-purple-500' },
-    { name: 'Blue', value: 'from-blue-500 to-cyan-600', bg: 'bg-blue-500' },
-    { name: 'Green', value: 'from-green-500 to-emerald-600', bg: 'bg-green-500' },
-    { name: 'Orange', value: 'from-orange-500 to-red-600', bg: 'bg-orange-500' },
-    { name: 'Pink', value: 'from-pink-500 to-rose-600', bg: 'bg-pink-500' },
-    { name: 'Teal', value: 'from-teal-500 to-cyan-600', bg: 'bg-teal-500' },
+    '#9d8c6b', '#4A90E2', '#E24A4A', '#4AE290',
+    '#E2904A', '#904AE2', '#E2E24A', '#4AE2E2'
 ];
 
-// Predefined workspace icons
-export const workspaceIcons = ['💼', '🏠', '🎮', '📚', '🎨', '💻', '🛒', '✈️', '🎵', '📱'];
+// Workspace icon presets
+export const workspaceIcons = [
+    '🏠', '💼', '🎮', '📚', '🎨', '🔬', '🏋️', '🎵'
+];
 
 function createWorkspaceStore() {
     // Load from localStorage
-    let storedData = { workspaces: [], activeWorkspaceId: null };
+    let storedWorkspaces = [];
+    let storedActiveId = null;
+    
     try {
         const item = localStorage.getItem('vleb_workspaces');
         if (item) {
-            storedData = JSON.parse(item);
+            const data = JSON.parse(item);
+            storedWorkspaces = data.workspaces || [];
+            storedActiveId = data.activeWorkspaceId;
         }
     } catch (e) {
         console.error('Failed to load workspaces', e);
     }
 
-    // Create default workspace if none exist
-    if (storedData.workspaces.length === 0) {
+    // If no workspaces, create default one
+    if (storedWorkspaces.length === 0) {
         const defaultWorkspace = {
             id: uuidv4(),
-            name: 'Personal',
+            name: 'Default Workspace',
             icon: '🏠',
-            color: workspaceColors[0],
-            apps: [], // App IDs that belong to this workspace
+            color: '#4A90E2',
+            apps: [], // Array of service IDs in this workspace
             createdAt: Date.now()
         };
-        storedData.workspaces = [defaultWorkspace];
-        storedData.activeWorkspaceId = defaultWorkspace.id;
+        storedWorkspaces = [defaultWorkspace];
+        storedActiveId = defaultWorkspace.id;
     }
 
     // State
-    let workspaces = $state(storedData.workspaces);
-    let activeWorkspaceId = $state(storedData.activeWorkspaceId || storedData.workspaces[0]?.id);
-    let isWorkspaceSelectorOpen = $state(false);
+    let workspaces = $state(storedWorkspaces);
+    let activeWorkspaceId = $state(storedActiveId);
 
     // Auto-save to localStorage
     $effect.root(() => {
@@ -60,37 +61,80 @@ function createWorkspaceStore() {
     return {
         get workspaces() { return workspaces; },
         get activeWorkspaceId() { return activeWorkspaceId; },
-        get activeWorkspace() { 
-            return workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0]; 
+        
+        // Get active workspace object
+        get activeWorkspace() {
+            return workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0];
         },
-        get isWorkspaceSelectorOpen() { return isWorkspaceSelectorOpen; },
 
+        // Set active workspace (switch workspace)
         setActiveWorkspace(id) {
-            activeWorkspaceId = id;
+            const workspace = workspaces.find(w => w.id === id);
+            if (workspace) {
+                activeWorkspaceId = id;
+                console.log(`🔄 Switched to workspace: ${workspace.name}`);
+            }
         },
 
-        toggleWorkspaceSelector() {
-            isWorkspaceSelectorOpen = !isWorkspaceSelectorOpen;
-        },
-
-        closeWorkspaceSelector() {
-            isWorkspaceSelectorOpen = false;
-        },
-
-        createWorkspace(name, icon = '💼', color = workspaceColors[0]) {
-            const workspace = {
+        // Add new workspace
+        addWorkspace(name, icon = '📁', color = '#4A90E2') {
+            const newWorkspace = {
                 id: uuidv4(),
                 name,
                 icon,
                 color,
-                apps: [],
+                apps: [], // Empty apps array
                 createdAt: Date.now()
             };
-            workspaces = [...workspaces, workspace];
-            activeWorkspaceId = workspace.id;
-            return workspace;
+            workspaces = [...workspaces, newWorkspace];
+            activeWorkspaceId = newWorkspace.id;
+            return newWorkspace;
         },
 
+        // Alias for backward compatibility
+        createWorkspace(name, icon = '📁', color = '#4A90E2') {
+            return this.addWorkspace(name, icon, color);
+        },
+
+        // Add app/service to workspace
+        addAppToWorkspace(workspaceId, serviceId) {
+            const workspace = workspaces.find(w => w.id === workspaceId);
+            if (workspace && !workspace.apps.includes(serviceId)) {
+                this.updateWorkspace(workspaceId, {
+                    apps: [...(workspace.apps || []), serviceId]
+                });
+            }
+        },
+
+        // Remove app/service from workspace
+        removeAppFromWorkspace(workspaceId, serviceId) {
+            const workspace = workspaces.find(w => w.id === workspaceId);
+            if (workspace) {
+                this.updateWorkspace(workspaceId, {
+                    apps: (workspace.apps || []).filter(id => id !== serviceId)
+                });
+            }
+        },
+
+        // Remove workspace
+        removeWorkspace(id) {
+            // Don't allow removing last workspace
+            if (workspaces.length === 1) {
+                console.warn('Cannot remove last workspace');
+                return false;
+            }
+
+            workspaces = workspaces.filter(w => w.id !== id);
+
+            // If removed active workspace, switch to first one
+            if (activeWorkspaceId === id) {
+                activeWorkspaceId = workspaces[0].id;
+            }
+
+            return true;
+        },
+
+        // Update workspace
         updateWorkspace(id, updates) {
             const index = workspaces.findIndex(w => w.id === id);
             if (index !== -1) {
@@ -102,58 +146,9 @@ function createWorkspaceStore() {
             }
         },
 
-        deleteWorkspace(id) {
-            if (workspaces.length <= 1) {
-                console.warn('Cannot delete the last workspace');
-                return false;
-            }
-            workspaces = workspaces.filter(w => w.id !== id);
-            if (activeWorkspaceId === id) {
-                activeWorkspaceId = workspaces[0].id;
-            }
-            return true;
-        },
-
-        // Add an app to a workspace
-        addAppToWorkspace(workspaceId, appId) {
-            const index = workspaces.findIndex(w => w.id === workspaceId);
-            if (index !== -1 && !workspaces[index].apps.includes(appId)) {
-                workspaces = [
-                    ...workspaces.slice(0, index),
-                    { ...workspaces[index], apps: [...workspaces[index].apps, appId] },
-                    ...workspaces.slice(index + 1)
-                ];
-            }
-        },
-
-        // Remove an app from a workspace
-        removeAppFromWorkspace(workspaceId, appId) {
-            const index = workspaces.findIndex(w => w.id === workspaceId);
-            if (index !== -1) {
-                workspaces = [
-                    ...workspaces.slice(0, index),
-                    { ...workspaces[index], apps: workspaces[index].apps.filter(id => id !== appId) },
-                    ...workspaces.slice(index + 1)
-                ];
-            }
-        },
-
-        // Move app to different workspace
-        moveAppToWorkspace(appId, fromWorkspaceId, toWorkspaceId) {
-            this.removeAppFromWorkspace(fromWorkspaceId, appId);
-            this.addAppToWorkspace(toWorkspaceId, appId);
-        },
-
-        // Get apps for active workspace
-        getActiveWorkspaceApps() {
-            const workspace = workspaces.find(w => w.id === activeWorkspaceId);
-            return workspace?.apps || [];
-        },
-
-        // Check if app belongs to active workspace
-        isAppInActiveWorkspace(appId) {
-            const workspace = workspaces.find(w => w.id === activeWorkspaceId);
-            return workspace?.apps.includes(appId) || false;
+        // Reorder workspaces
+        reorderWorkspaces(newOrder) {
+            workspaces = newOrder;
         }
     };
 }

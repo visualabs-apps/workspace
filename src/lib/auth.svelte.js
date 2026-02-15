@@ -1,5 +1,6 @@
 // Auth Store using Svelte 5 Runes
 import { login as apiLogin, logout as apiLogout, checkToken, isAuthenticated, getStoredUser, clearAuth } from './api.js';
+import { secureStorage } from './secureStorage.js';
 
 function createAuthStore() {
     // Initialize state
@@ -22,7 +23,7 @@ function createAuthStore() {
          */
         async init() {
             if (isInitialized) return;
-            
+
             isLoading = true;
             error = null;
 
@@ -64,7 +65,7 @@ function createAuthStore() {
 
             try {
                 const result = await apiLogin(email, password);
-                
+
                 if (result.success) {
                     user = result.user;
                     isLoggedIn = true;
@@ -86,7 +87,7 @@ function createAuthStore() {
          */
         async logout() {
             isLoading = true;
-            
+
             try {
                 await apiLogout();
             } finally {
@@ -94,6 +95,26 @@ function createAuthStore() {
                 isLoggedIn = false;
                 isLoading = false;
                 error = null;
+            }
+        },
+
+        /**
+         * Fetch user data specifically (useful after deep link login)
+         */
+        async fetchUser() {
+            try {
+                const result = await checkToken();
+                if (result.success) {
+                    user = result.user;
+                    isLoggedIn = true; // Ensure logged in state
+                    localStorage.setItem('auth_user', JSON.stringify(result.user));
+                    return true;
+                } else {
+                    return false;
+                }
+            } catch (err) {
+                console.error('Fetch user error:', err);
+                return false;
             }
         },
 
@@ -108,8 +129,9 @@ function createAuthStore() {
         /**
          * Set login state (for OAuth callback)
          */
-        setLoggedIn(userData, token, expiresIn) {
-            localStorage.setItem('auth_token', token);
+        async setLoggedIn(userData, token, expiresIn) {
+            await secureStorage.setAuthToken(token);
+            localStorage.setItem('auth_token', token); // Keep explicit local storage for non-sensitive fallback if needed
             localStorage.setItem('auth_user', JSON.stringify(userData));
             localStorage.setItem('token_expires_at', Date.now() + (expiresIn * 1000));
             user = userData;

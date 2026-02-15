@@ -4,6 +4,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { tabStore } from './tabs.svelte.js';
+import { workspaceStore } from './workspaces.svelte.js';
 
 export const predefinedServices = [
     { name: 'WhatsApp', url: 'https://web.whatsapp.com', icon: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/WhatsApp.svg/1024px-WhatsApp.svg.png', color: '#25D366' },
@@ -49,13 +50,19 @@ function createServiceStore() {
         get activeServiceId() { return activeServiceId },
         get isSideBarCollapsed() { return isSideBarCollapsed },
         get isAddModalOpen() { return isAddModalOpen },
+        
+        // Get services for current workspace only
+        get workspaceServices() {
+            const currentWorkspaceId = workspaceStore.activeWorkspaceId;
+            return services.filter(s => s.workspaceId === currentWorkspaceId);
+        },
 
         setActive: (id) => { activeServiceId = id },
 
         toggleSidebar: () => { isSideBarCollapsed = !isSideBarCollapsed },
         setAddModalOpen: (val) => { isAddModalOpen = val },
 
-        addService: (template, customUrl = null, customName = null, groupName = null) => {
+        addService: (template, customUrl = null, customName = null, groupName = null, workspaceId = null) => {
             const id = uuidv4();
             const service = {
                 id,
@@ -64,7 +71,8 @@ function createServiceStore() {
                 icon: template.icon,
                 color: template.color || '#333',
                 groupName: groupName || customName || template.name, // Group name for display
-                partition: `persist:service-${id}`, // Isolated session!
+                partition: workspaceId ? `persist:workspace-${workspaceId}` : `persist:service-${id}`, // Workspace-level partition!
+                workspaceId: workspaceId, // Track which workspace this belongs to
                 isMuted: false,
                 userAgent: '', // Default
                 zoom: 1.0,

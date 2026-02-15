@@ -57,23 +57,17 @@ class ScraperService {
      */
     async downloadAllScripts() {
         try {
-            const token = localStorage.getItem('auth_token'); // Changed from 'token' to 'auth_token'
-            if (!token) {
-                console.warn('⚠️ No auth token, skipping script download');
-                return;
-            }
-
             console.log('📥 Downloading all scraper scripts from server...');
 
+            // No authentication required - endpoint is public
             const response = await fetch(`${API_BASE_URL}/scraper/scripts`, {
                 headers: {
-                    'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json',
                 }
             });
 
             if (!response.ok) {
-                throw new Error('Failed to fetch scripts from server');
+                throw new Error(`Failed to fetch scripts from server: ${response.status} ${response.statusText}`);
             }
 
             const allScripts = await response.json();

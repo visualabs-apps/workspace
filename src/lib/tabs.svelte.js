@@ -164,6 +164,21 @@ function createTabStore() {
             const currentData = serviceTabs[serviceId];
             if (!currentData) return;
 
+            // Validate: ensure no duplicates and all tabs exist
+            const uniqueIds = new Set(newTabOrder.map(t => t.id));
+            if (uniqueIds.size !== newTabOrder.length) {
+                console.error('Duplicate tab IDs detected in reorder, skipping');
+                return;
+            }
+
+            // Validate: ensure all tabs in newTabOrder exist in current tabs
+            const currentIds = new Set(currentData.tabs.map(t => t.id));
+            const allValid = newTabOrder.every(t => currentIds.has(t.id));
+            if (!allValid) {
+                console.error('Invalid tab IDs in reorder, skipping');
+                return;
+            }
+
             serviceTabs = {
                 ...serviceTabs,
                 [serviceId]: {

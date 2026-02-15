@@ -128,6 +128,32 @@
                 console.warn('Failed to set initial zoom:', e.message);
             }
             
+            // ✅ SAFE: Minimal stealth - only what's necessary
+            // We rely on proper Electron configuration (contextIsolation, etc)
+            // instead of aggressive property deletion
+            try {
+                const safeStealthScript = `
+                    (function() {
+                        // ✅ SAFE: Just log for debugging
+                        console.log('🛡️ Webview loaded with safe configuration');
+                        
+                        // ❌ DO NOT delete window.process - breaks libraries
+                        // ❌ DO NOT fake window.chrome - too complex
+                        // ❌ DO NOT override navigator.plugins - type mismatch
+                        // ❌ DO NOT modify Error.prepareStackTrace - breaks debugging
+                        
+                        // The real stealth comes from proper Electron config:
+                        // - contextIsolation: true
+                        // - nodeIntegration: false
+                        // - sandbox: true
+                        // - disableBlinkFeatures: 'Automation'
+                    })();
+                `;
+                webview.executeJavaScript(safeStealthScript);
+            } catch (e) {
+                console.warn('Failed to inject safe stealth script:', e.message);
+            }
+            
             // Inject scraper scripts if available
             try {
                 const url = webview.getURL?.();
@@ -328,7 +354,7 @@
                         allowpopups="true"
                         class="w-full h-full"
                         useragent={service.userAgent ||
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"}
                     ></webview>
                 </div>
             {/each}

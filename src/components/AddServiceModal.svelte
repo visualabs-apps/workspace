@@ -34,10 +34,10 @@
                 if (!url.startsWith('http://') && !url.startsWith('https://')) {
                     url = 'https://' + url;
                 }
-                newService = serviceStore.addService(service, url, name, groupName);
+                newService = serviceStore.addService(service, url, name, groupName, activeWorkspace?.id);
             }
         } else {
-            newService = serviceStore.addService(service, null, null, groupName);
+            newService = serviceStore.addService(service, null, null, groupName, activeWorkspace?.id);
         }
 
         // Add to active workspace

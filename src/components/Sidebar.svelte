@@ -146,12 +146,13 @@
         const url = firstApp.customUrl || firstApp.url;
         const name = firstApp.customName || firstApp.name;
         
-        // Create the group (service)
+        // Create the group (service) with workspace partition
         const newService = serviceStore.addService(
             firstApp,
             url,
             name,
-            pendingGroupName // Group name
+            pendingGroupName, // Group name
+            activeWorkspace?.id // Pass workspace ID for shared partition
         );
         
         if (newService) {
