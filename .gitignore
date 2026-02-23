@@ -13,7 +13,7 @@ dist
 dist-src
 dist-electron
 out
-
+ 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -33,6 +33,8 @@ out
 # Build output
 electron/build
 build/output
+release/
+out/
 
 # Electron Forge
 .webpack
@@ -40,7 +42,16 @@ build/output
 
 # Electron Builder
 dist-electron
+release-builds/
 *.blockmap
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.snap
+*.zip
+*.tar.gz
 
 # OS
 Thumbs.db

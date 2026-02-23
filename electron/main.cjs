@@ -2,10 +2,83 @@
 const { log } = require('console')
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell } = require('electron')
 const path = require('path')
+const { autoUpdater } = require('electron-updater')
 
 if (require('electron-squirrel-startup')) app.quit();
 
 const isDevEnvironment = process.env.DEV_ENV === 'true'
+
+// ========================================
+// AUTO UPDATER CONFIGURATION
+// ========================================
+autoUpdater.autoDownload = false; // Don't auto-download, ask user first
+autoUpdater.autoInstallOnAppQuit = true; // Install when app quits
+
+// Configure update server
+if (!isDevEnvironment) {
+    autoUpdater.setFeedURL({
+        provider: 'generic',
+        url: 'https://app.v-leb.local/downloads/workspace'
+    });
+}
+
+// Auto-updater event handlers
+autoUpdater.on('checking-for-update', () => {
+    log('Checking for updates...');
+    if (mainWindow) {
+        mainWindow.webContents.send('update-checking');
+    }
+});
+
+autoUpdater.on('update-available', (info) => {
+    log('Update available:', info.version);
+    if (mainWindow) {
+        mainWindow.webContents.send('update-available', info);
+    }
+});
+
+autoUpdater.on('update-not-available', (info) => {
+    log('Update not available');
+    if (mainWindow) {
+        mainWindow.webContents.send('update-not-available', info);
+    }
+});
+
+autoUpdater.on('error', (err) => {
+    log('Error in auto-updater:', err);
+    if (mainWindow) {
+        mainWindow.webContents.send('update-error', err);
+    }
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+    log(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
+    if (mainWindow) {
+        mainWindow.webContents.send('update-download-progress', progressObj);
+    }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+    log('Update downloaded');
+    if (mainWindow) {
+        mainWindow.webContents.send('update-downloaded', info);
+    }
+});
+
+// IPC handlers for updater
+ipcMain.on('check-for-updates', () => {
+    if (!isDevEnvironment) {
+        autoUpdater.checkForUpdates();
+    }
+});
+
+ipcMain.on('download-update', () => {
+    autoUpdater.downloadUpdate();
+});
+
+ipcMain.on('install-update', () => {
+    autoUpdater.quitAndInstall();
+});
 
 // ========================================
 // DEEP LINK PROTOCOL REGISTRATION
@@ -343,6 +416,13 @@ function handlePermissions(session) {
 app.on('ready', () => {
     createTray();
     createWindow();
+
+    // Check for updates after 3 seconds (give app time to load)
+    if (!isDevEnvironment) {
+        setTimeout(() => {
+            autoUpdater.checkForUpdates();
+        }, 3000);
+    }
 
     // Setup session handlers for default session
     // For partitioned sessions, we need to do this when they are created/accessed
