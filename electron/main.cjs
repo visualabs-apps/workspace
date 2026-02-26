@@ -18,7 +18,7 @@ autoUpdater.autoInstallOnAppQuit = true; // Install when app quits
 if (!isDevEnvironment) {
     autoUpdater.setFeedURL({
         provider: 'generic',
-        url: 'https://app.v-leb.local/downloads/workspace'
+        url: 'https://leb.visualabs.id/downloads/workspace'
     });
 }
 

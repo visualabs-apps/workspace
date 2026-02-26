@@ -1,6 +1,9 @@
 // VlebAPI - Helper library injected into webviews for scraper scripts
 // This provides a consistent API for scraper scripts to interact with the browser
 
+// Get API base URL from environment
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://app.v-leb.local/api';
+
 export const VLEB_API_SCRIPT = `
 (function() {
     // Prevent multiple injections
@@ -133,8 +136,8 @@ export const VLEB_API_SCRIPT = `
                     throw new Error('No authentication token found');
                 }
                 
-                // Build full API URL
-                const baseUrl = 'https://app.v-leb.local/api';
+                // Build full API URL from environment variable
+                const baseUrl = '${API_BASE_URL}';
                 const fullUrl = endpoint.startsWith('/') ? \`\${baseUrl}\${endpoint}\` : \`\${baseUrl}/\${endpoint}\`;
                 
                 this.log('Sending data to backend:', fullUrl);

@@ -68,17 +68,24 @@ if (portableFile) {
 }
 
 // 4. Build version.json
-let appUrl = 'https://app.v-leb.local';
-try {
-    if (fs.existsSync(envPath)) {
-        const envContent = fs.readFileSync(envPath, 'utf8');
-        const match = envContent.match(/APP_URL=(.*)/);
+// Determine APP_URL based on environment
+let appUrl = 'https://leb.visualabs.id'; // Default to production
+
+// Try to read from .env.production first, then .env
+const envProductionPath = path.resolve(__dirname, '../.env.production');
+if (fs.existsSync(envProductionPath)) {
+    try {
+        const envContent = fs.readFileSync(envProductionPath, 'utf8');
+        const match = envContent.match(/VITE_LARAVEL_URL=(.*)/);
         if (match && match[1]) {
             appUrl = match[1].trim().replace(/"/g, '');
+            console.log(`📍 Using APP_URL from .env.production: ${appUrl}`);
         }
+    } catch (e) {
+        console.log('⚠️ Could not read .env.production, using default: ' + appUrl);
     }
-} catch (e) {
-    console.log('⚠️ Could not read APP_URL from .env, using default: ' + appUrl);
+} else {
+    console.log(`📍 Using default production URL: ${appUrl}`);
 }
 
 const setupUrl = `${appUrl}/downloads/workspace/${setupFile}`;
