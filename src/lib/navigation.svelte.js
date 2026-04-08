@@ -17,6 +17,7 @@ function createNavigationStore() {
         get isLoading() { return isLoading; },
         get currentUrl() { return currentUrl; },
         get currentTitle() { return currentTitle; },
+        get hasActiveWebview() { return activeWebview !== null; },
 
         // Called by ServiceView to register its webview
         setActiveWebview(webview) {

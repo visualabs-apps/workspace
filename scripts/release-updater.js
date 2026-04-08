@@ -20,6 +20,15 @@ if (!fs.existsSync(laravelDownloadDir)) {
     fs.mkdirSync(laravelDownloadDir, { recursive: true });
 }
 
+// Read pre-release notes if available (set by pre-release.mjs)
+const tempNotesPath = path.resolve(__dirname, '.release-notes.tmp');
+let preReleaseNotes = null;
+if (fs.existsSync(tempNotesPath)) {
+    try {
+        preReleaseNotes = JSON.parse(fs.readFileSync(tempNotesPath, 'utf8'));
+    } catch (e) { /* ignore */ }
+}
+
 // 1. Read package.json for Version
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const version = packageJson.version;
@@ -93,7 +102,7 @@ const portableUrl = portableFile ? `${appUrl}/downloads/workspace/${portableFile
 
 let versionConfig = {
     version: version,
-    notes: `Rilis versi ${version} dengan perbaikan performa dan keamanan.`,
+    notes: preReleaseNotes?.notes || `Rilis versi ${version} dengan perbaikan performa dan keamanan.`,
     pub_date: new Date().toISOString(),
     windows: {
         setup: {
@@ -110,8 +119,8 @@ if (portableUrl) {
     };
 }
 
-// Merge with existing to preserve notes if they were edited
-if (fs.existsSync(versionJsonPath)) {
+// Preserve old notes only if version is same AND no new notes provided
+if (!preReleaseNotes && fs.existsSync(versionJsonPath)) {
     try {
         const existingConfig = JSON.parse(fs.readFileSync(versionJsonPath, 'utf8'));
         if (existingConfig.version === version) {
@@ -126,18 +135,15 @@ if (fs.existsSync(versionJsonPath)) {
 console.log('📝 Creating version.json...');
 fs.writeFileSync(versionJsonPath, JSON.stringify(versionConfig, null, 2));
 
-// 5. Create latest.yml for electron-updater
-const latestYml = `version: ${version}
-files:
-  - url: ${setupFile}
-    sha512: ""
-path: ${setupFile}
-sha512: ""
-releaseDate: ${new Date().toISOString()}`;
-
+// 5. Copy latest.yml from electron-builder output (contains correct sha512)
+const latestYmlSource = path.join(distDir, 'latest.yml');
 const latestYmlPath = path.join(laravelDownloadDir, 'latest.yml');
-fs.writeFileSync(latestYmlPath, latestYml);
-console.log('📝 Created latest.yml for electron-updater');
+if (fs.existsSync(latestYmlSource)) {
+    fs.copyFileSync(latestYmlSource, latestYmlPath);
+    console.log('📝 Copied latest.yml (with correct sha512) from dist-electron');
+} else {
+    console.warn('⚠️ latest.yml not found in dist-electron, skipping...');
+}
 
 console.log('🎉 Done! Workspace build has been exported to Laravel.');
 console.log(`🔗 Download URL: ${setupUrl}`);

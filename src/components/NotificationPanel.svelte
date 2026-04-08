@@ -123,7 +123,10 @@
                                {notification.read
                             ? 'opacity-70'
                             : 'border-indigo-100'}"
+                        role="button"
+                        tabindex="0"
                         onclick={() => handleClick(notification)}
+                        onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && handleClick(notification)}
                     >
                         <!-- Unread Indicator -->
                         {#if !notification.read}

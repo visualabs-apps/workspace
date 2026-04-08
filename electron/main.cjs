@@ -1,84 +1,64 @@
 // Modules to control application life and create native browser window
 const { log } = require('console')
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, session } = require('electron')
 const path = require('path')
-const { autoUpdater } = require('electron-updater')
-
-if (require('electron-squirrel-startup')) app.quit();
+const https = require('https')
 
 const isDevEnvironment = process.env.DEV_ENV === 'true'
 
 // ========================================
-// AUTO UPDATER CONFIGURATION
+// STEALTH: Override user-agent at process level
+// Real Chrome UA — removes 'Electron' from the UA string so sites
+// cannot detect the app is running inside Electron.
 // ========================================
-autoUpdater.autoDownload = false; // Don't auto-download, ask user first
-autoUpdater.autoInstallOnAppQuit = true; // Install when app quits
+const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+app.userAgentFallback = CHROME_UA;
 
-// Configure update server
-if (!isDevEnvironment) {
-    autoUpdater.setFeedURL({
-        provider: 'generic',
-        url: 'https://leb.visualabs.id/downloads/workspace'
+// ========================================
+// MANUAL VERSION CHECK
+// ========================================
+const VERSION_CHECK_URL = 'https://leb.visualabs.id/downloads/workspace/version.json';
+const VERSION_CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
+
+function compareVersions(v1, v2) {
+    const a = v1.split('.').map(Number);
+    const b = v2.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        if ((a[i] || 0) < (b[i] || 0)) return -1;
+        if ((a[i] || 0) > (b[i] || 0)) return 1;
+    }
+    return 0;
+}
+
+function checkForNewVersion() {
+    if (isDevEnvironment) return;
+    const currentVersion = app.getVersion();
+    https.get(VERSION_CHECK_URL, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+            try {
+                const info = JSON.parse(data);
+                if (compareVersions(currentVersion, info.version) < 0) {
+                    log(`New version available: ${info.version} (current: ${currentVersion})`);
+                    if (mainWindow) {
+                        mainWindow.webContents.send('new-version-available', {
+                            version: info.version,
+                            notes: info.notes || '',
+                            downloadUrl: info.windows?.setup?.url || VERSION_CHECK_URL,
+                        });
+                    }
+                }
+            } catch (e) {
+                log('Version check parse error:', e.message);
+            }
+        });
+    }).on('error', (e) => {
+        log('Version check failed:', e.message);
     });
 }
 
-// Auto-updater event handlers
-autoUpdater.on('checking-for-update', () => {
-    log('Checking for updates...');
-    if (mainWindow) {
-        mainWindow.webContents.send('update-checking');
-    }
-});
-
-autoUpdater.on('update-available', (info) => {
-    log('Update available:', info.version);
-    if (mainWindow) {
-        mainWindow.webContents.send('update-available', info);
-    }
-});
-
-autoUpdater.on('update-not-available', (info) => {
-    log('Update not available');
-    if (mainWindow) {
-        mainWindow.webContents.send('update-not-available', info);
-    }
-});
-
-autoUpdater.on('error', (err) => {
-    log('Error in auto-updater:', err);
-    if (mainWindow) {
-        mainWindow.webContents.send('update-error', err);
-    }
-});
-
-autoUpdater.on('download-progress', (progressObj) => {
-    log(`Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`);
-    if (mainWindow) {
-        mainWindow.webContents.send('update-download-progress', progressObj);
-    }
-});
-
-autoUpdater.on('update-downloaded', (info) => {
-    log('Update downloaded');
-    if (mainWindow) {
-        mainWindow.webContents.send('update-downloaded', info);
-    }
-});
-
-// IPC handlers for updater
-ipcMain.on('check-for-updates', () => {
-    if (!isDevEnvironment) {
-        autoUpdater.checkForUpdates();
-    }
-});
-
-ipcMain.on('download-update', () => {
-    autoUpdater.downloadUpdate();
-});
-
-ipcMain.on('install-update', () => {
-    autoUpdater.quitAndInstall();
-});
+ipcMain.handle('get-app-version', () => app.getVersion());
 
 // ========================================
 // DEEP LINK PROTOCOL REGISTRATION
@@ -90,14 +70,6 @@ if (process.defaultApp) {
     }
 } else {
     app.setAsDefaultProtocolClient('vleb');
-}
-
-// enable live reload for electron in dev mode
-if (isDevEnvironment) {
-    require('electron-reload')(__dirname, {
-        electron: path.join(__dirname, '..', 'node_modules', '.bin', 'electron'),
-        hardResetMethod: 'exit'
-    });
 }
 
 let mainWindow;
@@ -158,26 +130,29 @@ const createTray = () => {
 
 const createWindow = () => {
 
+    // Disable cache in dev mode to avoid permission errors
+    if (isDevEnvironment) {
+        app.commandLine.appendSwitch('disable-http-cache');
+        app.commandLine.appendSwitch('disk-cache-size', '0');
+    }
+
+    // ✅ STEALTH: Disable automation flags at the Blink level
+    app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+
     // Create the browser window.
     mainWindow = new BrowserWindow({
         width: 1300,
         height: 600,
         webPreferences: {
-            preload: path.join(__dirname, 'preload.cjs'),  // Changed to .cjs
+            preload: path.join(__dirname, 'preload.cjs'),
             webviewTag: true,
-            // ✅ SAFE: These settings provide security AND stealth
-            nodeIntegration: false,        // Prevents window.require exposure
-            contextIsolation: true,        // Isolates preload from web content
-            // Note: sandbox disabled for main window to allow preload script
-            // Webviews will still be sandboxed via their own partition
-            sandbox: false,                // Allow preload to use Node.js APIs
-            // ✅ SAFE: Disable automation detection flag
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: false,
             disableBlinkFeatures: 'Automation',
-            // ✅ SAFE: Disable remote module (deprecated anyway)
             enableRemoteModule: false,
         },
         titleBarStyle: 'hidden',
-        // titleBarOverlay removed to implement custom controls
     })
 
     // Window Control IPC Handlers
@@ -212,11 +187,15 @@ const createWindow = () => {
 
             // Show notification on first minimize
             if (process.platform === 'win32') {
-                tray.displayBalloon({
-                    title: 'V-LEB',
-                    content: 'V-LEB is still running in the background. Click the tray icon to open.',
-                    icon: path.join(__dirname, '..', 'public', 'icon.png')
-                });
+                try {
+                    tray.displayBalloon({
+                        title: 'V-LEB',
+                        content: 'V-LEB is still running in the background. Click the tray icon to open.',
+                        icon: path.join(__dirname, '..', 'public', 'icon.ico')
+                    });
+                } catch (e) {
+                    // Ignore balloon errors (icon missing, etc.)
+                }
             }
         }
         return false;
@@ -225,6 +204,10 @@ const createWindow = () => {
     // define how electron will load the app
     if (isDevEnvironment) {
 
+        // Disable cache in dev mode to avoid permission errors
+        app.commandLine.appendSwitch('disable-http-cache');
+        app.commandLine.appendSwitch('disk-cache-size', '0');
+
         // if your vite app is running on a different port, change it here
         const loadVite = () => {
             mainWindow.loadURL('http://localhost:5173/').catch((e) => {
@@ -232,7 +215,9 @@ const createWindow = () => {
                 setTimeout(loadVite, 1000);
             });
         };
-        loadVite();
+
+        // Wait a bit before trying to load (give Vite time to start)
+        setTimeout(loadVite, 2000);
 
         // Open the DevTools.
         mainWindow.webContents.on("did-frame-finish-load", () => {
@@ -417,12 +402,31 @@ app.on('ready', () => {
     createTray();
     createWindow();
 
-    // Check for updates after 3 seconds (give app time to load)
-    if (!isDevEnvironment) {
-        setTimeout(() => {
-            autoUpdater.checkForUpdates();
-        }, 3000);
-    }
+    // ========================================
+    // STEALTH: Session-level patches
+    // Applied after ready so session is available.
+    // ========================================
+    const defaultSession = session.defaultSession;
+
+    // 1. Override UA for ALL requests (including webview partitioned sessions)
+    //    This ensures no request ever leaks the Electron UA.
+    defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+        details.requestHeaders['User-Agent'] = CHROME_UA;
+        callback({ requestHeaders: details.requestHeaders });
+    });
+
+    // 2. Patch response headers to remove any server-set automation hints
+    defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        // Remove headers that expose automation
+        delete details.responseHeaders?.['x-frame-options'];
+        callback({ responseHeaders: details.responseHeaders });
+    });
+
+    // Check for new version after 5 seconds, then every 30 minutes
+    setTimeout(() => {
+        checkForNewVersion();
+        setInterval(checkForNewVersion, VERSION_CHECK_INTERVAL);
+    }, 5000);
 
     // Setup session handlers for default session
     // For partitioned sessions, we need to do this when they are created/accessed

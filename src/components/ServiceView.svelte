@@ -25,8 +25,13 @@
     // Function to update navigation state
     function updateNavigationState(tabId) {
         const webview = webviews[tabId];
-        if (isActive && activeTabId === tabId && webview && domReadyStates[tabId]) {
-            const tab = tabs.find(t => t.id === tabId);
+        if (
+            isActive &&
+            activeTabId === tabId &&
+            webview &&
+            domReadyStates[tabId]
+        ) {
+            const tab = tabs.find((t) => t.id === tabId);
             try {
                 navigationStore.updateState({
                     canGoBack: webview.canGoBack?.() || false,
@@ -36,30 +41,39 @@
                 });
             } catch (e) {
                 // Webview not ready yet, skip update
-                console.warn('Webview not ready for navigation state update');
+                console.warn("Webview not ready for navigation state update");
             }
         }
     }
 
     // Register active webview with navigation store
     $effect(() => {
-        if (isActive && activeTabId && webviews[activeTabId] && domReadyStates[activeTabId]) {
+        if (
+            isActive &&
+            activeTabId &&
+            webviews[activeTabId] &&
+            domReadyStates[activeTabId]
+        ) {
             try {
                 navigationStore.setActiveWebview(webviews[activeTabId]);
                 updateNavigationState(activeTabId);
             } catch (e) {
-                console.warn('Failed to set active webview:', e);
+                console.warn("Failed to set active webview:", e);
             }
         }
     });
 
     // Handle zoom and mute for active webview
     $effect(() => {
-        if (activeTabId && webviews[activeTabId] && domReadyStates[activeTabId]) {
+        if (
+            activeTabId &&
+            webviews[activeTabId] &&
+            domReadyStates[activeTabId]
+        ) {
             const webview = webviews[activeTabId];
-            const tab = tabs.find(t => t.id === activeTabId);
+            const tab = tabs.find((t) => t.id === activeTabId);
             const zoomLevel = tab?.zoomLevel ?? 0;
-            
+
             try {
                 // Only set zoom if webview is ready
                 if (webview.getWebContentsId) {
@@ -68,7 +82,7 @@
                 }
             } catch (e) {
                 // Webview not ready yet, will retry on next effect
-                console.warn('Webview not ready for zoom/mute:', e.message);
+                console.warn("Webview not ready for zoom/mute:", e.message);
             }
         }
     });
@@ -77,25 +91,27 @@
     function handleWheel(e) {
         if (e.ctrlKey && activeTabId) {
             e.preventDefault();
-            const tab = tabs.find(t => t.id === activeTabId);
+            const tab = tabs.find((t) => t.id === activeTabId);
             const currentZoom = tab?.zoomLevel ?? 0;
-            
+
             // Calculate zoom percentage (0 = 100%, -1 = 75%, 1 = 125%, etc.)
             const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
-            
+
             // Determine zoom direction
             const delta = e.deltaY > 0 ? -10 : 10; // Zoom out or in by 10%
             let newPercent = currentPercent + delta;
-            
+
             // Clamp between 25% and 500%
             newPercent = Math.max(25, Math.min(500, newPercent));
-            
+
             // Convert back to zoom level
             const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
-            
+
             // Update tab zoom level
-            tabStore.updateTab(service.id, activeTabId, { zoomLevel: newZoomLevel });
-            
+            tabStore.updateTab(service.id, activeTabId, {
+                zoomLevel: newZoomLevel,
+            });
+
             // Show zoom indicator
             showZoomIndicator = true;
             if (zoomIndicatorTimeout) clearTimeout(zoomIndicatorTimeout);
@@ -107,7 +123,7 @@
 
     // Get current zoom percentage for display
     function getZoomPercent() {
-        const tab = tabs.find(t => t.id === activeTabId);
+        const tab = tabs.find((t) => t.id === activeTabId);
         const zoomLevel = tab?.zoomLevel ?? 0;
         return Math.round(Math.pow(1.2, zoomLevel) * 100);
     }
@@ -117,17 +133,17 @@
             domReadyStates = { ...domReadyStates, [tabId]: true };
             loadingStates = { ...loadingStates, [tabId]: false };
             updateNavigationState(tabId);
-            
+
             // Apply zoom level after webview is ready
-            const tab = tabs.find(t => t.id === tabId);
+            const tab = tabs.find((t) => t.id === tabId);
             const zoomLevel = tab?.zoomLevel ?? 0;
             try {
                 webview.setZoomLevel(zoomLevel);
                 webview.setAudioMuted(tab?.isMuted || false);
             } catch (e) {
-                console.warn('Failed to set initial zoom:', e.message);
+                console.warn("Failed to set initial zoom:", e.message);
             }
-            
+
             // ✅ SAFE: Minimal stealth - only what's necessary
             // We rely on proper Electron configuration (contextIsolation, etc)
             // instead of aggressive property deletion
@@ -151,9 +167,12 @@
                 `;
                 webview.executeJavaScript(safeStealthScript);
             } catch (e) {
-                console.warn('Failed to inject safe stealth script:', e.message);
+                console.warn(
+                    "Failed to inject safe stealth script:",
+                    e.message,
+                );
             }
-            
+
             // Inject scraper scripts if available
             try {
                 const url = webview.getURL?.();
@@ -161,7 +180,7 @@
                     await scraperService.injectScript(webview, url);
                 }
             } catch (e) {
-                console.warn('Failed to inject scraper script:', e.message);
+                console.warn("Failed to inject scraper script:", e.message);
             }
         };
 
@@ -188,11 +207,11 @@
         const handlePageTitleUpdated = (e) => {
             // Update tab title
             tabStore.updateTab(service.id, tabId, { title: e.title });
-            
+
             if (isActive && activeTabId === tabId) {
                 navigationStore.updateState({ currentTitle: e.title });
             }
-            
+
             // Check for unread count in title (e.g., "(3) WhatsApp")
             const match = e.title.match(/^\(?(\d+)\)?\s/);
             if (match) {
@@ -206,7 +225,9 @@
         const handlePageFaviconUpdated = (e) => {
             // Update tab favicon
             if (e.favicons && e.favicons.length > 0) {
-                tabStore.updateTab(service.id, tabId, { favicon: e.favicons[0] });
+                tabStore.updateTab(service.id, tabId, {
+                    favicon: e.favicons[0],
+                });
             }
         };
 
@@ -233,35 +254,60 @@
         webview.addEventListener("did-navigate", handleDidNavigate);
         webview.addEventListener("did-navigate-in-page", handleDidNavigate);
         webview.addEventListener("page-title-updated", handlePageTitleUpdated);
-        webview.addEventListener("page-favicon-updated", handlePageFaviconUpdated);
+        webview.addEventListener(
+            "page-favicon-updated",
+            handlePageFaviconUpdated,
+        );
         webview.addEventListener("new-window", handleNewWindow);
 
         return () => {
             webview.removeEventListener("dom-ready", handleDomReady);
-            webview.removeEventListener("did-start-loading", handleDidStartLoading);
-            webview.removeEventListener("did-stop-loading", handleDidStopLoading);
+            webview.removeEventListener(
+                "did-start-loading",
+                handleDidStartLoading,
+            );
+            webview.removeEventListener(
+                "did-stop-loading",
+                handleDidStopLoading,
+            );
             webview.removeEventListener("did-navigate", handleDidNavigate);
-            webview.removeEventListener("did-navigate-in-page", handleDidNavigate);
-            webview.removeEventListener("page-title-updated", handlePageTitleUpdated);
-            webview.removeEventListener("page-favicon-updated", handlePageFaviconUpdated);
+            webview.removeEventListener(
+                "did-navigate-in-page",
+                handleDidNavigate,
+            );
+            webview.removeEventListener(
+                "page-title-updated",
+                handlePageTitleUpdated,
+            );
+            webview.removeEventListener(
+                "page-favicon-updated",
+                handlePageFaviconUpdated,
+            );
             webview.removeEventListener("new-window", handleNewWindow);
         };
     }
 
-    function handleWebviewMount(element, tabId) {
+    function handleWebviewMount(element, tab) {
         if (element) {
-            webviews = { ...webviews, [tabId]: element };
-            loadingStates = { ...loadingStates, [tabId]: true };
-            domReadyStates = { ...domReadyStates, [tabId]: false };
-            
-            const cleanup = setupWebviewListeners(element, tabId);
-            
+            // Set initial src ONCE programmatically, rather than reactively through HTML attribute.
+            // This prevents Svelte's view re-renders from intercepting Electron's URL logic
+            // and throwing ERR_ABORTED (-3) on websites that perform HTTP redirects.
+            if (tab.url) {
+                element.src = tab.url;
+            }
+
+            webviews = { ...webviews, [tab.id]: element };
+            loadingStates = { ...loadingStates, [tab.id]: true };
+            domReadyStates = { ...domReadyStates, [tab.id]: false };
+
+            const cleanup = setupWebviewListeners(element, tab.id);
+
             return {
                 destroy() {
                     cleanup();
-                    const { [tabId]: removed, ...rest } = webviews;
+                    const { [tab.id]: removed, ...rest } = webviews;
                     webviews = rest;
-                }
+                },
             };
         }
     }
@@ -276,11 +322,19 @@
         {#if tabs.length === 0}
             <!-- Empty state when no tabs -->
             <div class="absolute inset-0 flex items-center justify-center p-8">
-                <div class="text-center">
+                <div class="text-center w-full max-w-md">
                     <!-- Icon -->
                     <div class="mb-4 flex justify-center">
-                        <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center">
-                            <svg class="w-10 h-10 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <div
+                            class="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center"
+                        >
+                            <svg
+                                class="w-10 h-10 text-purple-400"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                            >
                                 <circle cx="12" cy="12" r="10"></circle>
                                 <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
                                 <line x1="9" y1="9" x2="9.01" y2="9"></line>
@@ -300,14 +354,20 @@
                             onclick={() => serviceStore.setAddModalOpen(true)}
                             class="group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
                         >
-                            <Rocket size={16} class="group-hover:translate-y-[-2px] transition-transform" />
+                            <Rocket
+                                size={16}
+                                class="group-hover:translate-y-[-2px] transition-transform"
+                            />
                             Start with an app
                         </button>
                         <button
                             onclick={() => tabStore.addTab(service.id)}
                             class="group flex items-center gap-2 px-5 py-2.5 bg-purple-500/80 hover:bg-purple-600/80 text-white text-sm rounded-lg font-medium transition-all hover:scale-105"
                         >
-                            <Plus size={16} class="group-hover:rotate-90 transition-transform" />
+                            <Plus
+                                size={16}
+                                class="group-hover:rotate-90 transition-transform"
+                            />
                             Start with a tab
                         </button>
                     </div>
@@ -317,7 +377,7 @@
             {#each tabs as tab (tab.id)}
                 {@const isTabActive = activeTabId === tab.id}
                 {@const isTabLoading = loadingStates[tab.id]}
-                
+
                 <div
                     class="absolute inset-0 w-full h-full"
                     style:z-index={isTabActive ? 10 : 0}
@@ -348,8 +408,7 @@
                     {/if}
 
                     <webview
-                        use:handleWebviewMount={tab.id}
-                        src={tab.url}
+                        use:handleWebviewMount={tab}
                         partition={service.partition}
                         allowpopups="true"
                         class="w-full h-full"
@@ -364,7 +423,9 @@
     <!-- Zoom Indicator -->
     {#if showZoomIndicator}
         <div class="absolute top-4 right-4 z-50 pointer-events-none">
-            <div class="bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-2xl border border-gray-700 px-4 py-2">
+            <div
+                class="bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-2xl border border-gray-700 px-4 py-2"
+            >
                 <div class="text-white font-medium text-sm">
                     {getZoomPercent()}%
                 </div>

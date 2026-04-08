@@ -15,6 +15,7 @@ function createTabStore() {
 
     // State
     let serviceTabs = $state(storedTabs);
+    let globalIsDragging = $state(false);
 
     // Auto-save to localStorage
     $effect.root(() => {
@@ -25,6 +26,9 @@ function createTabStore() {
 
     return {
         get serviceTabs() { return serviceTabs; },
+
+        get isAnyTabDragging() { return globalIsDragging; },
+        setDragging(state) { globalIsDragging = state; },
 
         // Get tabs for a specific service
         getServiceTabs(serviceId) {

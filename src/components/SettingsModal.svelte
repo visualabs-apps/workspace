@@ -9,7 +9,10 @@
     let user = $derived(authStore.user);
 
     // Form state
-    let name = $state(user?.name || "");
+    let name = $state("");
+    $effect(() => {
+        name = user?.name || "";
+    });
     let isSaving = $state(false);
     let error = $state("");
     let success = $state("");
@@ -54,8 +57,10 @@
 <div 
     class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" 
     onclick={handleBackdropClick}
+    onkeydown={(e) => e.key === 'Escape' && onClose()}
     role="dialog"
     aria-modal="true"
+    tabindex="-1"
 >
     <!-- Modal Content -->
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden border border-gray-200">

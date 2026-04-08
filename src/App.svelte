@@ -7,6 +7,7 @@
     import DownloadPanel from "./components/DownloadPanel.svelte";
     import NotificationPanel from "./components/NotificationPanel.svelte";
     import TabBar from "./components/TabBar.svelte";
+    import StickyNotes from "./components/StickyNotes.svelte";
     import { serviceStore } from "./lib/services.svelte.js";
     import { authStore } from "./lib/auth.svelte.js";
     import { workspaceStore } from "./lib/workspaces.svelte.js";
@@ -17,7 +18,13 @@
     import { tabStore } from "./lib/tabs.svelte.js";
     import { scraperService } from "./lib/scraperService.js";
     import { onMount } from "svelte";
-    import { Loader2, Plus, Rocket } from "lucide-svelte";
+    import { Loader2, Plus, Rocket, WifiOff } from "lucide-svelte";
+
+    // Connectivity state
+    let isOnline = $state(navigator.onLine);
+
+    // Global drag state to shield webviews
+    let isTabDragging = $derived(tabStore.isAnyTabDragging);
 
     // Auth state
     let isLoggedIn = $derived(authStore.isLoggedIn);
@@ -51,6 +58,10 @@
 
     // Initialize scraper service on app startup
     onMount(async () => {
+        // Setup connection listeners
+        window.addEventListener("online", () => (isOnline = true));
+        window.addEventListener("offline", () => (isOnline = false));
+
         // Wait for auth to be initialized first
         await authStore.init();
 
@@ -277,7 +288,7 @@
             null,
             null,
             activeWorkspace?.id,
-        ); // Pass workspace ID
+        );
 
         // Add to active workspace
         if (activeWorkspace && newService) {
@@ -326,11 +337,11 @@
                 <!-- Content Area -->
                 <div class="flex-1 relative overflow-hidden">
                     {#if workspaceServices.length === 0}
-                        <!-- Empty State -->
+                        <!-- Empty State overlay (workspace has no apps) -->
                         <div
-                            class="absolute inset-0 flex items-center justify-center p-8"
+                            class="absolute inset-0 flex items-center justify-center p-8 z-20"
                         >
-                            <div class="text-center">
+                            <div class="text-center w-full max-w-md">
                                 <!-- Icon -->
                                 <div class="mb-4 flex justify-center">
                                     <div
@@ -391,36 +402,41 @@
                                 </div>
                             </div>
                         </div>
-                    {:else}
-                        <!-- Render ALL services from ALL workspaces (keep alive) -->
-                        <!-- Only show services from active workspace -->
-                        {#each services as service (service.id)}
-                            {@const isInActiveWorkspace =
-                                activeWorkspace?.apps?.includes(service.id)}
-                            {@const isActiveService =
-                                activeServiceId === service.id}
+                    {/if}
 
-                            <div
-                                class="absolute inset-0 w-full h-full"
-                                style:z-index={isActiveService ? 10 : 0}
-                                style:visibility={isInActiveWorkspace &&
-                                isActiveService
-                                    ? "visible"
-                                    : "hidden"}
-                                style:pointer-events={isInActiveWorkspace &&
-                                isActiveService
-                                    ? "auto"
-                                    : "none"}
-                            >
-                                <ServiceView
-                                    {service}
-                                    isActive={isActiveService}
-                                />
-                            </div>
-                        {/each}
+                    <!-- Render ALL services from ALL workspaces (keep-alive: never destroyed) -->
+                    {#each services as service (service.id)}
+                        {@const isInActiveWorkspace =
+                            activeWorkspace?.apps?.includes(service.id)}
+                        {@const isActiveService =
+                            activeServiceId === service.id}
+                        {@const isVisible =
+                            isInActiveWorkspace && isActiveService}
+
+                        <div
+                            class="absolute inset-0 w-full h-full"
+                            style:z-index={isVisible ? 10 : 0}
+                            style:visibility={isVisible ? "visible" : "hidden"}
+                            style:pointer-events={isVisible ? "auto" : "none"}
+                        >
+                            <ServiceView {service} isActive={isVisible} />
+                        </div>
+                    {/each}
+
+                    <!-- Global Webview Shield for Tab Drag & Drop -->
+                    {#if isTabDragging}
+                        <div
+                            class="absolute inset-0 z-[100] cursor-grabbing"
+                            style="pointer-events: auto;"
+                        ></div>
                     {/if}
                 </div>
             </div>
+
+            <!-- Sticky Notes Overlay (Draggable & Absolute) -->
+            {#if activeWorkspace}
+                <StickyNotes workspaceId={activeWorkspace.id} />
+            {/if}
         </div>
     </div>
 
@@ -441,6 +457,30 @@
     <!-- Notification Panel -->
     {#if isNotificationCenterOpen}
         <NotificationPanel />
+    {/if}
+
+    <!-- Offline Overlay -->
+    {#if !isOnline}
+        <div
+            class="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+        >
+            <div
+                class="bg-gray-900 border border-red-500/30 rounded-2xl p-8 max-w-sm text-center shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+            >
+                <div
+                    class="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6"
+                >
+                    <WifiOff size={40} class="text-red-400" />
+                </div>
+                <h2 class="text-2xl font-bold text-white mb-3">
+                    Koneksi Terputus
+                </h2>
+                <p class="text-gray-400 text-sm">
+                    Aplikasi V-LEB Workspace membutuhkan koneksi internet aktif.
+                    Silakan periksa jaringan Anda untuk melanjutkan.
+                </p>
+            </div>
+        </div>
     {/if}
 {/if}
 

@@ -32,7 +32,11 @@ const api = {
 
     // Deep Link Auth handlers
     onAuthSuccess: (callback) => ipcRenderer.on('auth-success', (event, data) => callback(data)),
-    onAuthError: (callback) => ipcRenderer.on('auth-error', (event, data) => callback(data))
+    onAuthError: (callback) => ipcRenderer.on('auth-error', (event, data) => callback(data)),
+
+    // Version check (manual, no auto-download)
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+    onNewVersionAvailable: (callback) => ipcRenderer.on('new-version-available', (event, info) => callback(info)),
 }
 
 contextBridge.exposeInMainWorld('api', api)

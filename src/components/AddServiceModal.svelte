@@ -50,13 +50,13 @@
 </script>
 
 <!-- Backdrop -->
-<div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" on:click={close}>
+<div class="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" role="presentation" onclick={close}>
     <!-- Modal Content -->
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden border border-gray-200" on:click|stopPropagation>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden border border-gray-200" role="presentation" onclick={(e) => e.stopPropagation()}>
         <!-- Header -->
         <div class="p-6 border-b border-gray-100 flex items-center justify-between">
             <h2 class="text-2xl font-bold text-gray-800">Add App</h2>
-            <button on:click={close} class="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
+            <button onclick={close} class="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors">
                 <X size={24} />
             </button>
         </div>
@@ -72,7 +72,7 @@
         <!-- Grid -->
         <div class="flex-1 overflow-y-auto p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {#each filteredServices as service}
-                <button class="flex flex-col items-center justify-center p-6 rounded-xl bg-gray-50 hover:bg-indigo-50 transition-all group border border-gray-100 hover:border-indigo-300 hover:shadow-md" on:click={() => add(service)}>
+                <button class="flex flex-col items-center justify-center p-6 rounded-xl bg-gray-50 hover:bg-indigo-50 transition-all group border border-gray-100 hover:border-indigo-300 hover:shadow-md" onclick={() => add(service)}>
                     <div class="w-16 h-16 mb-4 rounded-2xl p-2 bg-white flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow border border-gray-100">
                         <img src={service.icon} alt={service.name} class="w-full h-full object-contain" />
                     </div>

@@ -7,15 +7,22 @@ import { tabStore } from './tabs.svelte.js';
 import { workspaceStore } from './workspaces.svelte.js';
 
 export const predefinedServices = [
-    { name: 'WhatsApp', url: 'https://web.whatsapp.com', icon: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/WhatsApp.svg/1024px-WhatsApp.svg.png', color: '#25D366' },
-    { name: 'Telegram', url: 'https://web.telegram.org/k/', icon: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Telegram_logo.svg/1024px-Telegram_logo.svg.png', color: '#0088cc' },
-    { name: 'Discord', url: 'https://discord.com/app', icon: 'https://assets-global.website-files.com/6257adef93867e56f84d3092/636e0a6a49cf127bf92de1e2_icon_clyde_blurple_RGB.png', color: '#5865F2' },
-    { name: 'Slack', url: 'https://app.slack.com/client', icon: 'https://cdn-icons-png.flaticon.com/512/2111/2111615.png', color: '#4A154B' },
-    { name: 'Gmail', url: 'https://mail.google.com', icon: 'https://upload.wikimedia.org/wikipedia/commons/7/7e/Gmail_icon_%282020%29.svg', color: '#EA4335' },
-    { name: 'Notion', url: 'https://www.notion.so', icon: 'https://upload.wikimedia.org/wikipedia/commons/4/45/Notion_app_logo.png', color: '#000000' },
-    { name: 'ChatGPT', url: 'https://chat.openai.com', icon: 'https://upload.wikimedia.org/wikipedia/commons/0/04/ChatGPT_logo.svg', color: '#10A37F' },
-    { name: 'Custom', url: 'https://google.com', icon: 'https://cdn-icons-png.flaticon.com/512/1006/1006771.png', color: '#666666' }
+    { name: 'WhatsApp', url: 'https://web.whatsapp.com', icon: 'https://icon.horse/icon/web.whatsapp.com', color: '#25D366' },
+    { name: 'Telegram', url: 'https://web.telegram.org/k/', icon: 'https://icon.horse/icon/telegram.org', color: '#0088cc' },
+    { name: 'Discord', url: 'https://discord.com/app', icon: 'https://icon.horse/icon/discord.com', color: '#5865F2' },
+    { name: 'Slack', url: 'https://app.slack.com/client', icon: 'https://icon.horse/icon/slack.com', color: '#4A154B' },
+    { name: 'Gmail', url: 'https://mail.google.com', icon: 'https://icon.horse/icon/mail.google.com', color: '#EA4335' },
+    { name: 'Notion', url: 'https://www.notion.so', icon: 'https://icon.horse/icon/notion.so', color: '#000000' },
+    { name: 'ChatGPT', url: 'https://chat.openai.com', icon: 'https://icon.horse/icon/chat.openai.com', color: '#10A37F' },
+    { name: 'YouTube', url: 'https://youtube.com', icon: 'https://icon.horse/icon/youtube.com', color: '#FF0000' },
+    { name: 'GitHub', url: 'https://github.com', icon: 'https://icon.horse/icon/github.com', color: '#181717' },
+    { name: 'Figma', url: 'https://figma.com', icon: 'https://icon.horse/icon/figma.com', color: '#F24E1E' },
+    { name: 'Trello', url: 'https://trello.com', icon: 'https://icon.horse/icon/trello.com', color: '#0052CC' },
+    { name: 'Linear', url: 'https://linear.app', icon: 'https://icon.horse/icon/linear.app', color: '#5E6AD2' },
+    { name: 'Custom', url: 'https://google.com', icon: 'https://icon.horse/icon/google.com', color: '#666666' },
 ];
+
+
 
 function createServiceStore() {
     // Initial state from localStorage if available
@@ -32,6 +39,25 @@ function createServiceStore() {
     let activeServiceId = $state(storedServices.length > 0 ? storedServices[0].id : null);
     let isSideBarCollapsed = $state(false);
     let isAddModalOpen = $state(false);
+
+    // Migrate: ensure every service with a workspaceId has the correct partition
+    // This fixes any data saved with an old/wrong partition value
+    let needsMigration = false;
+    storedServices = storedServices.map(service => {
+        if (service.workspaceId) {
+            const correctPartition = `persist:workspace-${service.workspaceId}`;
+            if (service.partition !== correctPartition) {
+                needsMigration = true;
+                return { ...service, partition: correctPartition };
+            }
+        }
+        return service;
+    });
+    if (needsMigration) {
+        try {
+            localStorage.setItem('rambox_services', JSON.stringify(storedServices));
+        } catch (e) { }
+    }
 
     // Initialize tabs for existing services
     storedServices.forEach(service => {
@@ -50,7 +76,7 @@ function createServiceStore() {
         get activeServiceId() { return activeServiceId },
         get isSideBarCollapsed() { return isSideBarCollapsed },
         get isAddModalOpen() { return isAddModalOpen },
-        
+
         // Get services for current workspace only
         get workspaceServices() {
             const currentWorkspaceId = workspaceStore.activeWorkspaceId;

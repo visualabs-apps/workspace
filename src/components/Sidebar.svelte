@@ -449,9 +449,9 @@
         }
     });
 
-    let workspaceRgb = $state(hexToRgb(newWorkspaceColor));
-    let appRgb = $state(hexToRgb(newGroupColor));
-    let editRgb = $state(hexToRgb(editServiceColor));
+    let workspaceRgb = $state({ r: 157, g: 140, b: 107 });
+    let appRgb = $state({ r: 157, g: 140, b: 107 });
+    let editRgb = $state({ r: 157, g: 140, b: 107 });
     let editPickerPosition = $state('bottom');
 
     // Color picker position detection
@@ -593,7 +593,7 @@
 
                 <!-- Color Picker -->
                 <div class="mb-4">
-                    <label class="text-xs font-medium text-gray-300 mb-2 block">Workspace Color</label>
+                    <span class="text-xs font-medium text-gray-300 mb-2 block">Workspace Color</span>
                     <div class="relative">
                         <button
                             type="button"
@@ -640,16 +640,16 @@
                                 <!-- Color Values -->
                                 <div class="grid grid-cols-4 gap-1.5 mb-3">
                                     <div>
-                                        <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">Hex</label>
+                                        <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">Hex
                                         <input
                                             type="text"
                                             bind:value={newWorkspaceColor}
                                             class="w-full px-1.5 py-1.5 bg-gray-50 border border-gray-200 rounded text-center text-xs font-mono text-gray-900 focus:outline-none focus:border-blue-500"
                                             maxlength="7"
-                                        />
+                                        /></label>
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">R</label>
+                                        <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">R
                                         <input
                                             type="number"
                                             bind:value={workspaceRgb.r}
@@ -657,10 +657,10 @@
                                             min="0"
                                             max="255"
                                             class="w-full px-1.5 py-1.5 bg-gray-50 border border-gray-200 rounded text-center text-xs text-gray-900 focus:outline-none focus:border-blue-500"
-                                        />
+                                        /></label>
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">G</label>
+                                        <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">G
                                         <input
                                             type="number"
                                             bind:value={workspaceRgb.g}
@@ -668,10 +668,10 @@
                                             min="0"
                                             max="255"
                                             class="w-full px-1.5 py-1.5 bg-gray-50 border border-gray-200 rounded text-center text-xs text-gray-900 focus:outline-none focus:border-blue-500"
-                                        />
+                                        /></label>
                                     </div>
                                     <div>
-                                        <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">B</label>
+                                        <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">B
                                         <input
                                             type="number"
                                             bind:value={workspaceRgb.b}
@@ -679,7 +679,7 @@
                                             min="0"
                                             max="255"
                                             class="w-full px-1.5 py-1.5 bg-gray-50 border border-gray-200 rounded text-center text-xs text-gray-900 focus:outline-none focus:border-blue-500"
-                                        />
+                                        /></label>
                                     </div>
                                 </div>
 
@@ -944,7 +944,7 @@
 
                     <!-- Color Picker -->
                     <div class="mb-4">
-                        <label class="text-xs font-medium text-gray-300 mb-2 block">Group Color</label>
+                        <span class="text-xs font-medium text-gray-300 mb-2 block">Group Color</span>
                         <div class="relative">
                             <button
                                 type="button"
@@ -991,16 +991,16 @@
                                     <!-- Color Values -->
                                     <div class="grid grid-cols-4 gap-1.5 mb-3">
                                         <div>
-                                            <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">Hex</label>
+                                            <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">Hex
                                             <input
                                                 type="text"
                                                 bind:value={newGroupColor}
                                                 class="w-full px-1.5 py-1.5 bg-gray-50 border border-gray-200 rounded text-center text-xs font-mono text-gray-900 focus:outline-none focus:border-blue-500"
                                                 maxlength="7"
-                                            />
+                                            /></label>
                                         </div>
                                         <div>
-                                            <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">R</label>
+                                            <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">R
                                             <input
                                                 type="number"
                                                 bind:value={appRgb.r}
@@ -1008,10 +1008,10 @@
                                                 min="0"
                                                 max="255"
                                                 class="w-full px-1.5 py-1.5 bg-gray-50 border border-gray-200 rounded text-center text-xs text-gray-900 focus:outline-none focus:border-blue-500"
-                                            />
+                                            /></label>
                                         </div>
                                         <div>
-                                            <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">G</label>
+                                            <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">G
                                             <input
                                                 type="number"
                                                 bind:value={appRgb.g}
@@ -1019,10 +1019,10 @@
                                                 min="0"
                                                 max="255"
                                                 class="w-full px-1.5 py-1.5 bg-gray-50 border border-gray-200 rounded text-center text-xs text-gray-900 focus:outline-none focus:border-blue-500"
-                                            />
+                                            /></label>
                                         </div>
                                         <div>
-                                            <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">B</label>
+                                            <label class="text-[10px] text-gray-600 mb-0.5 block text-center font-medium">B
                                             <input
                                                 type="number"
                                                 bind:value={appRgb.b}
@@ -1030,7 +1030,7 @@
                                                 min="0"
                                                 max="255"
                                                 class="w-full px-1.5 py-1.5 bg-gray-50 border border-gray-200 rounded text-center text-xs text-gray-900 focus:outline-none focus:border-blue-500"
-                                            />
+                                            /></label>
                                         </div>
                                     </div>
 
@@ -1124,7 +1124,7 @@
 
                 <!-- Color Picker -->
                 <div class="mb-4">
-                    <label class="text-xs font-medium text-gray-300 mb-2 block">Group Color</label>
+                    <span class="text-xs font-medium text-gray-300 mb-2 block">Group Color</span>
                     <button
                         type="button"
                         onclick={(e) => {
@@ -1182,6 +1182,7 @@
 <!-- Context Menu -->
 {#if contextMenu.show}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
         class="popup-container fixed z-50 bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-white/20 py-1 min-w-[160px]"
         style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
@@ -1209,6 +1210,7 @@
     {@const selectedWorkspace = workspaces.find(w => w.id === workspaceContextMenu.workspaceId)}
     
     <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
         class="popup-container fixed z-50 bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-white/20 py-2 min-w-[200px]"
         style="left: {workspaceContextMenu.x}px; top: {workspaceContextMenu.y}px;"
@@ -1235,6 +1237,8 @@
                     {#each workspaceColors.slice(0, 8) as color}
                         <button
                             class="w-6 h-6 rounded-lg bg-gradient-to-br {color.value} hover:scale-110 transition-all"
+                            title={color.label ?? color.value}
+                            aria-label="Set color {color.label ?? color.value}"
                             onclick={() => {
                                 workspaceStore.updateWorkspace(selectedWorkspace.id, { color });
                                 closeContextMenu();

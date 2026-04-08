@@ -20,13 +20,12 @@ function createNotificationStore() {
     // State
     let notifications = $state(storedNotifications);
     let isNotificationCenterOpen = $state(false);
-    let unreadCount = $state(notifications.filter(n => !n.read).length);
+    let unreadCount = $derived(notifications.filter(n => !n.read).length);
 
     // Auto-save to localStorage
     $effect.root(() => {
         $effect(() => {
             localStorage.setItem('vleb_notifications', JSON.stringify(notifications.slice(0, 100)));
-            unreadCount = notifications.filter(n => !n.read).length;
         });
     });
 
