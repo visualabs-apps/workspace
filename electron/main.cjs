@@ -210,7 +210,7 @@ const createWindow = () => {
 
         // if your vite app is running on a different port, change it here
         const loadVite = () => {
-            mainWindow.loadURL('http://localhost:5173/').catch((e) => {
+            mainWindow.loadURL('http://localhost:5184/').catch((e) => {
                 log('Vite server not ready, retrying in 1s...');
                 setTimeout(loadVite, 1000);
             });

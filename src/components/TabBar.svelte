@@ -10,49 +10,33 @@
         VolumeX,
     } from "lucide-svelte";
     import { tabStore } from "../lib/tabs.svelte.js";
+    import { serviceStore } from "../lib/services.svelte.js";
+    import { workspaceStore } from "../lib/workspaces.svelte.js";
     import { dndzone } from "svelte-dnd-action";
     import { flip } from "svelte/animate";
 
     let { service = null } = $props();
 
-    // Tab state
-    let tabsData = $state([]);
-    let activeTabId = $derived(
-        service ? tabStore.getActiveTabId(service.id) : null,
+    // Get all apps from current workspace as tabs
+    let workspaceApps = $derived(
+        serviceStore.services.filter(app => 
+            workspaceStore.activeWorkspace?.apps?.includes(app.id)
+        )
     );
 
-    // Sync tabs from store
-    $effect(() => {
-        if (service) {
-            try {
-                const tabs = tabStore.getServiceTabs(service.id);
-                // Validate tabs before assigning
-                const uniqueIds = new Set(tabs.map((t) => t.id));
-                if (uniqueIds.size === tabs.length) {
-                    tabsData = tabs;
-                } else {
-                    console.error(
-                        "Duplicate tabs detected in store, cleaning up",
-                    );
-                    // Remove duplicates by keeping first occurrence
-                    const seen = new Set();
-                    const cleanTabs = tabs.filter((tab) => {
-                        if (seen.has(tab.id)) {
-                            return false;
-                        }
-                        seen.add(tab.id);
-                        return true;
-                    });
-                    tabsData = cleanTabs;
-                    // Update store with clean data
-                    tabStore.reorderTabs(service.id, cleanTabs);
-                }
-            } catch (error) {
-                console.error("Error syncing tabs:", error);
-                tabsData = [];
-            }
-        }
-    });
+    // Convert apps to tab format
+    let tabsData = $derived(
+        workspaceApps.map(app => ({
+            id: app.id,
+            title: app.name,
+            url: app.url,
+            favicon: app.icon,
+            isLoading: false,
+            createdAt: app.createdAt || Date.now()
+        }))
+    );
+
+    let activeTabId = $derived(serviceStore.activeServiceId);
 
     // Drag and drop state
     const flipDurationMs = 200;
@@ -90,28 +74,45 @@
     }
 
     function handleReloadTab() {
-        if (service && contextMenu.tabId) {
-            tabStore.setActiveTab(service.id, contextMenu.tabId);
+        if (contextMenu.tabId) {
+            // Switch to the app and reload
+            serviceStore.setActive(contextMenu.tabId);
             setTimeout(() => window.location.reload(), 100);
         }
         closeContextMenu();
     }
 
     function handleCopyUrl() {
-        if (service && contextMenu.tabId) {
-            const tab = tabsData.find((t) => t.id === contextMenu.tabId);
-            if (tab && tab.url) {
-                navigator.clipboard.writeText(tab.url);
+        if (contextMenu.tabId) {
+            const app = workspaceApps.find((a) => a.id === contextMenu.tabId);
+            if (app && app.url) {
+                navigator.clipboard.writeText(app.url);
             }
         }
         closeContextMenu();
     }
 
     function handleDuplicateTab() {
-        if (service && contextMenu.tabId) {
-            const tab = tabsData.find((t) => t.id === contextMenu.tabId);
-            if (tab) {
-                tabStore.addTab(service.id, tab.url, tab.title);
+        if (contextMenu.tabId) {
+            const app = workspaceApps.find((a) => a.id === contextMenu.tabId);
+            if (app) {
+                // Create new app with same properties
+                const newService = serviceStore.addService(
+                    {
+                        name: app.name,
+                        url: app.url,
+                        icon: app.icon,
+                        color: app.color,
+                    },
+                    null,
+                    null,
+                    null,
+                    workspaceStore.activeWorkspace?.id,
+                );
+
+                if (workspaceStore.activeWorkspace && newService) {
+                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+                }
             }
         }
         closeContextMenu();
@@ -199,21 +200,44 @@
     }
 
     function handleAddTab() {
-        if (service) {
-            tabStore.addTab(service.id);
+        // Create a new service/app in sidebar (1 app = 1 tab)
+        const newService = serviceStore.addService(
+            {
+                name: "Browser",
+                url: "https://www.google.com",
+                icon: "https://www.google.com/favicon.ico",
+                color: "#4285f4",
+            },
+            null,
+            null,
+            null,
+            workspaceStore.activeWorkspace?.id,
+        );
+
+        // Add to active workspace
+        if (workspaceStore.activeWorkspace && newService) {
+            workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+        }
+
+        // Switch to the new service/app
+        if (newService) {
+            serviceStore.setActive(newService.id);
         }
     }
 
     function handleCloseTab(e, tabId) {
         e.stopPropagation();
-        if (service) {
-            tabStore.closeTab(service.id, tabId);
+        // Remove app from service store and workspace
+        serviceStore.removeService(tabId);
+        if (workspaceStore.activeWorkspace) {
+            workspaceStore.removeAppFromWorkspace(workspaceStore.activeWorkspace.id, tabId);
         }
     }
 
     function handleTabClick(tabId) {
-        if (service && !isDragging) {
-            tabStore.setActiveTab(service.id, tabId);
+        if (!isDragging) {
+            // Switch to the app/service
+            serviceStore.setActive(tabId);
         }
     }
 
@@ -223,7 +247,8 @@
         const uniqueIds = new Set(items.map((item) => item.id));
 
         if (uniqueIds.size === items.length) {
-            tabsData = items;
+            // For apps, we don't need to update tabsData during drag
+            // as it's derived from workspaceApps
             isDragging = true;
             tabStore.setDragging(true);
         }
@@ -235,15 +260,13 @@
 
         // Only update if items are valid and unique
         if (uniqueIds.size === items.length) {
-            tabsData = items;
-            if (service) {
-                tabStore.reorderTabs(service.id, items);
-            }
-        } else {
-            // If duplicates detected, reload from store
-            console.warn("Duplicate tabs detected, reloading from store");
-            if (service) {
-                tabsData = tabStore.getServiceTabs(service.id);
+            // Reorder apps in service store
+            const reorderedApps = items.map(item => 
+                serviceStore.services.find(app => app.id === item.id)
+            ).filter(Boolean);
+            
+            if (reorderedApps.length === items.length) {
+                serviceStore.reorderServices(reorderedApps);
             }
         }
 
@@ -259,7 +282,7 @@
 <div
     class="bg-[#2c4a4a] border-b border-white/5 inline-flex items-center px-1.5 py-1.5 gap-1 overflow-x-auto overflow-y-hidden w-full"
 >
-    {#if service && tabsData.length > 0}
+    {#if tabsData.length > 0}
         {@const tabCount = tabsData.length}
         {@const availableWidth = 1200}
         {@const buttonWidth = 40}

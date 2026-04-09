@@ -119,6 +119,26 @@ function createAuthStore() {
         },
 
         /**
+         * Fetch user data specifically (useful after deep link login)
+         */
+        async fetchUser() {
+            try {
+                const result = await checkToken();
+                if (result.success) {
+                    user = result.user;
+                    isLoggedIn = true;
+                    localStorage.setItem('auth_user', JSON.stringify(result.user));
+                    return true;
+                } else {
+                    return false;
+                }
+            } catch (err) {
+                console.error('Fetch user error:', err);
+                return false;
+            }
+        },
+
+        /**
          * Update user data
          */
         updateUser(newUserData) {
@@ -130,12 +150,21 @@ function createAuthStore() {
          * Set login state (for OAuth callback)
          */
         async setLoggedIn(userData, token, expiresIn) {
-            await secureStorage.setAuthToken(token);
-            localStorage.setItem('auth_token', token); // Keep explicit local storage for non-sensitive fallback if needed
-            localStorage.setItem('auth_user', JSON.stringify(userData));
-            localStorage.setItem('token_expires_at', Date.now() + (expiresIn * 1000));
-            user = userData;
-            isLoggedIn = true;
+            console.log('Setting logged in state with token:', token ? 'Token received' : 'No token');
+            
+            try {
+                await secureStorage.setAuthToken(token);
+                localStorage.setItem('auth_token', token); // Keep explicit local storage for non-sensitive fallback if needed
+                localStorage.setItem('auth_user', JSON.stringify(userData));
+                localStorage.setItem('token_expires_at', Date.now() + (expiresIn * 1000));
+                user = userData;
+                isLoggedIn = true;
+                
+                console.log('Login state set successfully');
+            } catch (error) {
+                console.error('Error setting login state:', error);
+                throw error;
+            }
         },
 
         /**

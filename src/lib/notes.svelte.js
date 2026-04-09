@@ -5,6 +5,7 @@ import { db } from "./db.js";
 function createNotesStore() {
     let internalNotes = $state({}); // { workspaceId: [note1, note2] }
     let hasLoaded = $state({}); // { workspaceId: boolean }
+    let notesVisibility = $state({}); // { workspaceId: boolean }
 
     return {
         get notes() {
@@ -14,6 +15,25 @@ function createNotesStore() {
         // Get notes for a specific workspace (reactive derived)
         getWorkspaceNotes(workspaceId) {
             return internalNotes[workspaceId] || [];
+        },
+
+        // Notes visibility methods
+        isNotesVisible(workspaceId) {
+            return notesVisibility[workspaceId] || false;
+        },
+
+        toggleNotesVisibility(workspaceId) {
+            notesVisibility = {
+                ...notesVisibility,
+                [workspaceId]: !this.isNotesVisible(workspaceId)
+            };
+        },
+
+        setNotesVisibility(workspaceId, visible) {
+            notesVisibility = {
+                ...notesVisibility,
+                [workspaceId]: visible
+            };
         },
 
         // Ensure we load notes from Dexie for a specific workspace
@@ -67,6 +87,9 @@ function createNotesStore() {
                 ...internalNotes,
                 [workspaceId]: [...current, newNote],
             };
+
+            // Show notes when adding a new note
+            this.setNotesVisibility(workspaceId, true);
 
             // Save to Dexie
             try {

@@ -8,5 +8,9 @@ export default defineConfig({
   build: {
     outDir: 'electron/build'
   },
+  server: {
+    port: 5184, // Changed to 5184 to avoid conflicts
+    strictPort: true
+  },
   plugins: [svelte(), tailwindcss()]
 })

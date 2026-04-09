@@ -3,6 +3,7 @@
     import { navigationStore } from "../lib/navigation.svelte.js";
     import { serviceStore } from "../lib/services.svelte.js";
     import { tabStore } from "../lib/tabs.svelte.js";
+    import { workspaceStore } from "../lib/workspaces.svelte.js";
     import { linkRoutingStore } from "../lib/linkRouting.svelte.js";
     import { dndStore } from "../lib/dnd.svelte.js";
     import { scraperService } from "../lib/scraperService.js";
@@ -212,6 +213,9 @@
                 navigationStore.updateState({ currentTitle: e.title });
             }
 
+            // Also update service name so it shows in sidebar and TabBar
+            serviceStore.updateService(service.id, { name: e.title });
+
             // Check for unread count in title (e.g., "(3) WhatsApp")
             const match = e.title.match(/^\(?(\d+)\)?\s/);
             if (match) {
@@ -227,6 +231,11 @@
             if (e.favicons && e.favicons.length > 0) {
                 tabStore.updateTab(service.id, tabId, {
                     favicon: e.favicons[0],
+                });
+                
+                // Also update service icon so it shows in sidebar
+                serviceStore.updateService(service.id, {
+                    icon: e.favicons[0]
                 });
             }
         };
@@ -361,7 +370,31 @@
                             Start with an app
                         </button>
                         <button
-                            onclick={() => tabStore.addTab(service.id)}
+                            onclick={() => {
+                                // Create a new service/app (1 app = 1 tab)
+                                const newService = serviceStore.addService(
+                                    {
+                                        name: "Browser",
+                                        url: "https://www.google.com",
+                                        icon: "https://www.google.com/favicon.ico",
+                                        color: "#4285f4",
+                                    },
+                                    null,
+                                    null,
+                                    null,
+                                    workspaceStore.activeWorkspace?.id,
+                                );
+
+                                // Add to active workspace
+                                if (workspaceStore.activeWorkspace && newService) {
+                                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+                                }
+
+                                // Switch to the new service/app
+                                if (newService) {
+                                    serviceStore.setActive(newService.id);
+                                }
+                            }}
                             class="group flex items-center gap-2 px-5 py-2.5 bg-purple-500/80 hover:bg-purple-600/80 text-white text-sm rounded-lg font-medium transition-all hover:scale-105"
                         >
                             <Plus
