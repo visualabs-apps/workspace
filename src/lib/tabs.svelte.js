@@ -39,12 +39,23 @@ function createTabStore() {
         getActiveTabId(serviceId) {
             return serviceTabs[serviceId]?.activeTabId || null;
         },
+        // Get specific tab by ID
+        getTab(serviceId, tabId) {
+            const tabs = this.getServiceTabs(serviceId);
+            return tabs.find(t => t.id === tabId) || null;
+        },
 
         // Get active tab object for a service
         getActiveTab(serviceId) {
             const tabs = this.getServiceTabs(serviceId);
             const activeTabId = this.getActiveTabId(serviceId);
             return tabs.find(t => t.id === activeTabId) || tabs[0] || null;
+        },
+
+        // Get specific tab by ID
+        getTab(serviceId, tabId) {
+            const tabs = this.getServiceTabs(serviceId);
+            return tabs.find(t => t.id === tabId) || null;
         },
 
         // Initialize tabs for a service (called when service is created)

@@ -1,10 +1,10 @@
 {
   "name": "vleb-workspace",
   "productName": "V-LEB Workspace",
-  "description": "V-LEB Workspace - Multi-Service Management Platform",
+  "description": "V-LEB Workspace - Multi-Service Management Platform with Enhanced SuperAdmin Interface",
   "license": "MIT",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.2.0",
   "author": "V-LEB Technology",
   "type": "module",
   "main": "electron/main.cjs",

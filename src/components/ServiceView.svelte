@@ -7,6 +7,7 @@
     import { linkRoutingStore } from "../lib/linkRouting.svelte.js";
     import { dndStore } from "../lib/dnd.svelte.js";
     import { scraperService } from "../lib/scraperService.js";
+    import { activityTracker } from "../lib/activityTracker.js";
     import { Rocket, Plus } from "lucide-svelte";
 
     let { service, isActive } = $props();
@@ -201,6 +202,20 @@
             const url = webview.getURL?.();
             if (url) {
                 tabStore.updateTab(service.id, tabId, { url });
+                
+                // Track website visit for activity analytics
+                const activeWorkspace = workspaceStore.activeWorkspace;
+                if (activeWorkspace && url !== 'about:blank') {
+                    const tab = tabStore.getTab(service.id, tabId);
+                    activityTracker.trackWebsiteVisit(
+                        activeWorkspace.id,
+                        activeWorkspace.name,
+                        service.id,
+                        service.name,
+                        url,
+                        tab?.title || 'Loading...'
+                    );
+                }
             }
             updateNavigationState(tabId);
         };
@@ -215,6 +230,20 @@
 
             // Also update service name so it shows in sidebar and TabBar
             serviceStore.updateService(service.id, { name: e.title });
+
+            // Update website visit with page title for activity analytics
+            const activeWorkspace = workspaceStore.activeWorkspace;
+            const url = webview.getURL?.();
+            if (activeWorkspace && url && url !== 'about:blank') {
+                activityTracker.trackWebsiteVisit(
+                    activeWorkspace.id,
+                    activeWorkspace.name,
+                    service.id,
+                    service.name,
+                    url,
+                    e.title
+                );
+            }
 
             // Check for unread count in title (e.g., "(3) WhatsApp")
             const match = e.title.match(/^\(?(\d+)\)?\s/);

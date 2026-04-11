@@ -8,18 +8,24 @@
         Square,
         Download,
         StickyNote,
+        BarChart3,
     } from "lucide-svelte";
     import { navigationStore } from "../lib/navigation.svelte.js";
     import { serviceStore } from "../lib/services.svelte.js";
     import { tabStore } from "../lib/tabs.svelte.js";
     import { workspaceStore } from "../lib/workspaces.svelte.js";
     import { notesStore } from "../lib/notes.svelte.js";
+    import { activityTracker } from "../lib/activityTracker.js";
     import WindowControls from "./WindowControls.svelte";
+    import NotesWindow from "./NotesWindow.svelte";
+    import ActivityDashboard from "./ActivityDashboard.svelte";
 
     let { service = null } = $props();
 
     let urlInput = $state("");
     let isUrlFocused = $state(false);
+    let isNotesWindowOpen = $state(false);
+    let isActivityDashboardOpen = $state(false);
 
     // Update notification state
     let updateInfo = $state(null); // { version, notes, downloadUrl }
@@ -224,23 +230,46 @@
 
     <div class="flex-1"></div>
 
-    <!-- Sticky Notes Button -->
+    <!-- Notes Button -->
     <div style="-webkit-app-region: no-drag" class="mr-2">
         <button
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-500 hover:text-yellow-400 text-sm font-medium transition-colors"
-            title="Tambah Catatan"
+            title={isNotesWindowOpen ? "Close Notes" : "Open Notes"}
             onclick={() => {
-                if (workspaceStore.activeWorkspaceId) {
-                    notesStore.addNote(
-                        workspaceStore.activeWorkspaceId,
-                        window.innerWidth / 2 - 125,
-                        window.innerHeight / 2 - 125,
-                    );
+                const activeWorkspace = workspaceStore.activeWorkspace;
+                
+                if (isNotesWindowOpen) {
+                    isNotesWindowOpen = false;
+                } else {
+                    isNotesWindowOpen = true;
+                    
+                    // Track notes window open activity
+                    if (activeWorkspace) {
+                        activityTracker.trackNoteAction(
+                            activeWorkspace.id,
+                            activeWorkspace.name,
+                            'open'
+                        );
+                    }
                 }
             }}
         >
             <StickyNote size={16} />
-            <span>Add Note</span>
+            <span>{isNotesWindowOpen ? "Close Notes" : "Open Notes"}</span>
+        </button>
+    </div>
+
+    <!-- Activity Dashboard Button -->
+    <div style="-webkit-app-region: no-drag" class="mr-2">
+        <button
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-500 hover:text-blue-400 text-sm font-medium transition-colors"
+            title="Activity Analytics"
+            onclick={() => {
+                isActivityDashboardOpen = true;
+            }}
+        >
+            <BarChart3 size={16} />
+            <span>Analytics</span>
         </button>
     </div>
 
@@ -261,3 +290,18 @@
     <!-- Window Controls -->
     <WindowControls variant="dark" />
 </div>
+
+<!-- Notes Window -->
+{#if isNotesWindowOpen && workspaceStore.activeWorkspaceId}
+    <NotesWindow 
+        workspaceId={workspaceStore.activeWorkspaceId}
+        onClose={() => isNotesWindowOpen = false}
+    />
+{/if}
+
+<!-- Activity Dashboard -->
+{#if isActivityDashboardOpen}
+    <ActivityDashboard 
+        onClose={() => isActivityDashboardOpen = false}
+    />
+{/if}

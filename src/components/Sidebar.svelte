@@ -68,10 +68,14 @@
     function handleWorkspaceContextMenu(e, workspaceId) {
         e.preventDefault();
         e.stopPropagation();
+        console.log(`🖱️ Right-click on workspace: ${workspaceId}`);
+        console.log(`📊 Workspaces count: ${workspaces.length}`);
         workspaceContextMenu = { show: true, x: e.clientX, y: e.clientY, workspaceId };
+        console.log(`📋 Context menu state:`, workspaceContextMenu);
     }
 
     function closeContextMenu() {
+        console.log(`❌ Closing context menu`);
         contextMenu = { show: false, x: 0, y: 0, serviceId: null };
         workspaceContextMenu = { show: false, x: 0, y: 0, workspaceId: null };
     }
@@ -136,22 +140,48 @@
 
         workspaceNameError = false;
 
+        console.log(`➕ Creating new workspace: "${newWorkspaceName.trim()}"`);
+        console.log(`🎨 Workspace color: ${newWorkspaceColor}`);
+
         // Create workspace with client initials as icon
         const initials = getWorkspaceInitials(newWorkspaceName.trim());
+        console.log(`🔤 Generated initials: ${initials}`);
         
         workspaceStore.createWorkspace(
             newWorkspaceName.trim(),
             initials, // Use initials instead of SVG
             { name: 'custom', value: newWorkspaceColor, hex: newWorkspaceColor }
-        );
+        ).then(() => {
+            console.log(`✅ Workspace created successfully`);
+            console.log(`📊 Total workspaces now: ${workspaces.length + 1}`);
+        }).catch(error => {
+            console.error(`❌ Failed to create workspace:`, error);
+        });
 
         isAddWorkspacePopupOpen = false;
         newWorkspaceName = "";
     }
 
-    function handleDeleteWorkspace(workspaceId) {
-        if (workspaces.length > 1 && confirm("Delete this workspace?")) {
-            workspaceStore.deleteWorkspace(workspaceId);
+    async function handleDeleteWorkspace(workspaceId) {
+        console.log(`🚀 handleDeleteWorkspace called with ID: ${workspaceId}`);
+        console.log(`📊 Current workspaces count: ${workspaces.length}`);
+        console.log(`📋 All workspaces:`, workspaces);
+        console.log(`🎯 Active workspace ID: ${activeWorkspace?.id}`);
+        
+        if (confirm("Delete this workspace?")) {
+            console.log(`✅ User confirmed deletion`);
+            try {
+                const success = await workspaceStore.deleteWorkspace(workspaceId);
+                if (success) {
+                    console.log('✅ Workspace deleted successfully');
+                } else {
+                    console.warn('⚠️ Failed to delete workspace');
+                }
+            } catch (error) {
+                console.error('❌ Error deleting workspace:', error);
+            }
+        } else {
+            console.log(`❌ Delete cancelled by user`);
         }
         closeContextMenu();
     }
@@ -230,7 +260,16 @@
             const isPopupButton = target.closest('.popup-trigger-button');
             const isOverlay = target.classList.contains('popup-overlay');
             
+            console.log(`🖱️ Click outside check:`, {
+                isInsidePopup: !!isInsidePopup,
+                isPopupButton: !!isPopupButton,
+                isOverlay,
+                targetClass: target.className,
+                workspaceContextMenuShow: workspaceContextMenu.show
+            });
+            
             if ((!isInsidePopup && !isPopupButton) || isOverlay) {
+                console.log(`🚫 Closing menus due to outside click`);
                 closeAllMenus();
             }
         }
@@ -437,7 +476,7 @@
                     >
                         <!-- Display client initials -->
                         <span class="text-lg font-bold text-white">
-                            {typeof workspace.icon === 'string' && workspace.icon.length <= 3 ? workspace.icon : getWorkspaceInitials(workspace.name)}
+                            {getWorkspaceInitials(workspace.name)}
                         </span>
                     </button>
 
@@ -534,18 +573,28 @@
         onclick={closeContextMenu}
     >
         <div
-            class="absolute bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-white/20 p-2 min-w-[150px]"
+            class="absolute bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-white/20 p-2 min-w-[150px] popup-container"
             style="left: {workspaceContextMenu.x}px; top: {workspaceContextMenu.y}px;"
             onclick={(e) => e.stopPropagation()}
         >
             <button
-                onclick={() => handleDeleteWorkspace(workspaceContextMenu.workspaceId)}
+                onclick={() => {
+                    console.log(`🗑️ Delete button clicked for workspace: ${workspaceContextMenu.workspaceId}`);
+                    console.log(`📊 Current workspaces count: ${workspaces.length}`);
+                    handleDeleteWorkspace(workspaceContextMenu.workspaceId);
+                }}
                 class="w-full px-3 py-2 text-left text-red-400 hover:bg-red-500/20 rounded-lg transition-colors flex items-center gap-2"
+                type="button"
             >
                 <Trash2 size={14} />
                 Delete Workspace
             </button>
         </div>
+    </div>
+{:else}
+    <!-- Debug: Context menu state -->
+    <div style="display: none;">
+        Context menu hidden: {JSON.stringify(workspaceContextMenu)}
     </div>
 {/if}
 
@@ -558,7 +607,7 @@
         onclick={closeContextMenu}
     >
         <div
-            class="absolute bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-white/20 p-2 min-w-[150px]"
+            class="absolute bg-gray-900/95 backdrop-blur-xl rounded-xl shadow-2xl border border-white/20 p-2 min-w-[150px] popup-container"
             style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
             onclick={(e) => e.stopPropagation()}
         >

@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
-import { db } from "./db.js";
+import { workspaceService } from "./workspaceService.js";
+import { authStore } from "./auth.svelte.js";
 
-// Store definition
+// Store definition - Pure backend integration, NO IndexedDB fallback
 function createNotesStore() {
     let internalNotes = $state({}); // { workspaceId: [note1, note2] }
     let hasLoaded = $state({}); // { workspaceId: boolean }
@@ -36,44 +37,86 @@ function createNotesStore() {
             };
         },
 
-        // Ensure we load notes from Dexie for a specific workspace
+        // Load notes from backend ONLY
         async loadNotes(workspaceId) {
             if (hasLoaded[workspaceId]) return; // Already loaded
 
-            try {
-                // Fetch from Dexie IndexedDB
-                const data = await db.notes.where("workspaceId").equals(workspaceId).toArray();
+            console.log(`🌐 Loading notes from backend for workspace: ${workspaceId}`);
 
+            try {
+                if (!authStore.isLoggedIn) {
+                    console.log('🔒 User not logged in, starting with empty notes');
+                    internalNotes = {
+                        ...internalNotes,
+                        [workspaceId]: [],
+                    };
+                    hasLoaded = { ...hasLoaded, [workspaceId]: true };
+                    return;
+                }
+
+                const backendNotes = await workspaceService.getNotes(workspaceId);
+                const notes = backendNotes.map(note => workspaceService.convertBackendNote(note));
+                
                 internalNotes = {
                     ...internalNotes,
-                    [workspaceId]: data.sort((a, b) => a.createdAt - b.createdAt),
+                    [workspaceId]: notes.sort((a, b) => a.createdAt - b.createdAt),
                 };
 
                 hasLoaded = { ...hasLoaded, [workspaceId]: true };
-            } catch (err) {
-                console.error("Failed to load notes for workspace:", workspaceId, err);
+                console.log(`✅ Loaded ${notes.length} notes from backend`);
+            } catch (error) {
+                console.error("❌ Failed to load notes from backend:", error);
+                // Start with empty notes on error
+                internalNotes = {
+                    ...internalNotes,
+                    [workspaceId]: [],
+                };
+                hasLoaded = { ...hasLoaded, [workspaceId]: true };
             }
         },
 
-        // Add a new sticky note
-        async addNote(workspaceId, x = 100, y = 100, color = "#ffeb3b") {
+        // Add a new sticky note or note tab
+        async addNote(workspaceId, noteData = null, x = 100, y = 100, color = "#ffeb3b") {
             const currentNotes = this.getWorkspaceNotes(workspaceId);
 
-            const newNote = {
-                id: uuidv4(),
-                workspaceId,
-                title: `Note ${currentNotes.length + 1}`,
-                content: "",
-                x,
-                y,
-                width: 250,
-                height: 250,
-                isMinimized: false,
-                color,
-                zIndex: Date.now(),
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-            };
+            let newNote;
+            
+            if (noteData && noteData.id) {
+                // Adding from NotesWindow (tab format)
+                newNote = {
+                    id: noteData.id,
+                    workspaceId,
+                    title: noteData.title || "Untitled",
+                    content: noteData.content || "",
+                    createdAt: noteData.createdAt || Date.now(),
+                    updatedAt: noteData.updatedAt || Date.now(),
+                    // Keep old sticky note properties for backward compatibility
+                    x: 0,
+                    y: 0,
+                    width: 250,
+                    height: 250,
+                    isMinimized: false,
+                    color: "#ffeb3b",
+                    zIndex: Date.now(),
+                };
+            } else {
+                // Adding traditional sticky note
+                newNote = {
+                    id: uuidv4(),
+                    workspaceId,
+                    title: `Note ${currentNotes.length + 1}`,
+                    content: "",
+                    x,
+                    y,
+                    width: 250,
+                    height: 250,
+                    isMinimized: false,
+                    color,
+                    zIndex: Date.now(),
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                };
+            }
 
             // Calculate z-index to put it on top of others
             if (currentNotes.length > 0) {
@@ -88,14 +131,25 @@ function createNotesStore() {
                 [workspaceId]: [...current, newNote],
             };
 
-            // Show notes when adding a new note
-            this.setNotesVisibility(workspaceId, true);
-
-            // Save to Dexie
+            // Save to backend ONLY
             try {
-                await db.notes.add(newNote);
+                if (!authStore.isLoggedIn) {
+                    console.log('🔒 User not logged in, cannot save note to backend');
+                    throw new Error('User not logged in');
+                }
+
+                console.log(`🌐 Saving note to backend: "${newNote.title}"`);
+                await workspaceService.storeNote(newNote);
+                console.log(`✅ Note saved to backend successfully`);
             } catch (error) {
-                console.error("Failed to add note to DB", error);
+                console.error("❌ Failed to save note to backend:", error);
+                // Remove from local state if backend save failed
+                const current = internalNotes[workspaceId] || [];
+                internalNotes = {
+                    ...internalNotes,
+                    [workspaceId]: current.filter(n => n.id !== newNote.id),
+                };
+                throw error;
             }
 
             return newNote;
@@ -125,30 +179,45 @@ function createNotesStore() {
             // Direct object assignment (triggers Svelte 5 reactivity without array allocations)
             Object.assign(note, updates);
 
-            // Save to Dexie if not skipped
+            // Save to backend ONLY if not skipped
             if (!skipDb) {
                 try {
-                    await db.notes.update(noteId, updates);
+                    if (!authStore.isLoggedIn) {
+                        console.log('🔒 User not logged in, cannot update note in backend');
+                        return;
+                    }
+
+                    console.log(`🌐 Updating note in backend: "${note.title}"`);
+                    await workspaceService.storeNote(note);
+                    console.log(`✅ Note updated in backend successfully`);
                 } catch (error) {
-                    console.error("Failed to update note in DB", error);
+                    console.error("❌ Failed to update note in backend:", error);
+                    throw error;
                 }
             }
         },
 
-        // Delete a note
+        // Delete a note from backend ONLY
         async deleteNote(workspaceId, noteId) {
-            // Update local state
-            const current = internalNotes[workspaceId] || [];
-            internalNotes = {
-                ...internalNotes,
-                [workspaceId]: current.filter((n) => n.id !== noteId),
-            };
-
-            // Delete from Dexie
             try {
-                await db.notes.delete(noteId);
+                if (!authStore.isLoggedIn) {
+                    console.log('🔒 User not logged in, cannot delete note from backend');
+                    throw new Error('User not logged in');
+                }
+
+                console.log(`🌐 Deleting note from backend: ${noteId}`);
+                await workspaceService.deleteNote(noteId);
+                console.log(`✅ Note deleted from backend successfully`);
+
+                // Update local state only after successful backend delete
+                const current = internalNotes[workspaceId] || [];
+                internalNotes = {
+                    ...internalNotes,
+                    [workspaceId]: current.filter((n) => n.id !== noteId),
+                };
             } catch (error) {
-                console.error("Failed to delete note from DB", error);
+                console.error("❌ Failed to delete note from backend:", error);
+                throw error;
             }
         },
     };

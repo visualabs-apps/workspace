@@ -45,9 +45,28 @@ if (!fs.existsSync(distDir)) {
 const files = fs.readdirSync(distDir);
 console.log('� Files in dist directory:', files);
 
-// Look for Setup installer (NSIS)
-const setupFile = files.find(f => f.includes('Setup') && f.endsWith('.exe'));
-const portableFile = files.find(f => f.includes('Portable') && f.endsWith('.exe'));
+// Look for Setup installer (NSIS) - get the latest version
+const setupFiles = files.filter(f => f.includes('Setup') && f.endsWith('.exe'));
+const portableFiles = files.filter(f => f.includes('Portable') && f.endsWith('.exe'));
+
+// Sort by version number (extract version from filename)
+const sortByVersion = (files) => {
+    return files.sort((a, b) => {
+        const versionA = a.match(/(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
+        const versionB = b.match(/(\d+\.\d+\.\d+)/)?.[1] || '0.0.0';
+        
+        const parseVersion = (v) => v.split('.').map(Number);
+        const [majorA, minorA, patchA] = parseVersion(versionA);
+        const [majorB, minorB, patchB] = parseVersion(versionB);
+        
+        if (majorA !== majorB) return majorB - majorA;
+        if (minorA !== minorB) return minorB - minorA;
+        return patchB - patchA;
+    });
+};
+
+const setupFile = sortByVersion(setupFiles)[0]; // Get latest version
+const portableFile = sortByVersion(portableFiles)[0]; // Get latest version
 
 if (!setupFile) {
     console.error('❌ Could not find Setup installer!');
@@ -65,6 +84,27 @@ const setupSource = path.join(distDir, setupFile);
 const setupDest = path.join(laravelDownloadDir, setupFile);
 
 console.log('🚚 Copying installer to Laravel directory...');
+
+// Remove old files first
+const existingFiles = fs.readdirSync(laravelDownloadDir);
+const oldSetupFiles = existingFiles.filter(f => f.includes('Setup') && f.endsWith('.exe'));
+const oldPortableFiles = existingFiles.filter(f => f.includes('Portable') && f.endsWith('.exe'));
+
+// Remove old setup files
+oldSetupFiles.forEach(file => {
+    const filePath = path.join(laravelDownloadDir, file);
+    fs.unlinkSync(filePath);
+    console.log(`🗑️ Removed old file: ${file}`);
+});
+
+// Remove old portable files
+oldPortableFiles.forEach(file => {
+    const filePath = path.join(laravelDownloadDir, file);
+    fs.unlinkSync(filePath);
+    console.log(`🗑️ Removed old file: ${file}`);
+});
+
+// Copy new files
 fs.copyFileSync(setupSource, setupDest);
 console.log(`✅ Copied: ${setupFile}`);
 

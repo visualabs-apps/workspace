@@ -7,7 +7,6 @@
     import DownloadPanel from "./components/DownloadPanel.svelte";
     import NotificationPanel from "./components/NotificationPanel.svelte";
     import TabBar from "./components/TabBar.svelte";
-    import StickyNotes from "./components/StickyNotes.svelte";
     import { serviceStore } from "./lib/services.svelte.js";
     import { authStore } from "./lib/auth.svelte.js";
     import { workspaceStore } from "./lib/workspaces.svelte.js";
@@ -17,6 +16,7 @@
     import { dndStore } from "./lib/dnd.svelte.js";
     import { tabStore } from "./lib/tabs.svelte.js";
     import { scraperService } from "./lib/scraperService.js";
+    import { activityTracker } from "./lib/activityTracker.js";
     import { onMount } from "svelte";
     import { Loader2, Plus, Rocket, WifiOff } from "lucide-svelte";
 
@@ -95,6 +95,68 @@
         }
     });
 
+    // Track workspace switching for activity analytics
+    let previousWorkspace = null;
+    $effect(() => {
+        if (activeWorkspace && isLoggedIn) {
+            // Track workspace switch
+            if (previousWorkspace && previousWorkspace.id !== activeWorkspace.id) {
+                activityTracker.trackSpaceSwitch(
+                    previousWorkspace.id,
+                    previousWorkspace.name,
+                    activeWorkspace.id,
+                    activeWorkspace.name
+                );
+            } else if (!previousWorkspace) {
+                // Initial workspace load
+                activityTracker.trackSpaceSwitch(
+                    null,
+                    null,
+                    activeWorkspace.id,
+                    activeWorkspace.name
+                );
+            }
+            
+            previousWorkspace = activeWorkspace;
+        }
+    });
+
+    // Track app switching for activity analytics
+    let previousActiveService = null;
+    $effect(() => {
+        if (activeService && activeWorkspace && isLoggedIn) {
+            // Track app switch
+            if (previousActiveService && previousActiveService.id !== activeService.id) {
+                activityTracker.trackAppAction(
+                    activeWorkspace.id,
+                    activeWorkspace.name,
+                    previousActiveService.id,
+                    previousActiveService.name,
+                    'blur'
+                );
+                
+                activityTracker.trackAppAction(
+                    activeWorkspace.id,
+                    activeWorkspace.name,
+                    activeService.id,
+                    activeService.name,
+                    'focus'
+                );
+            } else if (!previousActiveService) {
+                // Initial app load
+                activityTracker.trackAppAction(
+                    activeWorkspace.id,
+                    activeWorkspace.name,
+                    activeService.id,
+                    activeService.name,
+                    'open'
+                );
+            }
+            
+            previousActiveService = activeService;
+        }
+    });
+
     // Initialize auth on mount
     onMount(() => {
         authStore.init();
@@ -109,6 +171,9 @@
 
                 // Fetch real user data from server
                 await authStore.fetchUser();
+
+                // Initialize workspace store after login
+                await workspaceStore.init();
             });
         }
 
@@ -118,6 +183,14 @@
                 console.error("❌ Authentication error:", error);
                 // You can show error notification here if needed
             });
+        }
+    });
+
+    // Initialize workspace store when user logs in
+    $effect(() => {
+        if (isLoggedIn && isAuthInitialized && !workspaceStore.isInitialized) {
+            console.log("🔄 User logged in, initializing workspace store...");
+            workspaceStore.init();
         }
     });
 
@@ -336,8 +409,66 @@
 
                 <!-- Content Area -->
                 <div class="flex-1 relative overflow-hidden">
-                    {#if workspaceServices.length === 0}
-                        <!-- Empty State overlay (workspace has no apps) -->
+                    {#if !activeWorkspace}
+                        <!-- No workspace state -->
+                        <div
+                            class="absolute inset-0 flex items-center justify-center p-8 z-20"
+                        >
+                            <div class="text-center w-full max-w-md">
+                                <!-- Icon -->
+                                <div class="mb-4 flex justify-center">
+                                    <div
+                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center"
+                                    >
+                                        <svg
+                                            class="w-10 h-10 text-blue-400"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.5"
+                                        >
+                                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                            <line x1="16" y1="2" x2="16" y2="6"></line>
+                                            <line x1="8" y1="2" x2="8" y2="6"></line>
+                                            <line x1="3" y1="10" x2="21" y2="10"></line>
+                                            <path d="M8 14h.01"></path>
+                                            <path d="M12 14h.01"></path>
+                                            <path d="M16 14h.01"></path>
+                                        </svg>
+                                    </div>
+                                </div>
+
+                                <!-- Text -->
+                                <h2
+                                    class="text-xl font-semibold text-white mb-2"
+                                >
+                                    Welcome to V-LEB Workspace
+                                </h2>
+                                <p class="text-gray-400 mb-6">
+                                    Create your first workspace to organize your projects and applications
+                                </p>
+
+                                <!-- Button -->
+                                <div class="flex justify-center">
+                                    <button
+                                        onclick={() => {
+                                            // Trigger add workspace popup in sidebar
+                                            const addButton = document.querySelector('.popup-trigger-button');
+                                            if (addButton) addButton.click();
+                                        }}
+                                        class="group flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
+                                    >
+                                        <Plus
+                                            size={16}
+                                            class="group-hover:rotate-90 transition-transform"
+                                        />
+                                        Create Your First Workspace
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    {:else if workspaceServices.length === 0}
+                        <!-- Empty workspace state (workspace exists but no apps) -->
                         <div
                             class="absolute inset-0 flex items-center justify-center p-8 z-20"
                         >
@@ -374,7 +505,7 @@
                                 <h2
                                     class="text-xl font-semibold text-white mb-6"
                                 >
-                                    There's nothing here, yet.
+                                    Ready to get started?
                                 </h2>
 
                                 <!-- Buttons -->
@@ -433,10 +564,6 @@
                 </div>
             </div>
 
-            <!-- Sticky Notes Overlay (Draggable & Absolute) -->
-            {#if activeWorkspace}
-                <StickyNotes workspaceId={activeWorkspace.id} />
-            {/if}
         </div>
     </div>
 
@@ -485,9 +612,11 @@
 {/if}
 
 <style>
-    @reference "tailwindcss";
-
     :global(body) {
-        @apply bg-gradient-to-r from-[#9d8c6b] via-black to-[#8b4a6b] text-gray-100 overflow-hidden m-0 p-0;
+        background: linear-gradient(to right, #9d8c6b, #000000, #8b4a6b);
+        color: #f3f4f6;
+        overflow: hidden;
+        margin: 0;
+        padding: 0;
     }
 </style>
