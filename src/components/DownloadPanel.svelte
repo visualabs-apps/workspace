@@ -36,18 +36,46 @@
 
     function handlePauseResume(download) {
         if (download.state === "paused") {
-            // TODO: Implement actual resume via Electron IPC
-            downloadStore.resumeDownload(download.id);
+            // Resume download
+            if (window.api?.db?.resumeDownload) {
+                window.api.db.resumeDownload(download.filename).then(result => {
+                    if (result.success) {
+                        downloadStore.updateDownload(download.id, { state: 'progressing' });
+                    }
+                }).catch(err => {
+                    console.error('Failed to resume download:', err);
+                });
+            }
         } else {
-            // TODO: Implement actual pause via Electron IPC
-            downloadStore.pauseDownload(download.id);
+            // Pause download
+            if (window.api?.db?.pauseDownload) {
+                window.api.db.pauseDownload(download.filename).then(result => {
+                    if (result.success) {
+                        downloadStore.updateDownload(download.id, { state: 'paused' });
+                    }
+                }).catch(err => {
+                    console.error('Failed to pause download:', err);
+                });
+            }
         }
     }
 
     function handleCancel(download) {
         if (confirm("Cancel this download?")) {
-            // TODO: Implement actual cancel via Electron IPC
-            downloadStore.cancelDownload(download.id);
+            // Cancel via Electron IPC
+            if (window.api?.db?.cancelDownload) {
+                window.api.db.cancelDownload(download.filename).then(result => {
+                    if (result.success) {
+                        // Update local state
+                        downloadStore.updateDownload(download.id, { 
+                            state: 'cancelled',
+                            endTime: Date.now()
+                        });
+                    }
+                }).catch(err => {
+                    console.error('Failed to cancel download:', err);
+                });
+            }
         }
     }
 
@@ -57,15 +85,11 @@
 
     function handleOpenFile(download) {
         if (download.savePath) {
-            // TODO: Implement open file via Electron IPC
-            console.log("Open file:", download.savePath);
         }
     }
 
     function handleShowInFolder(download) {
         if (download.savePath) {
-            // TODO: Implement show in folder via Electron IPC
-            console.log("Show in folder:", download.savePath);
         }
     }
 
@@ -81,7 +105,7 @@
 >
     <!-- Header -->
     <div
-        class="px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white flex items-center justify-between"
+        class="px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white flex items-center justify-between"
     >
         <div class="flex items-center gap-2">
             <Download size={20} />
@@ -104,177 +128,100 @@
 
     <!-- Downloads List -->
     <div class="flex-1 overflow-y-auto custom-scrollbar">
-        {#if downloads.length === 0}
+        {#if activeDownloads.length === 0}
             <div class="p-8 text-center text-gray-400">
                 <Download size={48} class="mx-auto mb-3 opacity-30" />
-                <p class="text-sm">No downloads yet</p>
+                <p class="text-sm">No active downloads</p>
             </div>
         {:else}
-            <!-- Active Downloads -->
-            {#if activeDownloads.length > 0}
-                <div class="p-3 border-b border-gray-100">
-                    <h4
-                        class="text-xs font-semibold text-gray-500 uppercase mb-2"
-                    >
-                        Active
-                    </h4>
-                    {#each activeDownloads as download (download.id)}
-                        <div class="mb-3 p-3 bg-gray-50 rounded-xl">
-                            <div class="flex items-start gap-3">
-                                <div
-                                    class="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0"
-                                >
-                                    <Download
-                                        size={20}
-                                        class="text-indigo-600"
-                                    />
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p
-                                        class="text-sm font-medium text-gray-900 truncate"
-                                    >
-                                        {download.filename}
-                                    </p>
-                                    <p class="text-xs text-gray-500 truncate">
-                                        {download.serviceName}
-                                    </p>
-
-                                    <!-- Progress Bar -->
-                                    <div class="mt-2 mb-1">
-                                        <div
-                                            class="h-1.5 bg-gray-200 rounded-full overflow-hidden"
-                                        >
-                                            <div
-                                                class="h-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-300"
-                                                style="width: {getProgress(
-                                                    download,
-                                                )}%"
-                                            ></div>
-                                        </div>
-                                    </div>
-
-                                    <div
-                                        class="flex items-center justify-between text-xs text-gray-500"
-                                    >
-                                        <span
-                                            >{formatBytes(
-                                                download.receivedBytes,
-                                            )} / {formatBytes(
-                                                download.totalBytes,
-                                            )}</span
-                                        >
-                                        <span>{getProgress(download)}%</span>
-                                    </div>
-                                    {#if download.speed > 0}
-                                        <p class="text-xs text-gray-400 mt-1">
-                                            {formatSpeed(download.speed)}
-                                        </p>
-                                    {/if}
-                                </div>
-                                <div class="flex gap-1">
-                                    <button
-                                        onclick={() =>
-                                            handlePauseResume(download)}
-                                        class="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
-                                        title={download.state === "paused"
-                                            ? "Resume"
-                                            : "Pause"}
-                                    >
-                                        {#if download.state === "paused"}
-                                            <Play
-                                                size={14}
-                                                class="text-gray-600"
-                                            />
-                                        {:else}
-                                            <Pause
-                                                size={14}
-                                                class="text-gray-600"
-                                            />
-                                        {/if}
-                                    </button>
-                                    <button
-                                        onclick={() => handleCancel(download)}
-                                        class="p-1.5 hover:bg-red-100 rounded-lg transition-colors"
-                                        title="Cancel"
-                                    >
-                                        <X size={14} class="text-red-600" />
-                                    </button>
-                                </div>
+            <!-- Active Downloads Only -->
+            <div class="p-3">
+                {#each activeDownloads as download (download.id)}
+                    <div class="mb-3 p-3 bg-gray-50 rounded-xl">
+                        <div class="flex items-start gap-3">
+                            <div
+                                class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center shrink-0"
+                            >
+                                <Download
+                                    size={20}
+                                    class="text-blue-600"
+                                />
                             </div>
-                        </div>
-                    {/each}
-                </div>
-            {/if}
+                            <div class="flex-1 min-w-0">
+                                <p
+                                    class="text-sm font-medium text-gray-900 truncate"
+                                >
+                                    {download.filename}
+                                </p>
+                                <p class="text-xs text-gray-500 truncate">
+                                    {download.serviceName || 'Download'}
+                                </p>
 
-            <!-- Completed Downloads -->
-            {#if completedDownloads.length > 0}
-                <div class="p-3">
-                    <div class="flex items-center justify-between mb-2">
-                        <h4
-                            class="text-xs font-semibold text-gray-500 uppercase"
-                        >
-                            Completed
-                        </h4>
-                        <button
-                            onclick={handleClearCompleted}
-                            class="text-xs text-gray-400 hover:text-gray-600"
-                        >
-                            Clear all
-                        </button>
-                    </div>
-                    {#each completedDownloads as download (download.id)}
-                        <div
-                            class="mb-2 p-3 hover:bg-gray-50 rounded-xl transition-colors group"
-                        >
-                            <div class="flex items-start gap-3">
-                                <div
-                                    class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center shrink-0"
-                                >
-                                    <CheckCircle
-                                        size={20}
-                                        class="text-green-600"
-                                    />
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p
-                                        class="text-sm font-medium text-gray-900 truncate"
+                                <!-- Progress Bar -->
+                                <div class="mt-2 mb-1">
+                                    <div
+                                        class="h-1.5 bg-gray-200 rounded-full overflow-hidden"
                                     >
-                                        {download.filename}
-                                    </p>
-                                    <p class="text-xs text-gray-500">
-                                        {formatBytes(download.totalBytes)}
-                                    </p>
+                                        <div
+                                            class="h-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-300"
+                                            style="width: {getProgress(
+                                                download,
+                                            )}%"
+                                        ></div>
+                                    </div>
                                 </div>
+
                                 <div
-                                    class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    class="flex items-center justify-between text-xs text-gray-500"
                                 >
-                                    <button
-                                        onclick={() =>
-                                            handleShowInFolder(download)}
-                                        class="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
-                                        title="Show in folder"
+                                    <span
+                                        >{formatBytes(
+                                            download.receivedBytes,
+                                        )} / {formatBytes(
+                                            download.totalBytes,
+                                        )}</span
                                     >
-                                        <FolderOpen
+                                    <span>{getProgress(download)}%</span>
+                                </div>
+                                {#if download.speed > 0}
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        {formatSpeed(download.speed)}
+                                    </p>
+                                {/if}
+                            </div>
+                            <div class="flex gap-1">
+                                <button
+                                    onclick={() =>
+                                        handlePauseResume(download)}
+                                    class="p-1.5 hover:bg-gray-200 rounded-lg transition-colors"
+                                    title={download.state === "paused"
+                                        ? "Resume"
+                                        : "Pause"}
+                                >
+                                    {#if download.state === "paused"}
+                                        <Play
                                             size={14}
                                             class="text-gray-600"
                                         />
-                                    </button>
-                                    <button
-                                        onclick={() => handleRemove(download)}
-                                        class="p-1.5 hover:bg-red-100 rounded-lg transition-colors"
-                                        title="Remove"
-                                    >
-                                        <Trash2
+                                    {:else}
+                                        <Pause
                                             size={14}
-                                            class="text-red-600"
+                                            class="text-gray-600"
                                         />
-                                    </button>
-                                </div>
+                                    {/if}
+                                </button>
+                                <button
+                                    onclick={() => handleCancel(download)}
+                                    class="p-1.5 hover:bg-red-100 rounded-lg transition-colors"
+                                    title="Cancel"
+                                >
+                                    <X size={14} class="text-red-600" />
+                                </button>
                             </div>
                         </div>
-                    {/each}
-                </div>
-            {/if}
+                    </div>
+                {/each}
+            </div>
         {/if}
     </div>
 </div>

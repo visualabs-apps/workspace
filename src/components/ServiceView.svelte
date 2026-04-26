@@ -1,120 +1,97 @@
 <script>
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { navigationStore } from "../lib/navigation.svelte.js";
     import { serviceStore } from "../lib/services.svelte.js";
-    import { tabStore } from "../lib/tabs.svelte.js";
     import { workspaceStore } from "../lib/workspaces.svelte.js";
     import { linkRoutingStore } from "../lib/linkRouting.svelte.js";
-    import { dndStore } from "../lib/dnd.svelte.js";
-    import { scraperService } from "../lib/scraperService.js";
-    import { activityTracker } from "../lib/activityTracker.js";
+    import { historyStore } from "../lib/history.svelte.js";
     import { Rocket, Plus } from "lucide-svelte";
 
     let { service, isActive } = $props();
 
-    // Get tabs for this service
-    let tabs = $derived(tabStore.getServiceTabs(service.id));
-    let activeTabId = $derived(tabStore.getActiveTabId(service.id));
-    let activeTab = $derived(tabStore.getActiveTab(service.id));
+    // Global webview registry - persistent across component lifecycle
+    const webviewRegistry = globalThis.webviewRegistry || (globalThis.webviewRegistry = new Map());
 
-    // Store webview references for each tab
-    let webviews = $state({});
-    let loadingStates = $state({});
-    let domReadyStates = $state({});
+    // Local state
+    let container = $state(null);
+    let webview = $state(null);
+    let loadingState = $state(false);
+    let domReadyState = $state(false);
     let showZoomIndicator = $state(false);
     let zoomIndicatorTimeout = null;
 
-    // Function to update navigation state
-    function updateNavigationState(tabId) {
-        const webview = webviews[tabId];
-        if (
-            isActive &&
-            activeTabId === tabId &&
-            webview &&
-            domReadyStates[tabId]
-        ) {
-            const tab = tabs.find((t) => t.id === tabId);
+    function updateNavigationState() {
+        if (isActive && webview && domReadyState) {
             try {
+                const canGoBack = webview.canGoBack?.() || false;
+                const canGoForward = webview.canGoForward?.() || false;
+                const currentUrl = webview.getURL?.() || service.url;
+                
                 navigationStore.updateState({
-                    canGoBack: webview.canGoBack?.() || false,
-                    canGoForward: webview.canGoForward?.() || false,
-                    isLoading: loadingStates[tabId] || false,
-                    currentUrl: webview.getURL?.() || tab?.url || service.url,
+                    canGoBack,
+                    canGoForward,
+                    isLoading: loadingState || false,
+                    currentUrl,
                 });
             } catch (e) {
                 // Webview not ready yet, skip update
-                console.warn("Webview not ready for navigation state update");
             }
+        } else if (isActive) {
+            // If this tab is active but webview not ready, still update loading state
+            navigationStore.updateState({
+                isLoading: loadingState || false,
+            });
         }
     }
 
-    // Register active webview with navigation store
     $effect(() => {
-        if (
-            isActive &&
-            activeTabId &&
-            webviews[activeTabId] &&
-            domReadyStates[activeTabId]
-        ) {
+        if (isActive && webview && domReadyState) {
             try {
-                navigationStore.setActiveWebview(webviews[activeTabId]);
-                updateNavigationState(activeTabId);
+                navigationStore.setActiveWebview(webview);
+                updateNavigationState();
             } catch (e) {
-                console.warn("Failed to set active webview:", e);
+                // Ignore errors
             }
+        } else if (!isActive) {
+            // When tab becomes inactive, clear loading state from navigation store
+            // This ensures loading indicator disappears when switching to non-loading tabs
+            navigationStore.updateState({ isLoading: false });
         }
     });
 
-    // Handle zoom and mute for active webview
     $effect(() => {
-        if (
-            activeTabId &&
-            webviews[activeTabId] &&
-            domReadyStates[activeTabId]
-        ) {
-            const webview = webviews[activeTabId];
-            const tab = tabs.find((t) => t.id === activeTabId);
-            const zoomLevel = tab?.zoomLevel ?? 0;
+        if (webview && domReadyState) {
+            const zoomLevel = service.zoomLevel ?? 0;
 
             try {
-                // Only set zoom if webview is ready
                 if (webview.getWebContentsId) {
                     webview.setZoomLevel(zoomLevel);
-                    webview.setAudioMuted(tab?.isMuted || false);
+                    webview.setAudioMuted(service.isMuted || false);
                 }
             } catch (e) {
                 // Webview not ready yet, will retry on next effect
-                console.warn("Webview not ready for zoom/mute:", e.message);
             }
         }
     });
 
-    // Handle Ctrl+Scroll for zoom
     function handleWheel(e) {
-        if (e.ctrlKey && activeTabId) {
+        if (e.ctrlKey) {
             e.preventDefault();
-            const tab = tabs.find((t) => t.id === activeTabId);
-            const currentZoom = tab?.zoomLevel ?? 0;
+            const currentZoom = service.zoomLevel ?? 0;
 
-            // Calculate zoom percentage (0 = 100%, -1 = 75%, 1 = 125%, etc.)
             const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
 
-            // Determine zoom direction
-            const delta = e.deltaY > 0 ? -10 : 10; // Zoom out or in by 10%
+            const delta = e.deltaY > 0 ? -10 : 10;
             let newPercent = currentPercent + delta;
 
-            // Clamp between 25% and 500%
             newPercent = Math.max(25, Math.min(500, newPercent));
 
-            // Convert back to zoom level
             const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
 
-            // Update tab zoom level
-            tabStore.updateTab(service.id, activeTabId, {
+            serviceStore.updateService(service.id, {
                 zoomLevel: newZoomLevel,
             });
 
-            // Show zoom indicator
             showZoomIndicator = true;
             if (zoomIndicatorTimeout) clearTimeout(zoomIndicatorTimeout);
             zoomIndicatorTimeout = setTimeout(() => {
@@ -123,126 +100,92 @@
         }
     }
 
-    // Get current zoom percentage for display
     function getZoomPercent() {
-        const tab = tabs.find((t) => t.id === activeTabId);
-        const zoomLevel = tab?.zoomLevel ?? 0;
+        const zoomLevel = service.zoomLevel ?? 0;
         return Math.round(Math.pow(1.2, zoomLevel) * 100);
     }
 
-    function setupWebviewListeners(webview, tabId) {
+    function setupWebviewListeners(webviewElement) {
         const handleDomReady = async () => {
-            domReadyStates = { ...domReadyStates, [tabId]: true };
-            loadingStates = { ...loadingStates, [tabId]: false };
-            updateNavigationState(tabId);
+            domReadyState = true;
+            loadingState = false;
+            if (isActive) {
+                updateNavigationState();
+            }
 
             // Apply zoom level after webview is ready
-            const tab = tabs.find((t) => t.id === tabId);
-            const zoomLevel = tab?.zoomLevel ?? 0;
+            const zoomLevel = service.zoomLevel ?? 0;
             try {
-                webview.setZoomLevel(zoomLevel);
-                webview.setAudioMuted(tab?.isMuted || false);
+                webviewElement.setZoomLevel(zoomLevel);
+                webviewElement.setAudioMuted(service.isMuted || false);
             } catch (e) {
-                console.warn("Failed to set initial zoom:", e.message);
-            }
-
-            // ✅ SAFE: Minimal stealth - only what's necessary
-            // We rely on proper Electron configuration (contextIsolation, etc)
-            // instead of aggressive property deletion
-            try {
-                const safeStealthScript = `
-                    (function() {
-                        // ✅ SAFE: Just log for debugging
-                        console.log('🛡️ Webview loaded with safe configuration');
-                        
-                        // ❌ DO NOT delete window.process - breaks libraries
-                        // ❌ DO NOT fake window.chrome - too complex
-                        // ❌ DO NOT override navigator.plugins - type mismatch
-                        // ❌ DO NOT modify Error.prepareStackTrace - breaks debugging
-                        
-                        // The real stealth comes from proper Electron config:
-                        // - contextIsolation: true
-                        // - nodeIntegration: false
-                        // - sandbox: true
-                        // - disableBlinkFeatures: 'Automation'
-                    })();
-                `;
-                webview.executeJavaScript(safeStealthScript);
-            } catch (e) {
-                console.warn(
-                    "Failed to inject safe stealth script:",
-                    e.message,
-                );
-            }
-
-            // Inject scraper scripts if available
-            try {
-                const url = webview.getURL?.();
-                if (url) {
-                    await scraperService.injectScript(webview, url);
-                }
-            } catch (e) {
-                console.warn("Failed to inject scraper script:", e.message);
+                // Ignore errors
             }
         };
 
         const handleDidStartLoading = () => {
-            loadingStates = { ...loadingStates, [tabId]: true };
-            if (isActive && activeTabId === tabId) {
+            loadingState = true;
+            if (isActive) {
                 navigationStore.updateState({ isLoading: true });
             }
         };
 
+        const handleDidReload = () => {
+        };
+
         const handleDidStopLoading = () => {
-            loadingStates = { ...loadingStates, [tabId]: false };
-            updateNavigationState(tabId);
+            loadingState = false;
+            if (isActive) {
+                updateNavigationState();
+            }
         };
 
         const handleDidNavigate = (e) => {
-            const url = webview.getURL?.();
+            let url = null;
+            try {
+                url = webviewElement.getURL?.();
+            } catch (e) {
+                // Webview not ready yet
+            }
             if (url) {
-                tabStore.updateTab(service.id, tabId, { url });
+                serviceStore.updateService(service.id, { url });
                 
-                // Track website visit for activity analytics
-                const activeWorkspace = workspaceStore.activeWorkspace;
-                if (activeWorkspace && url !== 'about:blank') {
-                    const tab = tabStore.getTab(service.id, tabId);
-                    activityTracker.trackWebsiteVisit(
-                        activeWorkspace.id,
-                        activeWorkspace.name,
-                        service.id,
-                        service.name,
+                // Add to history when navigation completes
+                if (workspaceStore.activeWorkspace) {
+                    historyStore.addEntry(
+                        workspaceStore.activeWorkspace.id,
                         url,
-                        tab?.title || 'Loading...'
+                        service.name,
+                        service.icon
                     );
                 }
             }
-            updateNavigationState(tabId);
+            updateNavigationState();
         };
 
         const handlePageTitleUpdated = (e) => {
-            // Update tab title
-            tabStore.updateTab(service.id, tabId, { title: e.title });
+            // Update service name so it shows in sidebar and TabBar
+            serviceStore.updateService(service.id, { name: e.title });
 
-            if (isActive && activeTabId === tabId) {
+            if (isActive) {
                 navigationStore.updateState({ currentTitle: e.title });
             }
 
-            // Also update service name so it shows in sidebar and TabBar
-            serviceStore.updateService(service.id, { name: e.title });
-
-            // Update website visit with page title for activity analytics
-            const activeWorkspace = workspaceStore.activeWorkspace;
-            const url = webview.getURL?.();
-            if (activeWorkspace && url && url !== 'about:blank') {
-                activityTracker.trackWebsiteVisit(
-                    activeWorkspace.id,
-                    activeWorkspace.name,
-                    service.id,
-                    service.name,
-                    url,
-                    e.title
-                );
+            // Update history with new title
+            if (workspaceStore.activeWorkspace) {
+                try {
+                    const currentUrl = webviewElement.getURL?.();
+                    if (currentUrl) {
+                        historyStore.addEntry(
+                            workspaceStore.activeWorkspace.id,
+                            currentUrl,
+                            e.title,
+                            service.icon
+                        );
+                    }
+                } catch (err) {
+                    // Ignore errors
+                }
             }
 
             // Check for unread count in title (e.g., "(3) WhatsApp")
@@ -256,13 +199,8 @@
         };
 
         const handlePageFaviconUpdated = (e) => {
-            // Update tab favicon
+            // Update service icon so it shows in sidebar
             if (e.favicons && e.favicons.length > 0) {
-                tabStore.updateTab(service.id, tabId, {
-                    favicon: e.favicons[0],
-                });
-                
-                // Also update service icon so it shows in sidebar
                 serviceStore.updateService(service.id, {
                     icon: e.favicons[0]
                 });
@@ -279,76 +217,196 @@
             if (routing.action === "external") {
                 window.open(url, "_blank");
             } else if (routing.action === "new-tab") {
-                // Create new tab in this service
-                tabStore.addTab(service.id, url, "New Tab");
+                // Create new service/app
+                const newService = serviceStore.addService(
+                    {
+                        name: "New Tab",
+                        url: url,
+                        icon: null,
+                        color: "#4285f4",
+                    },
+                    null,
+                    null,
+                    null,
+                    workspaceStore.activeWorkspace?.id,
+                );
+
+                if (workspaceStore.activeWorkspace && newService) {
+                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+                }
             } else {
                 window.open(url, "_blank", "width=1000,height=800");
             }
         };
 
-        webview.addEventListener("dom-ready", handleDomReady);
-        webview.addEventListener("did-start-loading", handleDidStartLoading);
-        webview.addEventListener("did-stop-loading", handleDidStopLoading);
-        webview.addEventListener("did-navigate", handleDidNavigate);
-        webview.addEventListener("did-navigate-in-page", handleDidNavigate);
-        webview.addEventListener("page-title-updated", handlePageTitleUpdated);
-        webview.addEventListener(
-            "page-favicon-updated",
-            handlePageFaviconUpdated,
-        );
-        webview.addEventListener("new-window", handleNewWindow);
+        const handleContextMenu = (e) => {
+            e.preventDefault();
+            window.api.showContextMenu(e.params);
+        };
+
+        webviewElement.addEventListener("dom-ready", handleDomReady);
+        webviewElement.addEventListener("did-start-loading", handleDidStartLoading);
+        webviewElement.addEventListener("did-stop-loading", handleDidStopLoading);
+        webviewElement.addEventListener("did-navigate", handleDidNavigate);
+        webviewElement.addEventListener("did-navigate-in-page", handleDidNavigate);
+        webviewElement.addEventListener("page-title-updated", handlePageTitleUpdated);
+        webviewElement.addEventListener("page-favicon-updated", handlePageFaviconUpdated);
+        webviewElement.addEventListener("new-window", handleNewWindow);
+        webviewElement.addEventListener("did-reload", handleDidReload);
+        webviewElement.addEventListener("context-menu", handleContextMenu);
 
         return () => {
-            webview.removeEventListener("dom-ready", handleDomReady);
-            webview.removeEventListener(
-                "did-start-loading",
-                handleDidStartLoading,
-            );
-            webview.removeEventListener(
-                "did-stop-loading",
-                handleDidStopLoading,
-            );
-            webview.removeEventListener("did-navigate", handleDidNavigate);
-            webview.removeEventListener(
-                "did-navigate-in-page",
-                handleDidNavigate,
-            );
-            webview.removeEventListener(
-                "page-title-updated",
-                handlePageTitleUpdated,
-            );
-            webview.removeEventListener(
-                "page-favicon-updated",
-                handlePageFaviconUpdated,
-            );
-            webview.removeEventListener("new-window", handleNewWindow);
+            webviewElement.removeEventListener("dom-ready", handleDomReady);
+            webviewElement.removeEventListener("did-start-loading", handleDidStartLoading);
+            webviewElement.removeEventListener("did-stop-loading", handleDidStopLoading);
+            webviewElement.removeEventListener("did-navigate", handleDidNavigate);
+            webviewElement.removeEventListener("did-navigate-in-page", handleDidNavigate);
+            webviewElement.removeEventListener("page-title-updated", handlePageTitleUpdated);
+            webviewElement.removeEventListener("page-favicon-updated", handlePageFaviconUpdated);
+            webviewElement.removeEventListener("new-window", handleNewWindow);
+            webviewElement.removeEventListener("did-reload", handleDidReload);
+            webviewElement.removeEventListener("context-menu", handleContextMenu);
         };
     }
 
-    function handleWebviewMount(element, tab) {
-        if (element) {
-            // Set initial src ONCE programmatically, rather than reactively through HTML attribute.
-            // This prevents Svelte's view re-renders from intercepting Electron's URL logic
-            // and throwing ERR_ABORTED (-3) on websites that perform HTTP redirects.
-            if (tab.url) {
-                element.src = tab.url;
-            }
-
-            webviews = { ...webviews, [tab.id]: element };
-            loadingStates = { ...loadingStates, [tab.id]: true };
-            domReadyStates = { ...domReadyStates, [tab.id]: false };
-
-            const cleanup = setupWebviewListeners(element, tab.id);
-
-            return {
-                destroy() {
-                    cleanup();
-                    const { [tab.id]: removed, ...rest } = webviews;
-                    webviews = rest;
-                },
-            };
+    // Webview Registry Pattern Implementation
+    onMount(() => {
+        // Get or create webview from registry
+        let webviewElement = webviewRegistry.get(service.id);
+        
+        if (!webviewElement) {
+            // Create new webview
+            webviewElement = document.createElement('webview');
+            webviewElement.src = service.url;
+            webviewElement.partition = service.partition;
+            webviewElement.allowpopups = true;
+            webviewElement.useragent = service.userAgent || 
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0";
+            webviewElement.style.width = '100%';
+            webviewElement.style.height = '100%';
+            webviewElement.setAttribute('data-webview', 'true'); // Add identifier for dropdown detection
+            
+            // Store in registry
+            webviewRegistry.set(service.id, webviewElement);
+            
+            // Setup listeners
+            const cleanup = setupWebviewListeners(webviewElement);
+            webviewElement._cleanup = cleanup;
+            
+            loadingState = true;
+            domReadyState = false;
+        } else {
+            // Webview already exists and has listeners
+            domReadyState = true;
+            loadingState = false;
         }
-    }
+        
+        // Attach to container
+        if (container && webviewElement) {
+            // Check if webview is already attached somewhere else
+            if (webviewElement.parentNode && webviewElement.parentNode !== container) {
+                webviewElement.parentNode.removeChild(webviewElement);
+            }
+            
+            // Only attach if not already attached to this container
+            if (webviewElement.parentNode !== container) {
+                container.appendChild(webviewElement);
+            }
+            
+            webview = webviewElement;
+        }
+
+        // Listen for tab reload events from TabBar
+        const handleTabReload = (event) => {
+            const { serviceId } = event.detail;
+            if (serviceId === service.id && webview) {
+                try {
+                    webview.reload();
+                } catch (e) {
+                    console.warn("Failed to reload webview:", e);
+                }
+            }
+        };
+
+        window.addEventListener('reloadTab', handleTabReload);
+
+        // IPC handlers for context menu actions
+        const handleOpenLinkNewTab = (url) => {
+            if (!url) return;
+            
+            // Create new service/app
+            const newService = serviceStore.addService(
+                {
+                    name: "New Tab",
+                    url: url,
+                    icon: null,
+                    color: "#4285f4",
+                },
+                null,
+                null,
+                null,
+                workspaceStore.activeWorkspace?.id,
+            );
+
+            if (workspaceStore.activeWorkspace && newService) {
+                workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+            }
+        };
+
+        const handleDownloadImage = (imageUrl) => {
+            if (!imageUrl) return;
+            
+            // Trigger download by opening in external browser
+            // Or you can implement custom download logic here
+            if (webview) {
+                try {
+                    webview.downloadURL(imageUrl);
+                } catch (e) {
+                    console.warn("Failed to download image:", e);
+                }
+            }
+        };
+
+        const handleReloadWebview = () => {
+            if (webview) {
+                try {
+                    webview.reload();
+                } catch (e) {
+                    console.warn("Failed to reload webview:", e);
+                }
+            }
+        };
+
+        // Register IPC listeners
+        const removeOpenLinkListener = window.api?.onOpenLinkNewTab?.(handleOpenLinkNewTab);
+        const removeDownloadImageListener = window.api?.onDownloadImage?.(handleDownloadImage);
+        const removeReloadWebviewListener = window.api?.onReloadWebview?.(handleReloadWebview);
+
+        return () => {
+            window.removeEventListener('reloadTab', handleTabReload);
+            
+            // Cleanup IPC listeners if they exist
+            if (typeof removeOpenLinkListener === 'function') removeOpenLinkListener();
+            if (typeof removeDownloadImageListener === 'function') removeDownloadImageListener();
+            if (typeof removeReloadWebviewListener === 'function') removeReloadWebviewListener();
+        };
+    });
+
+    onDestroy(() => {
+        // Detach webview from container but DON'T destroy it
+        if (webview && webview.parentNode === container) {
+            try {
+                webview.parentNode.removeChild(webview);
+            } catch (e) {
+                // Ignore errors
+            }
+        }
+        
+        // Reset local state but keep webview in registry
+        webview = null;
+        loadingState = false;
+        domReadyState = false;
+    });
 </script>
 
 <div
@@ -356,129 +414,21 @@
     style:display={isActive ? "flex" : "none"}
     onwheel={handleWheel}
 >
-    <div class="flex-1 relative bg-gray-900">
-        {#if tabs.length === 0}
-            <!-- Empty state when no tabs -->
-            <div class="absolute inset-0 flex items-center justify-center p-8">
-                <div class="text-center w-full max-w-md">
-                    <!-- Icon -->
-                    <div class="mb-4 flex justify-center">
-                        <div
-                            class="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center"
-                        >
-                            <svg
-                                class="w-10 h-10 text-purple-400"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.5"
-                            >
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
-                                <line x1="9" y1="9" x2="9.01" y2="9"></line>
-                                <line x1="15" y1="9" x2="15.01" y2="9"></line>
-                            </svg>
-                        </div>
-                    </div>
-
-                    <!-- Text -->
-                    <h2 class="text-xl font-semibold text-white mb-6">
-                        There's nothing here, yet.
-                    </h2>
-
-                    <!-- Buttons -->
-                    <div class="flex gap-3 justify-center">
-                        <button
-                            onclick={() => serviceStore.setAddModalOpen(true)}
-                            class="group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
-                        >
-                            <Rocket
-                                size={16}
-                                class="group-hover:translate-y-[-2px] transition-transform"
-                            />
-                            Start with an app
-                        </button>
-                        <button
-                            onclick={() => {
-                                // Create a new service/app (1 app = 1 tab)
-                                const newService = serviceStore.addService(
-                                    {
-                                        name: "Browser",
-                                        url: "https://www.google.com",
-                                        icon: "https://www.google.com/favicon.ico",
-                                        color: "#4285f4",
-                                    },
-                                    null,
-                                    null,
-                                    null,
-                                    workspaceStore.activeWorkspace?.id,
-                                );
-
-                                // Add to active workspace
-                                if (workspaceStore.activeWorkspace && newService) {
-                                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
-                                }
-
-                                // Switch to the new service/app
-                                if (newService) {
-                                    serviceStore.setActive(newService.id);
-                                }
-                            }}
-                            class="group flex items-center gap-2 px-5 py-2.5 bg-purple-500/80 hover:bg-purple-600/80 text-white text-sm rounded-lg font-medium transition-all hover:scale-105"
-                        >
-                            <Plus
-                                size={16}
-                                class="group-hover:rotate-90 transition-transform"
-                            />
-                            Start with a tab
-                        </button>
-                    </div>
-                </div>
+    <div class="flex-1 relative bg-gray-50">
+        <!-- Webview container - managed by registry pattern -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div 
+            bind:this={container} 
+            class="w-full h-full" 
+            data-webview-container="true"
+        ></div>
+        
+        <!-- Chrome-style loading progress bar (top of webview) -->
+        {#if loadingState && isActive}
+            <div class="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 z-20">
+                <div class="h-full bg-blue-600 animate-pulse" style="width: 70%; animation: loading-progress 2s ease-in-out infinite;"></div>
             </div>
-        {:else}
-            {#each tabs as tab (tab.id)}
-                {@const isTabActive = activeTabId === tab.id}
-                {@const isTabLoading = loadingStates[tab.id]}
-
-                <div
-                    class="absolute inset-0 w-full h-full"
-                    style:z-index={isTabActive ? 10 : 0}
-                    style:visibility={isTabActive ? "visible" : "hidden"}
-                    style:pointer-events={isTabActive ? "auto" : "none"}
-                >
-                    {#if isTabLoading && isTabActive}
-                        <div
-                            class="absolute inset-0 flex items-center justify-center bg-gradient-to-r from-[#9d8c6b] via-black to-[#8b4a6b] z-10 pointer-events-none"
-                        >
-                            <div class="flex flex-col items-center gap-3">
-                                <div
-                                    class="w-10 h-10 rounded-xl bg-gradient-to-br from-[#9d8c6b] to-[#8b4a6b] flex items-center justify-center shadow-lg animate-pulse"
-                                >
-                                    {#if service.icon}
-                                        <img
-                                            src={service.icon}
-                                            alt=""
-                                            class="w-6 h-6 object-contain"
-                                        />
-                                    {/if}
-                                </div>
-                                <div
-                                    class="w-6 h-6 border-2 border-pink-400 border-t-transparent rounded-full animate-spin"
-                                ></div>
-                            </div>
-                        </div>
-                    {/if}
-
-                    <webview
-                        use:handleWebviewMount={tab}
-                        partition={service.partition}
-                        allowpopups="true"
-                        class="w-full h-full"
-                        useragent={service.userAgent ||
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"}
-                    ></webview>
-                </div>
-            {/each}
         {/if}
     </div>
 
@@ -486,12 +436,29 @@
     {#if showZoomIndicator}
         <div class="absolute top-4 right-4 z-50 pointer-events-none">
             <div
-                class="bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-2xl border border-gray-700 px-4 py-2"
+                class="bg-white backdrop-blur-sm rounded-lg shadow-2xl border border-gray-200 px-4 py-2"
             >
-                <div class="text-white font-medium text-sm">
+                <div class="text-gray-900 font-medium text-sm">
                     {getZoomPercent()}%
                 </div>
             </div>
         </div>
     {/if}
 </div>
+
+<style>
+    @keyframes loading-progress {
+        0% {
+            width: 0%;
+            opacity: 1;
+        }
+        50% {
+            width: 70%;
+            opacity: 0.8;
+        }
+        100% {
+            width: 100%;
+            opacity: 0;
+        }
+    }
+</style>

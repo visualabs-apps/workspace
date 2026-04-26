@@ -1,241 +1,310 @@
 <script>
     import { authStore } from "../lib/auth.svelte.js";
-    import { ExternalLink, Loader2, RefreshCw, X } from "lucide-svelte";
+    import { Loader2, Eye, EyeOff, AlertCircle, Mail, Lock } from "lucide-svelte";
     import WindowControls from "./WindowControls.svelte";
-    import { onMount } from "svelte";
+    import EmailSuggestionDropdown from "./EmailSuggestionDropdown.svelte";
 
-    // Get environment variable for Laravel URL
-    const LARAVEL_URL = import.meta.env.VITE_LARAVEL_URL || "https://app.v-leb.local";
+    let email = $state('');
+    let password = $state('');
+    let showPassword = $state(false);
+    let isLoading = $state(false);
+    let errorMessage = $state('');
+    let errorType = $state('error');
+    let showEmailSuggestions = $state(false);
+    let isEmailFocused = $state(false);
 
-    let isWaitingForAuth = $state(false);
-    let authCheckInterval = null;
-
-    function openLoginUrl() {
-        const loginUrl = `${LARAVEL_URL}/login?electron=1`;
-        console.log('Opening login URL:', loginUrl);
+    async function handleLogin(event) {
+        event?.preventDefault();
         
-        if (window.api?.openExternal) {
-            window.api.openExternal(loginUrl);
-        } else {
-            window.open(loginUrl, "_blank");
+        errorMessage = '';
+        
+        if (!email.trim()) {
+            showError('Email wajib diisi', 'warning');
+            return;
         }
-    }
-
-    function handleLogin() {
-        isWaitingForAuth = true;
-        openLoginUrl();
-        startAuthCheck();
-    }
-
-    function handleOpenAgain() {
-        openLoginUrl();
-    }
-
-    function handleCancel() {
-        isWaitingForAuth = false;
-        stopAuthCheck();
-    }
-
-    // Handle authentication success from deep link
-    async function handleAuthSuccess(data) {
-        console.log('Deep link auth success received:', data);
         
+        if (!password.trim()) {
+            showError('Password wajib diisi', 'warning');
+            return;
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email.trim())) {
+            showError('Masukkan alamat email yang valid', 'warning');
+            return;
+        }
+
+        isLoading = true;
+
         try {
-            // Store the token first before trying to fetch user data
-            if (data.token) {
-                console.log('Storing token from deep link...');
-                await authStore.setLoggedIn({ name: 'Loading...' }, data.token, 3600); // Temporary user data
-                
-                // Now fetch the actual user data
-                const success = await authStore.fetchUser();
-                if (success) {
-                    console.log('User data fetched successfully');
-                    isWaitingForAuth = false;
-                    stopAuthCheck();
+            const result = await authStore.login(email.trim(), password);
+            if (!result.success) {
+                const error = result.error || 'Login gagal';
+                if (error.includes('Kredensial salah') || error.includes('wrong') || error.includes('invalid')) {
+                    showError('Email atau password salah. Silakan periksa kredensial Anda dan coba lagi.', 'error');
+                } else if (error.includes('network') || error.includes('connection')) {
+                    showError('Kesalahan koneksi. Silakan periksa koneksi internet Anda dan coba lagi.', 'error');
+                } else if (error.includes('timeout')) {
+                    showError('Permintaan timeout. Silakan coba lagi.', 'error');
                 } else {
-                    console.error('Failed to fetch user data after storing token');
-                    // Token was stored, so try to use it anyway
-                    isWaitingForAuth = false;
-                    stopAuthCheck();
+                    showError(error, 'error');
                 }
-            } else {
-                console.error('No token in deep link data');
-                handleAuthError({ error: 'No token received' });
             }
         } catch (error) {
-            console.error('Error handling auth success:', error);
-            handleAuthError({ error: error.message });
+            console.error('Login error:', error);
+            showError('Terjadi kesalahan yang tidak terduga. Silakan coba lagi.', 'error');
+        } finally {
+            isLoading = false;
         }
     }
 
-    // Handle authentication error from deep link
-    function handleAuthError(data) {
-        console.error('Deep link auth error received:', data);
-        isWaitingForAuth = false;
-        stopAuthCheck();
-    }
-
-    // Fallback: Check authentication status periodically
-    function startAuthCheck() {
-        console.log('Starting authentication polling...');
+    function showError(message, type = 'error') {
+        errorMessage = message;
+        errorType = type;
         
-        authCheckInterval = setInterval(async () => {
-            try {
-                // Check if user is authenticated by trying to fetch user data
-                const success = await authStore.fetchUser();
-                if (success) {
-                    console.log('Authentication detected via polling');
-                    isWaitingForAuth = false;
-                    stopAuthCheck();
+        if (type !== 'error') {
+            setTimeout(() => {
+                if (errorMessage === message) {
+                    errorMessage = '';
                 }
-            } catch (error) {
-                // Continue checking - this is expected while not authenticated
+            }, 5000);
+        }
+    }
+
+    function handleKeyPress(event) {
+        // Don't submit form if suggestions are open and user is navigating
+        if (showEmailSuggestions && ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
+            return; // Let EmailSuggestionDropdown handle these
+        }
+        
+        if (event.key === 'Enter') {
+            handleLogin();
+        }
+    }
+
+    function togglePasswordVisibility() {
+        showPassword = !showPassword;
+    }
+
+    function clearError() {
+        errorMessage = '';
+    }
+
+    // Email suggestion handlers
+    function handleEmailFocus() {
+        isEmailFocused = true;
+        showEmailSuggestions = true;
+    }
+
+    function handleEmailBlur() {
+        // Delay hiding to allow click on dropdown
+        setTimeout(() => {
+            isEmailFocused = false;
+            showEmailSuggestions = false;
+        }, 150);
+    }
+
+    function handleEmailInput() {
+        showEmailSuggestions = isEmailFocused;
+        clearError();
+    }
+
+    function handleEmailSelect(selectedEmail) {
+        email = selectedEmail;
+        showEmailSuggestions = false;
+        
+        // Focus password field after email selection
+        setTimeout(() => {
+            const passwordInput = document.getElementById('password');
+            if (passwordInput) {
+                passwordInput.focus();
             }
-        }, 2000);
+        }, 100);
     }
 
-    function stopAuthCheck() {
-        if (authCheckInterval) {
-            console.log('Stopping authentication polling');
-            clearInterval(authCheckInterval);
-            authCheckInterval = null;
-        }
+    function handleSuggestionsClose() {
+        showEmailSuggestions = false;
     }
-
-    onMount(() => {
-        console.log('LoginPage mounted, setting up auth listeners');
-        
-        // Listen for authentication events from Electron main process
-        if (window.api?.onAuthSuccess) {
-            console.log('Setting up deep link auth success listener');
-            window.api.onAuthSuccess(handleAuthSuccess);
-        } else {
-            console.log('No deep link auth success handler available');
-        }
-        
-        if (window.api?.onAuthError) {
-            console.log('Setting up deep link auth error listener');
-            window.api.onAuthError(handleAuthError);
-        } else {
-            console.log('No deep link auth error handler available');
-        }
-
-        // Cleanup on unmount
-        return () => {
-            stopAuthCheck();
-        };
-    });
 </script>
 
-<div class="min-h-screen w-full flex flex-col bg-gradient-to-r from-[#9d8c6b] via-black to-[#8b4a6b] p-0">
+<div class="h-screen w-screen flex bg-gray-50 overflow-hidden">
     <!-- Custom Title Bar -->
     <div
-        class="w-full h-[30px] shrink-0 flex items-center bg-transparent z-50 select-none"
+        class="absolute top-0 left-0 right-0 w-full h-[30px] shrink-0 flex items-center bg-transparent z-50 select-none"
         style="-webkit-app-region: drag"
     >
         <div class="flex-1"></div>
         <div style="-webkit-app-region: no-drag">
-            <WindowControls variant="dark" />
+            <WindowControls variant="light" />
         </div>
     </div>
 
-    <!-- Login Content -->
-    <div class="flex-1 flex items-center justify-center p-4">
-        <div class="w-full max-w-md">
-            <!-- Logo/Brand -->
-            <div class="text-center mb-8">
-                <div class="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-[#9d8c6b] to-[#8b4a6b] mb-6 shadow-2xl shadow-black/50">
-                    <svg
-                        class="w-10 h-10 text-white"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                    >
-                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-                        <line x1="8" y1="21" x2="16" y2="21"></line>
-                        <line x1="12" y1="17" x2="12" y2="21"></line>
-                    </svg>
-                </div>
-                <h1 class="text-4xl font-bold text-white mb-3">
-                    V-LEB Workspace
+    <!-- Left Side - Login Form -->
+    <div class="w-1/2 h-full flex items-center justify-center p-12 pt-20">
+        <div class="w-full max-w-sm">
+            <!-- Header -->
+            <div class="mb-8">
+                <h1 class="text-2xl font-semibold text-gray-900 mb-8">
+                    Selamat Datang di VisualBox
                 </h1>
-                <p class="text-gray-300 text-lg">
-                    Workspace Management Platform
-                </p>
             </div>
 
-            <!-- Login Card -->
-            <div class="bg-black/40 backdrop-blur-xl rounded-2xl border border-white/10 p-10 shadow-2xl">
-                <div class="text-center space-y-6">
-                    <div>
-                        <h2 class="text-2xl font-semibold text-white mb-2">
-                            Welcome Back
-                        </h2>
-                        <p class="text-gray-400">
-                            Sign in securely through your browser
-                        </p>
+            <!-- Error Message -->
+            {#if errorMessage}
+                <div class="mb-6 rounded-lg p-4 text-sm flex items-start gap-3 {
+                    errorType === 'error' ? 'bg-red-50 border border-red-200 text-red-700' :
+                    errorType === 'warning' ? 'bg-yellow-50 border border-yellow-200 text-yellow-700' :
+                    'bg-blue-50 border border-blue-200 text-blue-700'
+                }">
+                    <AlertCircle class="w-4 h-4 mt-0.5 shrink-0" />
+                    <div class="flex-1">
+                        <p>{errorMessage}</p>
+                        {#if errorType === 'error'}
+                            <button 
+                                onclick={clearError}
+                                class="text-xs text-red-600 hover:text-red-700 mt-1 underline"
+                            >
+                                Tutup
+                            </button>
+                        {/if}
                     </div>
-
-                    {#if isWaitingForAuth}
-                        <!-- Waiting for browser auth -->
-                        <div class="py-6 space-y-5">
-                            <Loader2 class="w-12 h-12 animate-spin text-[#9d8c6b] mx-auto" />
-                            <div class="space-y-1">
-                                <p class="text-white font-medium">
-                                    Waiting for authentication...
-                                </p>
-                                <p class="text-gray-400 text-sm">
-                                    Complete the login in the browser window.
-                                </p>
-                                <p class="text-gray-500 text-xs">
-                                    The app will automatically detect when you're logged in.
-                                </p>
-                            </div>
-
-                            <!-- Re-open browser button -->
-                            <button
-                                onclick={handleOpenAgain}
-                                class="flex items-center justify-center gap-2 mx-auto px-4 py-2 rounded-lg text-sm text-[#c4aa84] hover:text-white border border-[#9d8c6b]/40 hover:border-[#9d8c6b]/70 hover:bg-white/5 transition-all duration-200"
-                            >
-                                <RefreshCw class="w-3.5 h-3.5" />
-                                Open browser again
-                            </button>
-                        </div>
-
-                        <!-- Cancel button -->
-                        <div class="border-t border-white/10 pt-4">
-                            <button
-                                onclick={handleCancel}
-                                class="flex items-center justify-center gap-1.5 mx-auto text-xs text-gray-500 hover:text-gray-300 transition-colors duration-200"
-                            >
-                                <X class="w-3 h-3" />
-                                Cancel sign-in
-                            </button>
-                        </div>
-                    {:else}
-                        <!-- Initial login button -->
-                        <button
-                            onclick={handleLogin}
-                            class="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-[#9d8c6b] to-[#8b4a6b] hover:from-[#b09a7a] hover:to-[#9d5a7a] text-white font-semibold rounded-xl text-lg shadow-lg shadow-black/50 transition-all duration-200 transform hover:scale-105"
-                        >
-                            <ExternalLink class="w-6 h-6" />
-                            <span>Login with V-LEB</span>
-                        </button>
-
-                        <div class="pt-4 border-t border-white/10">
-                            <p class="text-gray-500 text-sm">
-                                You will be redirected to your browser for secure authentication
-                            </p>
-                        </div>
-                    {/if}
                 </div>
-            </div>
+            {/if}
 
-            <!-- Footer -->
-            <p class="text-center text-gray-500 text-sm mt-6">
-                V-LEB Workspace &copy; 2026 • Secure Authentication
-            </p>
+            <!-- Login Form -->
+            <form class="space-y-6" onsubmit={handleLogin}>
+                <!-- Email Field -->
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700 mb-2">
+                        Email
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <Mail class="h-4 w-4 text-gray-400" />
+                        </div>
+                        <input
+                            id="email"
+                            type="email"
+                            bind:value={email}
+                            onkeypress={handleKeyPress}
+                            onfocus={handleEmailFocus}
+                            onblur={handleEmailBlur}
+                            oninput={handleEmailInput}
+                            disabled={isLoading}
+                            class="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 text-sm"
+                            placeholder="john@example.com"
+                            autocomplete="email"
+                            required
+                        />
+                        
+                        <!-- Email Suggestions Dropdown -->
+                        <EmailSuggestionDropdown 
+                            query={email}
+                            isVisible={showEmailSuggestions}
+                            onSelect={handleEmailSelect}
+                            onClose={handleSuggestionsClose}
+                        />
+                    </div>
+                </div>
+
+                <!-- Password Field -->
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700 mb-2">
+                        Password
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <Lock class="h-4 w-4 text-gray-400" />
+                        </div>
+                        <input
+                            id="password"
+                            type={showPassword ? 'text' : 'password'}
+                            bind:value={password}
+                            onkeypress={handleKeyPress}
+                            oninput={clearError}
+                            disabled={isLoading}
+                            class="w-full pl-10 pr-12 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 text-sm"
+                            placeholder="••••••••"
+                            autocomplete="current-password"
+                            required
+                        />
+                        <button
+                            type="button"
+                            onclick={togglePasswordVisibility}
+                            disabled={isLoading}
+                            class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                            aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+                        >
+                            {#if showPassword}
+                                <EyeOff class="w-4 h-4" />
+                            {:else}
+                                <Eye class="w-4 h-4" />
+                            {/if}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Login Button -->
+                <button
+                    type="submit"
+                    disabled={isLoading || !email.trim() || !password.trim()}
+                    class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+                >
+                    {#if isLoading}
+                        <Loader2 class="w-4 h-4 animate-spin" />
+                        <span>Masuk...</span>
+                    {:else}
+                        <span>Masuk</span>
+                    {/if}
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Right Side - Illustration -->
+    <div class="w-1/2 h-full relative overflow-hidden">
+        <div class="w-full h-full rounded-tl-[6rem] overflow-hidden relative">
+            <img 
+                src="/login_img.png" 
+                alt="Login illustration" 
+                class="w-full h-full object-cover"
+            />
+            <!-- Smooth opacity overlay for bottom left -->
+            <div class="absolute bottom-0 left-0 w-48 h-48 pointer-events-none">
+                <div class="w-full h-full bg-gradient-radial-opacity"></div>
+            </div>
         </div>
     </div>
 </div>
+
+<style>
+    /* Clean modern styling */
+    input {
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    input:focus {
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    
+    button[type="submit"] {
+        transition: background-color 0.2s ease, transform 0.1s ease;
+    }
+    
+    button[type="submit"]:hover:not(:disabled) {
+        transform: translateY(-1px);
+    }
+    
+    button[type="submit"]:active:not(:disabled) {
+        transform: translateY(0px);
+    }
+    
+    /* Custom radial gradient for smooth opacity effect */
+    .bg-gradient-radial-opacity {
+        background: radial-gradient(circle at bottom left, 
+            rgba(255, 255, 255, 0.9) 0%, 
+            rgba(255, 255, 255, 0.6) 30%, 
+            rgba(255, 255, 255, 0.3) 60%, 
+            transparent 100%);
+    }
+</style>

@@ -1,80 +1,160 @@
 // Download Manager Store
-// Manages all downloads across all services
+// Manages all downloads across all services using SQLite
 
 import { v4 as uuidv4 } from 'uuid';
+import { workspaceStore } from './workspaces.svelte.js';
 
 function createDownloadStore() {
-    // Load from localStorage
-    let storedDownloads = [];
-    try {
-        const item = localStorage.getItem('vleb_downloads');
-        if (item) {
-            storedDownloads = JSON.parse(item);
-            // Filter out completed downloads older than 7 days
-            const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-            storedDownloads = storedDownloads.filter(d =>
-                d.state !== 'completed' || d.endTime > weekAgo
-            );
-        }
-    } catch (e) {
-        console.error('Failed to load downloads', e);
+    // State
+    let downloads = $state([]);
+    let isDownloadPanelOpen = $state(false);
+    let isLoaded = $state(false);
+
+    // Load downloads from SQLite on init
+    if (typeof window !== 'undefined' && window.api) {
+        // Load downloads when workspace changes
+        $effect.root(() => {
+            $effect(() => {
+                const workspace = workspaceStore.activeWorkspace;
+                if (workspace && !isLoaded) {
+                    loadDownloads(workspace.id);
+                }
+            });
+        });
     }
 
-    // State
-    let downloads = $state(storedDownloads);
-    let isDownloadPanelOpen = $state(false);
+    // Load downloads from SQLite
+    async function loadDownloads(profileId = null) {
+        try {
+            const result = await window.api.db.getDownloads(profileId);
+            if (result.success) {
+                downloads = result.downloads.map(d => ({
+                    id: d.id,
+                    profileId: d.profile_id,
+                    filename: d.filename,
+                    url: d.url,
+                    savePath: d.save_path,
+                    totalBytes: d.total_bytes,
+                    receivedBytes: d.received_bytes,
+                    state: d.state,
+                    startTime: d.start_time,
+                    endTime: d.end_time,
+                    mimeType: d.mime_type,
+                    fileExists: d.file_exists === 1,
+                    createdAt: d.created_at
+                }));
+                isLoaded = true;
+            }
+        } catch (error) {
+            console.error('Failed to load downloads:', error);
+        }
+    }
+
+    // Save download to SQLite
+    async function saveDownload(download) {
+        try {
+            const result = await window.api.db.saveDownload({
+                id: download.id,
+                profileId: download.profileId || null,
+                filename: download.filename,
+                url: download.url,
+                savePath: download.savePath || '',
+                totalBytes: download.totalBytes || 0,
+                receivedBytes: download.receivedBytes || 0,
+                state: download.state,
+                startTime: download.startTime,
+                endTime: download.endTime || null,
+                mimeType: download.mimeType || '',
+                fileExists: download.fileExists !== false,
+                createdAt: download.createdAt || Date.now()
+            });
+            return result.success;
+        } catch (error) {
+            console.error('Failed to save download:', error);
+            return false;
+        }
+    }
 
     // Initial listener setup
     if (typeof window !== 'undefined' && window.api) {
         window.api.onDownloadStarted((data) => {
             const id = uuidv4();
-            // Store the filename -> id mapping temporarily if needed, 
-            // but here we just create a new entry since 'filename' + 'startTime' is unique enough
-            // Or better, we can assume 'data' is fresh.
-
-            // Check if we already have this download (by url and close start time)
-            const existing = downloads.find(d => d.url === data.url && Math.abs(d.startTime - data.startTime) < 1000);
-            if (!existing) {
-                const download = {
-                    id: id,
-                    filename: data.filename,
-                    url: data.url,
-                    savePath: '',
-                    totalBytes: data.totalBytes,
-                    receivedBytes: 0,
-                    state: 'progressing',
-                    startTime: data.startTime || Date.now(),
-                    endTime: null,
-                    speed: 0,
-                    serviceId: null, // Hard to map back to serviceId without more IPC context
-                    serviceName: 'Download',
-                    mimeType: '',
-                    canResume: true
-                };
-                downloads = [download, ...downloads];
-                isDownloadPanelOpen = true; // Auto open panel
+            const profileId = workspaceStore.activeWorkspace?.id || null;
+            
+            // Check if we already have an active download with same filename
+            const existingActive = downloads.find(d => 
+                d.filename === data.filename && 
+                (d.state === 'progressing' || d.state === 'paused')
+            );
+            
+            if (existingActive) {
+                // Cancel the existing download first
+                console.log('Replacing existing download:', data.filename);
             }
+            
+            const download = {
+                id: id,
+                profileId: profileId,
+                filename: data.filename,
+                url: data.url,
+                savePath: data.savePath || '',
+                totalBytes: data.totalBytes,
+                receivedBytes: 0,
+                state: 'progressing',
+                startTime: data.startTime || Date.now(),
+                endTime: null,
+                mimeType: '',
+                fileExists: true,
+                createdAt: Date.now()
+            };
+            
+            // Add to memory
+            downloads = [download, ...downloads];
+            
+            // Save to SQLite
+            saveDownload(download);
         });
 
         window.api.onDownloadProgress((data) => {
             // Find download by filename (simplest approx for now)
-            const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
+            const download = downloads.find(d => d.filename === data.filename && (d.state === 'progressing' || d.state === 'paused'));
             if (download) {
-                // Calculate speed
-                const now = Date.now();
-                // Simple speed calc could go here
-
                 const index = downloads.indexOf(download);
+                const updated = {
+                    ...download,
+                    receivedBytes: data.receivedBytes,
+                    totalBytes: data.totalBytes,
+                    state: data.state
+                };
+                
                 downloads = [
                     ...downloads.slice(0, index),
-                    {
-                        ...download,
-                        receivedBytes: data.receivedBytes,
-                        totalBytes: data.totalBytes,
-                        state: data.state
-                    },
+                    updated,
                     ...downloads.slice(index + 1)
                 ];
+                
+                // Save to SQLite
+                saveDownload(updated);
+            }
+        });
+
+        window.api.onDownloadPaused((data) => {
+            const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
+            if (download) {
+                const index = downloads.indexOf(download);
+                const updated = {
+                    ...download,
+                    state: 'paused'
+                };
+                
+                downloads = [
+                    ...downloads.slice(0, index),
+                    updated,
+                    ...downloads.slice(index + 1)
+                ];
+                
+                // Save to SQLite
+                saveDownload(updated);
             }
         });
 
@@ -82,25 +162,55 @@ function createDownloadStore() {
             const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
             if (download) {
                 const index = downloads.indexOf(download);
+                const updated = {
+                    ...download,
+                    state: 'completed',
+                    savePath: data.savePath,
+                    endTime: Date.now(),
+                    receivedBytes: download.totalBytes, // Ensure full bar
+                    fileExists: true
+                };
+                
                 downloads = [
                     ...downloads.slice(0, index),
-                    {
-                        ...download,
-                        state: 'completed',
-                        savePath: data.savePath,
-                        endTime: Date.now(),
-                        receivedBytes: download.totalBytes // Ensure full bar
-                    },
+                    updated,
                     ...downloads.slice(index + 1)
                 ];
+                
+                // Save to SQLite
+                saveDownload(updated);
 
-                // Notify user
+                // Get profile name for notification
+                const profileName = workspaceStore.activeWorkspace?.name || 'Unknown Profile';
+                
+                // Notify user with profile info
                 if (window.api.showNotification) {
                     window.api.showNotification({
                         title: 'Download Completed',
-                        body: `${data.filename} has finished downloading.`
+                        body: `${data.filename} from profile "${profileName}" has finished downloading.`
                     });
                 }
+            }
+        });
+
+        window.api.onDownloadCancelled((data) => {
+            const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
+            if (download) {
+                const index = downloads.indexOf(download);
+                const updated = {
+                    ...download,
+                    state: 'cancelled',
+                    endTime: Date.now()
+                };
+                
+                downloads = [
+                    ...downloads.slice(0, index),
+                    updated,
+                    ...downloads.slice(index + 1)
+                ];
+                
+                // Save to SQLite
+                saveDownload(updated);
             }
         });
 
@@ -108,24 +218,23 @@ function createDownloadStore() {
             const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
             if (download) {
                 const index = downloads.indexOf(download);
+                const updated = {
+                    ...download,
+                    state: 'failed',
+                    endTime: Date.now()
+                };
+                
                 downloads = [
                     ...downloads.slice(0, index),
-                    {
-                        ...download,
-                        state: 'failed' // or 'interrupted'
-                    },
+                    updated,
                     ...downloads.slice(index + 1)
                 ];
+                
+                // Save to SQLite
+                saveDownload(updated);
             }
         });
     }
-
-    // Auto-save to localStorage
-    $effect.root(() => {
-        $effect(() => {
-            localStorage.setItem('vleb_downloads', JSON.stringify(downloads));
-        });
-    });
 
     return {
         get downloads() { return downloads; },
@@ -136,6 +245,10 @@ function createDownloadStore() {
             return downloads.filter(d => d.state === 'completed');
         },
         get isDownloadPanelOpen() { return isDownloadPanelOpen; },
+        get isLoaded() { return isLoaded; },
+
+        // Load downloads from SQLite
+        loadDownloads,
 
         toggleDownloadPanel() {
             isDownloadPanelOpen = !isDownloadPanelOpen;
@@ -149,85 +262,98 @@ function createDownloadStore() {
             isDownloadPanelOpen = false;
         },
 
-        // Add a new download
-        addDownload(item) {
-            const download = {
-                id: uuidv4(),
-                filename: item.filename || 'Unknown',
-                url: item.url,
-                savePath: item.savePath,
-                totalBytes: item.totalBytes || 0,
-                receivedBytes: 0,
-                state: 'progressing', // progressing, paused, completed, cancelled, interrupted
-                startTime: Date.now(),
-                endTime: null,
-                speed: 0,
-                serviceId: item.serviceId || null,
-                serviceName: item.serviceName || 'Unknown',
-                mimeType: item.mimeType || '',
-                canResume: true
-            };
-            downloads = [download, ...downloads];
-            return download;
-        },
-
-        // Update download progress
-        updateDownload(id, updates) {
+        // Update download
+        async updateDownload(id, updates) {
             const index = downloads.findIndex(d => d.id === id);
             if (index !== -1) {
+                const updated = { ...downloads[index], ...updates };
                 downloads = [
                     ...downloads.slice(0, index),
-                    { ...downloads[index], ...updates },
+                    updated,
                     ...downloads.slice(index + 1)
                 ];
+                await saveDownload(updated);
             }
         },
 
-        // Complete download
-        completeDownload(id) {
-            this.updateDownload(id, {
-                state: 'completed',
-                endTime: Date.now(),
-                receivedBytes: downloads.find(d => d.id === id)?.totalBytes || 0
-            });
-        },
-
-        // Pause download
-        pauseDownload(id) {
-            this.updateDownload(id, { state: 'paused' });
-        },
-
-        // Resume download
-        resumeDownload(id) {
-            this.updateDownload(id, { state: 'progressing' });
-        },
-
-        // Cancel download
-        cancelDownload(id) {
-            this.updateDownload(id, {
-                state: 'cancelled',
-                endTime: Date.now()
-            });
-        },
-
         // Remove download from list
-        removeDownload(id) {
-            downloads = downloads.filter(d => d.id !== id);
+        async removeDownload(id) {
+            try {
+                const result = await window.api.db.deleteDownload(id);
+                if (result.success) {
+                    downloads = downloads.filter(d => d.id !== id);
+                }
+                return result.success;
+            } catch (error) {
+                console.error('Failed to remove download:', error);
+                return false;
+            }
         },
 
         // Clear completed downloads
-        clearCompleted() {
-            downloads = downloads.filter(d => d.state !== 'completed');
+        async clearCompleted(profileId = null) {
+            try {
+                const toRemove = downloads.filter(d => 
+                    d.state === 'completed' && 
+                    (profileId === null || d.profileId === profileId)
+                );
+                
+                for (const download of toRemove) {
+                    await window.api.db.deleteDownload(download.id);
+                }
+                
+                downloads = downloads.filter(d => 
+                    d.state !== 'completed' || 
+                    (profileId !== null && d.profileId !== profileId)
+                );
+                
+                return true;
+            } catch (error) {
+                console.error('Failed to clear completed downloads:', error);
+                return false;
+            }
         },
 
         // Clear all downloads
-        clearAll() {
-            downloads = [];
+        async clearAll(profileId = null) {
+            try {
+                const result = await window.api.db.clearDownloads(profileId);
+                if (result.success) {
+                    if (profileId === null || profileId === 'all') {
+                        downloads = [];
+                    } else {
+                        downloads = downloads.filter(d => d.profileId !== profileId);
+                    }
+                }
+                return result.success;
+            } catch (error) {
+                console.error('Failed to clear downloads:', error);
+                return false;
+            }
         },
 
         // Get download by ID
         getDownload(id) {
             return downloads.find(d => d.id === id);
+        },
+
+        // Check if file exists
+        async checkFileExists(id) {
+            const download = downloads.find(d => d.id === id);
+            if (!download || !download.savePath) return false;
+            
+            try {
+                const result = await window.api.db.fileExists(download.savePath);
+                if (result.success) {
+                    // Update file exists status
+                    await this.updateDownload(id, { fileExists: result.exists });
+                    return result.exists;
+                }
+                return false;
+            } catch (error) {
+                console.error('Failed to check file exists:', error);
+                return false;
+            }
         }
     };
 }

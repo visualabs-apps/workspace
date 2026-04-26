@@ -1,6 +1,7 @@
 // Auth Store using Svelte 5 Runes
-import { login as apiLogin, logout as apiLogout, checkToken, isAuthenticated, getStoredUser, clearAuth } from './api.js';
+import { login as apiLogin, logout as apiLogout, checkToken, isAuthenticated, getStoredUser, clearAuth } from './nativeApi.js';
 import { secureStorage } from './secureStorage.js';
+import { emailSuggestionsStore } from './emailSuggestions.svelte.js';
 
 function createAuthStore() {
     // Initialize state
@@ -69,14 +70,42 @@ function createAuthStore() {
                 if (result.success) {
                     user = result.user;
                     isLoggedIn = true;
+                    
+                    // Save email to suggestions for future logins
+                    emailSuggestionsStore.addEmail(email);
+                    
                     return { success: true };
                 } else {
-                    error = result.error;
-                    return { success: false, error: result.error };
+                    // Provide more user-friendly error messages
+                    let friendlyError = result.error;
+                    
+                    if (result.error?.includes('Kredensial salah')) {
+                        friendlyError = 'Invalid email or password. Please check your credentials.';
+                    } else if (result.error?.includes('network') || result.error?.includes('ECONNREFUSED')) {
+                        friendlyError = 'Unable to connect to server. Please check your connection.';
+                    } else if (result.error?.includes('timeout')) {
+                        friendlyError = 'Request timed out. Please try again.';
+                    } else if (result.error?.includes('401')) {
+                        friendlyError = 'Authentication failed. Please check your credentials.';
+                    } else if (result.error?.includes('500')) {
+                        friendlyError = 'Server error. Please try again later.';
+                    }
+                    
+                    error = friendlyError;
+                    return { success: false, error: friendlyError };
                 }
             } catch (err) {
-                error = err.message;
-                return { success: false, error: err.message };
+                console.error('Login error:', err);
+                let friendlyError = 'An unexpected error occurred. Please try again.';
+                
+                if (err.message?.includes('network') || err.message?.includes('fetch')) {
+                    friendlyError = 'Network error. Please check your internet connection.';
+                } else if (err.message?.includes('timeout')) {
+                    friendlyError = 'Request timed out. Please try again.';
+                }
+                
+                error = friendlyError;
+                return { success: false, error: friendlyError };
             } finally {
                 isLoading = false;
             }
@@ -106,26 +135,6 @@ function createAuthStore() {
                 const result = await checkToken();
                 if (result.success) {
                     user = result.user;
-                    isLoggedIn = true; // Ensure logged in state
-                    localStorage.setItem('auth_user', JSON.stringify(result.user));
-                    return true;
-                } else {
-                    return false;
-                }
-            } catch (err) {
-                console.error('Fetch user error:', err);
-                return false;
-            }
-        },
-
-        /**
-         * Fetch user data specifically (useful after deep link login)
-         */
-        async fetchUser() {
-            try {
-                const result = await checkToken();
-                if (result.success) {
-                    user = result.user;
                     isLoggedIn = true;
                     localStorage.setItem('auth_user', JSON.stringify(result.user));
                     return true;
@@ -144,27 +153,6 @@ function createAuthStore() {
         updateUser(newUserData) {
             user = newUserData;
             localStorage.setItem('auth_user', JSON.stringify(newUserData));
-        },
-
-        /**
-         * Set login state (for OAuth callback)
-         */
-        async setLoggedIn(userData, token, expiresIn) {
-            console.log('Setting logged in state with token:', token ? 'Token received' : 'No token');
-            
-            try {
-                await secureStorage.setAuthToken(token);
-                localStorage.setItem('auth_token', token); // Keep explicit local storage for non-sensitive fallback if needed
-                localStorage.setItem('auth_user', JSON.stringify(userData));
-                localStorage.setItem('token_expires_at', Date.now() + (expiresIn * 1000));
-                user = userData;
-                isLoggedIn = true;
-                
-                console.log('Login state set successfully');
-            } catch (error) {
-                console.error('Error setting login state:', error);
-                throw error;
-            }
         },
 
         /**

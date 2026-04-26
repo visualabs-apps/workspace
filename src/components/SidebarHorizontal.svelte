@@ -53,7 +53,7 @@
     <button
         onclick={handleAddWorkspace}
         class="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all shrink-0 opacity-60 hover:opacity-100"
-        title="Add Workspace"
+        title="Add Profile"
     >
         <Plus size={16} strokeWidth={2.5} />
     </button>

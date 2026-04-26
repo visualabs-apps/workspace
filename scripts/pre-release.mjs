@@ -34,7 +34,7 @@ const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const currentVersion = pkg.version;
 
 console.log('\n╔══════════════════════════════════════════╗');
-console.log('║        🚀  V-LEB Workspace Release        ║');
+console.log('║        🚀  VisualBox Release        ║');
 console.log('╚══════════════════════════════════════════╝\n');
 console.log(`📌 Current version: ${currentVersion}\n`);
 

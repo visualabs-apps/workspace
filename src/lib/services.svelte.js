@@ -36,6 +36,7 @@ function createServiceStore() {
 
     // Core state using runes
     let services = $state(storedServices);
+    let servicesMap = $state(new Map(storedServices.map(s => [s.id, s])));
     let activeServiceId = $state(storedServices.length > 0 ? storedServices[0].id : null);
     let isSideBarCollapsed = $state(false);
     let isAddModalOpen = $state(false);
@@ -64,15 +65,18 @@ function createServiceStore() {
         tabStore.initServiceTabs(service.id, service.url, service.name);
     });
 
-    // Save to localStorage effect (simple approach for now)
+    // Save to localStorage effect and sync servicesMap
     $effect.root(() => {
         $effect(() => {
             localStorage.setItem('rambox_services', JSON.stringify(services));
+            // Keep servicesMap in sync with services array
+            servicesMap = new Map(services.map(s => [s.id, s]));
         });
     });
 
     return {
         get services() { return services },
+        get servicesMap() { return servicesMap },
         get activeServiceId() { return activeServiceId },
         get isSideBarCollapsed() { return isSideBarCollapsed },
         get isAddModalOpen() { return isAddModalOpen },
@@ -139,8 +143,17 @@ function createServiceStore() {
         },
 
         reorderServices: (newOrder) => {
-            // newOrder is array of service objects
-            services = newOrder;
+            // Only update if the order actually changed
+            const currentIds = services.map(s => s.id);
+            const newIds = newOrder.map(s => s.id);
+            
+            // Check if order is actually different
+            const orderChanged = !currentIds.every((id, index) => id === newIds[index]);
+            
+            if (orderChanged) {
+                // Use the exact same service objects, just reordered
+                services = newOrder;
+            }
         }
     };
 }

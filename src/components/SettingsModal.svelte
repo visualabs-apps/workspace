@@ -1,6 +1,6 @@
 <script>
     import { authStore } from "../lib/auth.svelte.js";
-    import { updateProfile } from "../lib/api.js";
+    import { updateProfile } from "../lib/nativeApi.js";
     import { X, User, Mail, Save, Loader2 } from "lucide-svelte";
 
     let { onClose } = $props();

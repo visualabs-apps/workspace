@@ -1,9 +1,7 @@
 // Workspace Store - manages multiple workspaces
-// Pure backend integration - NO localStorage fallback
-// All workspaces use initials from workspace names
+// Full backend integration - fetch profiles from API
 
-import { v4 as uuidv4 } from 'uuid';
-import { workspaceService } from './workspaceService.js';
+import { getChromeProfiles, deleteChromeProfile } from './api.js';
 import { authStore } from './auth.svelte.js';
 
 // Workspace color presets
@@ -23,9 +21,53 @@ function getWorkspaceInitials(name) {
         .toUpperCase();
 }
 
+// Transform backend profile to workspace format
+async function profileToWorkspace(profile) {
+    // Load color from SQLite
+    let finalColor = workspaceColors[0];
+    try {
+        const result = await window.api.db.getProfileColor(profile.id);
+        if (result.success && result.color) {
+            finalColor = result.color;
+        }
+    } catch (error) {
+        console.error('Failed to load profile color:', error);
+    }
+    
+    // Load apps from SQLite
+    let apps = [];
+    try {
+        const result = await window.api.db.getSetting(`workspace_apps_${profile.id}`);
+        if (result.success && result.value && Array.isArray(result.value)) {
+            apps = result.value;
+        }
+    } catch (error) {
+        console.error('Failed to load workspace apps:', error);
+    }
+    
+    return {
+        id: profile.id,
+        name: profile.name,
+        icon: getWorkspaceInitials(profile.name),
+        color: finalColor,
+        apps: apps,
+        customerId: profile.customerId,
+        customerName: profile.customer?.profile?.name || profile.customer?.username,
+        userId: profile.userId,
+        userAgent: profile.userAgent,
+        proxy: profile.proxy,
+        cookies: profile.cookies,
+        fingerprint: profile.fingerprint,
+        status: profile.status,
+        uuid: profile.uuid,
+        createdAt: profile.createdAt,
+        updatedAt: profile.updatedAt
+    };
+}
+
 function createWorkspaceStore() {
 
-    // State - NO localStorage, pure backend
+    // State - pure backend
     let workspaces = $state([]);
     let activeWorkspaceId = $state(null);
     let isLoading = $state(false);
@@ -33,7 +75,6 @@ function createWorkspaceStore() {
 
     return {
         get workspaces() { 
-            console.log(`📊 Getting workspaces, count: ${workspaces.length}`);
             return workspaces; 
         },
         get activeWorkspaceId() { return activeWorkspaceId; },
@@ -46,50 +87,54 @@ function createWorkspaceStore() {
             return workspaces.find(w => w.id === activeWorkspaceId) || workspaces[0];
         },
 
-        // Initialize workspaces from backend ONLY
+        // Initialize workspaces from backend
         async init() {
             if (isInitialized) return;
             
-            console.log('🔄 Initializing workspace store from backend...');
-            console.log('🔐 Auth status:', authStore.isLoggedIn);
             isLoading = true;
 
             try {
-                if (!authStore.isLoggedIn) {
-                    console.log('🔒 User not logged in, starting with empty workspace list');
+                // Get user from auth store
+                const user = authStore.user;
+                if (!user?.id) {
+                    console.warn('No user logged in, skipping workspace init');
                     workspaces = [];
                     activeWorkspaceId = null;
                     isInitialized = true;
+                    isLoading = false;
                     return;
                 }
 
-                // Load workspaces from backend
-                console.log('🌐 Loading workspaces from backend...');
-                const backendWorkspaces = await workspaceService.initialize();
-                console.log('📥 Backend workspaces received:', backendWorkspaces);
-                
-                if (backendWorkspaces && backendWorkspaces.length > 0) {
-                    // Convert backend workspaces to frontend format
-                    workspaces = backendWorkspaces.map(ws => {
-                        const converted = workspaceService.convertBackendWorkspace(ws);
-                        converted.source = 'backend';
-                        return converted;
-                    });
+                // Fetch profiles from backend
+                const response = await getChromeProfiles({ 
+                    userId: user.id,
+                    limit: 100 
+                });
+
+                if (response.success) {
+                    // Transform profiles with colors from SQLite
+                    workspaces = await Promise.all(response.data.map(profileToWorkspace));
                     
-                    console.log('🔄 Converted workspaces:', workspaces);
-                    
-                    // Set active workspace to the most recently accessed one
-                    const mostRecent = workspaces.reduce((latest, current) => {
-                        if (!latest.lastAccessed) return current;
-                        if (!current.lastAccessed) return latest;
-                        return new Date(current.lastAccessed) > new Date(latest.lastAccessed) ? current : latest;
-                    });
-                    
-                    activeWorkspaceId = mostRecent.id;
-                    console.log(`✅ Loaded ${workspaces.length} workspaces from backend`);
+                    // Set active workspace to the first one
+                    if (workspaces.length > 0) {
+                        // Try to restore last active from SQLite
+                        try {
+                            const result = await window.api.db.getSetting('active_workspace_id');
+                            if (result.success && result.value) {
+                                const lastActive = workspaces.find(w => w.id === result.value);
+                                activeWorkspaceId = lastActive ? lastActive.id : workspaces[0].id;
+                            } else {
+                                activeWorkspaceId = workspaces[0].id;
+                            }
+                        } catch (error) {
+                            console.error('Failed to load active workspace:', error);
+                            activeWorkspaceId = workspaces[0].id;
+                        }
+                    } else {
+                        activeWorkspaceId = null;
+                    }
                 } else {
-                    // No workspaces in backend, leave empty
-                    console.log('📝 No workspaces in backend, starting with empty workspace list');
+                    console.error('Failed to fetch profiles:', response.error);
                     workspaces = [];
                     activeWorkspaceId = null;
                 }
@@ -97,9 +142,6 @@ function createWorkspaceStore() {
                 isInitialized = true;
             } catch (error) {
                 console.error('❌ Failed to initialize workspace store:', error);
-                
-                // Fallback: start with empty workspace list
-                console.log('🆘 Starting with empty workspace list due to error');
                 workspaces = [];
                 activeWorkspaceId = null;
                 isInitialized = true;
@@ -110,15 +152,34 @@ function createWorkspaceStore() {
 
         // Refresh workspaces from backend
         async refresh() {
-            if (!authStore.isLoggedIn) return;
-            
             isLoading = true;
             try {
-                const backendWorkspaces = await workspaceService.getWorkspaces();
-                workspaces = backendWorkspaces.map(ws => 
-                    workspaceService.convertBackendWorkspace(ws)
-                );
-                console.log(`🔄 Refreshed ${workspaces.length} workspaces from backend`);
+                const user = authStore.user;
+                if (!user?.id) {
+                    workspaces = [];
+                    return;
+                }
+
+                const response = await getChromeProfiles({ 
+                    userId: user.id,
+                    limit: 100 
+                });
+
+                if (response.success) {
+                    const currentActiveId = activeWorkspaceId;
+                    // Transform profiles with colors from SQLite
+                    workspaces = await Promise.all(response.data.map(profileToWorkspace));
+                    
+                    // Restore active workspace if it still exists
+                    if (currentActiveId) {
+                        const stillExists = workspaces.find(w => w.id === currentActiveId);
+                        if (!stillExists && workspaces.length > 0) {
+                            activeWorkspaceId = workspaces[0].id;
+                        }
+                    } else if (workspaces.length > 0) {
+                        activeWorkspaceId = workspaces[0].id;
+                    }
+                }
             } catch (error) {
                 console.error('❌ Failed to refresh workspaces:', error);
             } finally {
@@ -131,75 +192,11 @@ function createWorkspaceStore() {
             const workspace = workspaces.find(w => w.id === id);
             if (workspace) {
                 activeWorkspaceId = id;
-                console.log(`🔄 Switched to workspace: ${workspace.name}`);
-                
-                // Update access time in backend
-                if (authStore.isLoggedIn) {
-                    await workspaceService.updateWorkspaceAccess(id);
-                }
-            }
-        },
-
-        // Add new workspace
-        async addWorkspace(name, icon = null, color = '#4A90E2') {
-            // Always use initials from workspace name
-            const workspaceInitials = getWorkspaceInitials(name);
-            
-            const newWorkspace = {
-                id: uuidv4(),
-                name,
-                icon: workspaceInitials,
-                color,
-                apps: [],
-                createdAt: Date.now()
-            };
-            
-            try {
-                // Store to backend first
-                if (authStore.isLoggedIn) {
-                    await workspaceService.storeWorkspace(newWorkspace);
-                }
-                
-                // Add to local state
-                workspaces = [...workspaces, newWorkspace];
-                activeWorkspaceId = newWorkspace.id;
-                
-                console.log(`✅ Created workspace: ${name}`);
-                return newWorkspace;
-            } catch (error) {
-                console.error('❌ Failed to create workspace:', error);
-                throw error;
-            }
-        },
-
-        // Alias for backward compatibility
-        async createWorkspace(name, icon = null, color = '#4A90E2') {
-            return await this.addWorkspace(name, icon, color);
-        },
-
-        // Update workspace
-        async updateWorkspace(id, updates) {
-            const index = workspaces.findIndex(w => w.id === id);
-            if (index !== -1) {
-                const updatedWorkspace = { ...workspaces[index], ...updates };
-                
+                // Save to SQLite for persistence
                 try {
-                    // Update in backend first
-                    if (authStore.isLoggedIn) {
-                        await workspaceService.storeWorkspace(updatedWorkspace);
-                    }
-                    
-                    // Update local state
-                    workspaces = [
-                        ...workspaces.slice(0, index),
-                        updatedWorkspace,
-                        ...workspaces.slice(index + 1)
-                    ];
-                    
-                    console.log(`✅ Updated workspace: ${updatedWorkspace.name}`);
+                    await window.api.db.saveSetting('active_workspace_id', id);
                 } catch (error) {
-                    console.error('❌ Failed to update workspace:', error);
-                    throw error;
+                    console.error('Failed to save active workspace:', error);
                 }
             }
         },
@@ -207,83 +204,91 @@ function createWorkspaceStore() {
         // Add app/service to workspace
         async addAppToWorkspace(workspaceId, serviceId) {
             const workspace = workspaces.find(w => w.id === workspaceId);
-            if (workspace && !workspace.apps.includes(serviceId)) {
-                await this.updateWorkspace(workspaceId, {
-                    apps: [...(workspace.apps || []), serviceId]
-                });
+            if (workspace) {
+                if (!workspace.apps) {
+                    workspace.apps = [];
+                }
+                if (!workspace.apps.includes(serviceId)) {
+                    workspace.apps = [...workspace.apps, serviceId];
+                    
+                    // Save to SQLite - convert to plain array
+                    try {
+                        const plainApps = [...workspace.apps]; // Convert reactive array to plain array
+                        await window.api.db.saveSetting(`workspace_apps_${workspaceId}`, plainApps);
+                    } catch (error) {
+                        console.error('Failed to save workspace apps:', error);
+                    }
+                }
             }
         },
 
         // Remove app/service from workspace
         async removeAppFromWorkspace(workspaceId, serviceId) {
             const workspace = workspaces.find(w => w.id === workspaceId);
-            if (workspace) {
-                await this.updateWorkspace(workspaceId, {
-                    apps: (workspace.apps || []).filter(id => id !== serviceId)
-                });
+            if (workspace && workspace.apps) {
+                workspace.apps = workspace.apps.filter(id => id !== serviceId);
+                
+                // Save to SQLite - convert to plain array
+                try {
+                    const plainApps = [...workspace.apps]; // Convert reactive array to plain array
+                    await window.api.db.saveSetting(`workspace_apps_${workspaceId}`, plainApps);
+                } catch (error) {
+                    console.error('Failed to save workspace apps:', error);
+                }
             }
         },
 
-        // Remove workspace
-        async removeWorkspace(id) {
-            console.log(`🗑️ Attempting to delete workspace: ${id}`);
-            
-            // Find workspace to delete
-            const workspaceToDelete = workspaces.find(w => w.id === id);
-            if (!workspaceToDelete) {
-                console.warn(`❌ Workspace not found: ${id}`);
-                return false;
-            }
-
+        // Delete workspace (profile)
+        async deleteWorkspace(id) {
             try {
-                console.log(`🗑️ Deleting workspace: "${workspaceToDelete.name}"`);
+                const response = await deleteChromeProfile(id);
                 
-                // Delete from backend first (if user is logged in)
-                if (authStore.isLoggedIn) {
-                    console.log(`🌐 Deleting workspace from backend...`);
-                    await workspaceService.deleteWorkspace(id);
-                    console.log(`✅ Workspace deleted from backend`);
-                }
-                
-                // Remove from local state
-                const oldLength = workspaces.length;
-                workspaces = workspaces.filter(w => w.id !== id);
-                
-                // Verify deletion
-                if (workspaces.length === oldLength) {
-                    console.error('❌ Workspace was not removed from array');
+                if (response.success) {
+                    // Remove color from SQLite
+                    try {
+                        await window.api.db.deleteProfileColor(id);
+                    } catch (error) {
+                        console.error('Failed to delete profile color:', error);
+                    }
+                    
+                    // Remove workspace apps from SQLite
+                    try {
+                        await window.api.db.deleteSetting(`workspace_apps_${id}`);
+                    } catch (error) {
+                        console.error('Failed to delete workspace apps:', error);
+                    }
+                    
+                    // Remove from local state
+                    workspaces = workspaces.filter(w => w.id !== id);
+                    
+                    // If removed active workspace, switch to first remaining one
+                    if (activeWorkspaceId === id) {
+                        if (workspaces.length > 0) {
+                            activeWorkspaceId = workspaces[0].id;
+                            try {
+                                await window.api.db.saveSetting('active_workspace_id', workspaces[0].id);
+                            } catch (error) {
+                                console.error('Failed to save active workspace:', error);
+                            }
+                        } else {
+                            activeWorkspaceId = null;
+                        }
+                    }
+                    
+                    return true;
+                } else {
+                    console.error('Failed to delete profile:', response.error);
                     return false;
                 }
-
-                // If removed active workspace, switch to first remaining one (if any)
-                if (activeWorkspaceId === id) {
-                    if (workspaces.length > 0) {
-                        activeWorkspaceId = workspaces[0].id;
-                        console.log(`🔄 Switched to workspace: "${workspaces[0].name}"`);
-                    } else {
-                        activeWorkspaceId = null;
-                        console.log(`� No workspaces remaining, activeWorkspaceId set to null`);
-                    }
-                }
-
-                console.log(`✅ Successfully removed workspace: "${workspaceToDelete.name}"`);
-                console.log(`📊 Remaining workspaces: ${workspaces.length}`);
-                return true;
             } catch (error) {
-                console.error('❌ Failed to remove workspace:', error);
+                console.error('❌ Failed to delete workspace:', error);
                 return false;
             }
         },
 
-        // Alias for backward compatibility with Sidebar.svelte
-        async deleteWorkspace(id) {
-            return await this.removeWorkspace(id);
-        },
-
-        // Reorder workspaces
-        reorderWorkspaces(newOrder) {
-            workspaces = newOrder;
-            // Note: Backend doesn't support ordering yet
+        // Alias for backward compatibility
+        async removeWorkspace(id) {
+            return await this.deleteWorkspace(id);
         }
     };
 }

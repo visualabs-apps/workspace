@@ -1,28 +1,12 @@
 // Tab Store - manages tabs within each service/app
-// Each service can have multiple tabs
+// Each service can have multiple tabs (browser tabs)
 
 import { v4 as uuidv4 } from 'uuid';
 
 function createTabStore() {
     // Structure: { serviceId: { tabs: [], activeTabId: string } }
-    let storedTabs = {};
-    try {
-        const item = localStorage.getItem('vleb_tabs');
-        if (item) storedTabs = JSON.parse(item);
-    } catch (e) {
-        console.error('Failed to load tabs', e);
-    }
-
-    // State
-    let serviceTabs = $state(storedTabs);
+    let serviceTabs = $state({});
     let globalIsDragging = $state(false);
-
-    // Auto-save to localStorage
-    $effect.root(() => {
-        $effect(() => {
-            localStorage.setItem('vleb_tabs', JSON.stringify(serviceTabs));
-        });
-    });
 
     return {
         get serviceTabs() { return serviceTabs; },
@@ -38,11 +22,6 @@ function createTabStore() {
         // Get active tab ID for a service
         getActiveTabId(serviceId) {
             return serviceTabs[serviceId]?.activeTabId || null;
-        },
-        // Get specific tab by ID
-        getTab(serviceId, tabId) {
-            const tabs = this.getServiceTabs(serviceId);
-            return tabs.find(t => t.id === tabId) || null;
         },
 
         // Get active tab object for a service

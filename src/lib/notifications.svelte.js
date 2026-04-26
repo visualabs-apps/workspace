@@ -7,7 +7,7 @@ function createNotificationStore() {
     // Load from localStorage (only recent notifications)
     let storedNotifications = [];
     try {
-        const item = localStorage.getItem('vleb_notifications');
+        const item = localStorage.getItem('visualbox_notifications');
         if (item) {
             storedNotifications = JSON.parse(item);
             // Keep only last 100 notifications
@@ -25,7 +25,7 @@ function createNotificationStore() {
     // Auto-save to localStorage
     $effect.root(() => {
         $effect(() => {
-            localStorage.setItem('vleb_notifications', JSON.stringify(notifications.slice(0, 100)));
+            localStorage.setItem('visualbox_notifications', JSON.stringify(notifications.slice(0, 100)));
         });
     });
 

@@ -42,8 +42,6 @@
 
     function handleClick(notification) {
         notificationStore.clickNotification(notification.id);
-        // TODO: Navigate to the service/url
-        console.log("Navigate to", notification.url);
     }
 </script>
 

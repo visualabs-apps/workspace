@@ -1,7 +1,7 @@
 module.exports = {
   packagerConfig: {
-    name: 'V-LEB Workspace',
-    executableName: 'vleb-workspace',
+    name: 'VisualBox',
+    executableName: 'visualbox',
     icon: './public/icon', // Path to icon (without extension, will use .ico on Windows)
     asar: true,
   },
@@ -10,9 +10,9 @@ module.exports = {
     {
       name: '@electron-forge/maker-nsis',
       config: {
-        name: 'V-LEB Workspace',
-        authors: 'V-LEB Technology',
-        description: 'V-LEB Workspace - Multi-Service Management Platform',
+        name: 'VisualBox',
+        authors: 'VisualBox Technology',
+        description: 'VisualBox - Multi-Service Management Platform',
         version: '1.0.0',
         
         // Installer configuration
@@ -44,9 +44,9 @@ module.exports = {
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        name: 'vleb-workspace',
-        authors: 'V-LEB Technology',
-        description: 'V-LEB Workspace',
+        name: 'visualbox',
+        authors: 'VisualBox Technology',
+        description: 'VisualBox',
         iconUrl: 'https://example.com/icon.ico', // Update with your icon URL
         setupIcon: './public/icon.ico',
       },
@@ -59,13 +59,13 @@ module.exports = {
       name: '@electron-forge/maker-deb',
       config: {
         options: {
-          name: 'vleb-workspace',
-          productName: 'V-LEB Workspace',
+          name: 'visualbox',
+          productName: 'VisualBox',
           genericName: 'Workspace Manager',
-          description: 'V-LEB Workspace - Multi-Service Management Platform',
+          description: 'VisualBox - Multi-Service Management Platform',
           categories: ['Utility', 'Development'],
-          maintainer: 'V-LEB Technology',
-          homepage: 'https://v-leb.com',
+          maintainer: 'VisualBox Technology',
+          homepage: 'https://visualbox.app',
         },
       },
     },
@@ -73,13 +73,13 @@ module.exports = {
       name: '@electron-forge/maker-rpm',
       config: {
         options: {
-          name: 'vleb-workspace',
-          productName: 'V-LEB Workspace',
+          name: 'visualbox',
+          productName: 'VisualBox',
           genericName: 'Workspace Manager',
-          description: 'V-LEB Workspace - Multi-Service Management Platform',
+          description: 'VisualBox - Multi-Service Management Platform',
           categories: ['Utility', 'Development'],
           license: 'MIT',
-          homepage: 'https://v-leb.com',
+          homepage: 'https://visualbox.app',
         },
       },
     },

@@ -14,7 +14,7 @@ function createDNDStore() {
     };
 
     try {
-        const item = localStorage.getItem('vleb_dnd');
+        const item = localStorage.getItem('visualbox_dnd');
         if (item) {
             storedSettings = { ...storedSettings, ...JSON.parse(item) };
         }
@@ -34,7 +34,7 @@ function createDNDStore() {
     // Auto-save to localStorage
     $effect.root(() => {
         $effect(() => {
-            localStorage.setItem('vleb_dnd', JSON.stringify({
+            localStorage.setItem('visualbox_dnd', JSON.stringify({
                 isEnabled,
                 scheduleEnabled,
                 scheduleStart,

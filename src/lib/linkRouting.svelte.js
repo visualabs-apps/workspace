@@ -5,7 +5,7 @@ function createLinkRoutingStore() {
     // Load from localStorage
     let storedRules = [];
     try {
-        const item = localStorage.getItem('vleb_link_routing');
+        const item = localStorage.getItem('visualbox_link_routing');
         if (item) storedRules = JSON.parse(item);
     } catch (e) {
         console.error('Failed to load link routing rules', e);
@@ -25,7 +25,7 @@ function createLinkRoutingStore() {
     // Auto-save to localStorage
     $effect.root(() => {
         $effect(() => {
-            localStorage.setItem('vleb_link_routing', JSON.stringify(rules));
+            localStorage.setItem('visualbox_link_routing', JSON.stringify(rules));
         });
     });
 

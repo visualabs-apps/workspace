@@ -6,14 +6,12 @@
         Copy,
         Files,
         Pin,
-        Volume2,
-        VolumeX,
     } from "lucide-svelte";
+    import { slide, fade } from 'svelte/transition';
     import { tabStore } from "../lib/tabs.svelte.js";
     import { serviceStore } from "../lib/services.svelte.js";
     import { workspaceStore } from "../lib/workspaces.svelte.js";
-    import { dndzone } from "svelte-dnd-action";
-    import { flip } from "svelte/animate";
+    import { navigationStore } from "../lib/navigation.svelte.js";
 
     let { service = null } = $props();
 
@@ -31,7 +29,8 @@
             title: app.name,
             url: app.url,
             favicon: app.icon,
-            isLoading: false,
+            isLoading: app.id === activeTabId && navigationStore.isLoading,
+            isPinned: app.isPinned || false,
             createdAt: app.createdAt || Date.now()
         }))
     );
@@ -39,9 +38,8 @@
     let activeTabId = $derived(serviceStore.activeServiceId);
 
     // Drag and drop state
-    const flipDurationMs = 200;
-    let isDragging = $state(false);
-    let draggedItemId = $state(null);
+    let draggedTabId = $state(null);
+    let dragOverTabId = $state(null);
 
     // Context menu state
     let contextMenu = $state({ show: false, x: 0, y: 0, tabId: null });
@@ -56,6 +54,51 @@
                 });
             }, 0);
         }
+    });
+
+    // Keyboard shortcuts
+    $effect(() => {
+        const handleKeyDown = (e) => {
+            // Ctrl+W or Cmd+W to close active tab
+            if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+                e.preventDefault();
+                if (activeTabId && workspaceStore.activeWorkspace && workspaceApps.length > 0) {
+                    const tabToClose = activeTabId; // Save the tab ID to close
+                    
+                    // Find the index of the active tab
+                    const closingIndex = workspaceApps.findIndex(app => app.id === tabToClose);
+                    
+                    // If there are other tabs, switch to the appropriate one first
+                    if (workspaceApps.length > 1 && closingIndex !== -1) {
+                        let newActiveIndex;
+                        
+                        // If closing the last tab, switch to the one before it
+                        if (closingIndex === workspaceApps.length - 1) {
+                            newActiveIndex = closingIndex - 1;
+                        } else {
+                            // Otherwise, switch to the tab after it
+                            newActiveIndex = closingIndex + 1;
+                        }
+                        
+                        if (newActiveIndex >= 0 && newActiveIndex < workspaceApps.length) {
+                            serviceStore.setActive(workspaceApps[newActiveIndex].id);
+                        }
+                    }
+                    
+                    // Close the tab after switching
+                    setTimeout(() => {
+                        workspaceStore.removeAppFromWorkspace(workspaceStore.activeWorkspace.id, tabToClose);
+                        serviceStore.removeService(tabToClose);
+                    }, 10);
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
     });
 
     function closeContextMenu() {
@@ -75,9 +118,14 @@
 
     function handleReloadTab() {
         if (contextMenu.tabId) {
-            // Switch to the app and reload
+            // Switch to the app first
             serviceStore.setActive(contextMenu.tabId);
-            setTimeout(() => window.location.reload(), 100);
+            
+            // Trigger reload event that ServiceView can listen to
+            const reloadEvent = new CustomEvent('reloadTab', { 
+                detail: { serviceId: contextMenu.tabId } 
+            });
+            window.dispatchEvent(reloadEvent);
         }
         closeContextMenu();
     }
@@ -119,81 +167,66 @@
     }
 
     function handleCloseOtherTabs() {
-        if (service && contextMenu.tabId) {
-            const tabsToClose = tabsData.filter(
-                (t) => t.id !== contextMenu.tabId,
+        if (contextMenu.tabId && workspaceStore.activeWorkspace) {
+            const appsToClose = workspaceApps.filter(
+                (app) => app.id !== contextMenu.tabId,
             );
-            tabsToClose.forEach((tab) => {
-                tabStore.closeTab(service.id, tab.id);
+            appsToClose.forEach((app) => {
+                workspaceStore.removeAppFromWorkspace(workspaceStore.activeWorkspace.id, app.id);
+                serviceStore.removeService(app.id);
             });
-            tabStore.setActiveTab(service.id, contextMenu.tabId);
+            serviceStore.setActive(contextMenu.tabId);
         }
         closeContextMenu();
     }
 
     function handleCloseTabsToRight() {
-        if (service && contextMenu.tabId) {
-            const currentIndex = tabsData.findIndex(
-                (t) => t.id === contextMenu.tabId,
+        if (contextMenu.tabId && workspaceStore.activeWorkspace) {
+            const currentIndex = workspaceApps.findIndex(
+                (app) => app.id === contextMenu.tabId,
             );
             if (currentIndex !== -1) {
-                const tabsToClose = tabsData.slice(currentIndex + 1);
-                tabsToClose.forEach((tab) => {
-                    tabStore.closeTab(service.id, tab.id);
+                const appsToClose = workspaceApps.slice(currentIndex + 1);
+                appsToClose.forEach((app) => {
+                    workspaceStore.removeAppFromWorkspace(workspaceStore.activeWorkspace.id, app.id);
+                    serviceStore.removeService(app.id);
                 });
             }
-        }
-        closeContextMenu();
-    }
-
-    function handleNewTabToRight() {
-        if (service && contextMenu.tabId) {
-            const currentIndex = tabsData.findIndex(
-                (t) => t.id === contextMenu.tabId,
-            );
-
-            // Add new tab
-            const newTab = tabStore.addTab(service.id);
-
-            // Wait for state update, then reorder
-            setTimeout(() => {
-                const updatedTabs = tabStore.getServiceTabs(service.id);
-                const newTabIndex = updatedTabs.findIndex(
-                    (t) => t.id === newTab.id,
-                );
-
-                if (currentIndex !== -1 && newTabIndex !== -1) {
-                    const reorderedTabs = [...updatedTabs];
-                    // Remove new tab from its current position
-                    reorderedTabs.splice(newTabIndex, 1);
-                    // Insert it to the right of the context menu tab
-                    reorderedTabs.splice(currentIndex + 1, 0, newTab);
-                    tabStore.reorderTabs(service.id, reorderedTabs);
-                }
-            }, 50);
         }
         closeContextMenu();
     }
 
     function handlePinTab() {
-        if (service && contextMenu.tabId) {
-            const tab = tabsData.find((t) => t.id === contextMenu.tabId);
-            if (tab) {
-                tabStore.updateTab(service.id, contextMenu.tabId, {
-                    isPinned: !tab.isPinned,
+        if (contextMenu.tabId && workspaceStore.activeWorkspace) {
+            const app = workspaceApps.find((a) => a.id === contextMenu.tabId);
+            if (app) {
+                const newPinnedState = !app.isPinned;
+                
+                // Update the isPinned status
+                serviceStore.updateService(contextMenu.tabId, {
+                    isPinned: newPinnedState
                 });
-            }
-        }
-        closeContextMenu();
-    }
 
-    function handleMuteTab() {
-        if (service && contextMenu.tabId) {
-            const tab = tabsData.find((t) => t.id === contextMenu.tabId);
-            if (tab) {
-                tabStore.updateTab(service.id, contextMenu.tabId, {
-                    isMuted: !tab.isMuted,
-                });
+                // Reorder: pinned tabs should be at the left
+                setTimeout(() => {
+                    const updatedApps = serviceStore.services.filter(s => 
+                        workspaceStore.activeWorkspace?.apps?.includes(s.id)
+                    );
+                    
+                    // Separate pinned and unpinned
+                    const pinnedApps = updatedApps.filter(a => a.isPinned);
+                    const unpinnedApps = updatedApps.filter(a => !a.isPinned);
+                    
+                    // Reorder: pinned first, then unpinned
+                    const reorderedApps = [...pinnedApps, ...unpinnedApps];
+                    
+                    // Update the services order
+                    const otherServices = serviceStore.services.filter(s => 
+                        !workspaceStore.activeWorkspace?.apps?.includes(s.id)
+                    );
+                    
+                    serviceStore.reorderServices([...reorderedApps, ...otherServices]);
+                }, 50);
             }
         }
         closeContextMenu();
@@ -227,6 +260,27 @@
 
     function handleCloseTab(e, tabId) {
         e.stopPropagation();
+        
+        // Find the index of the tab being closed
+        const closingIndex = workspaceApps.findIndex(app => app.id === tabId);
+        
+        // If this is the active tab, switch to another tab first
+        if (activeTabId === tabId && workspaceApps.length > 1) {
+            let newActiveIndex;
+            
+            // If closing the last tab, switch to the one before it
+            if (closingIndex === workspaceApps.length - 1) {
+                newActiveIndex = closingIndex - 1;
+            } else {
+                // Otherwise, switch to the tab after it (which will become the same index after deletion)
+                newActiveIndex = closingIndex + 1;
+            }
+            
+            if (newActiveIndex >= 0 && newActiveIndex < workspaceApps.length) {
+                serviceStore.setActive(workspaceApps[newActiveIndex].id);
+            }
+        }
+        
         // Remove app from service store and workspace
         serviceStore.removeService(tabId);
         if (workspaceStore.activeWorkspace) {
@@ -235,52 +289,103 @@
     }
 
     function handleTabClick(tabId) {
-        if (!isDragging) {
-            // Switch to the app/service
-            serviceStore.setActive(tabId);
-        }
+        // Switch to the app/service
+        serviceStore.setActive(tabId);
     }
 
-    function handleDndConsider(e) {
-        // Only update if items are valid and unique
-        const items = e.detail.items;
-        const uniqueIds = new Set(items.map((item) => item.id));
-
-        if (uniqueIds.size === items.length) {
-            // For apps, we don't need to update tabsData during drag
-            // as it's derived from workspaceApps
-            isDragging = true;
-            tabStore.setDragging(true);
-        }
+    // Native HTML5 Drag and Drop functions
+    function handleDragStart(e, tabId) {
+        draggedTabId = tabId;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', tabId);
+        
+        // Add visual feedback
+        e.target.style.opacity = '0.5';
+        
+        // Set global drag state to prevent webview interactions
+        tabStore.setDragging(true);
     }
 
-    function handleDndFinalize(e) {
-        const items = e.detail.items;
-        const uniqueIds = new Set(items.map((item) => item.id));
+    function handleDragEnd(e) {
+        // Reset visual feedback
+        e.target.style.opacity = '1';
+        draggedTabId = null;
+        dragOverTabId = null;
+        tabStore.setDragging(false);
+    }
 
-        // Only update if items are valid and unique
-        if (uniqueIds.size === items.length) {
-            // Reorder apps in service store
-            const reorderedApps = items.map(item => 
-                serviceStore.services.find(app => app.id === item.id)
-            ).filter(Boolean);
+    function handleDragOver(e, tabId) {
+        e.preventDefault();
+        
+        if (draggedTabId && draggedTabId !== tabId) {
+            // Check if both tabs have the same pinned status
+            const draggedTab = tabsData.find(t => t.id === draggedTabId);
+            const targetTab = tabsData.find(t => t.id === tabId);
             
-            if (reorderedApps.length === items.length) {
-                serviceStore.reorderServices(reorderedApps);
+            // Only allow drag over if both are pinned or both are unpinned
+            if (draggedTab && targetTab && draggedTab.isPinned === targetTab.isPinned) {
+                e.dataTransfer.dropEffect = 'move';
+                dragOverTabId = tabId;
+            } else {
+                e.dataTransfer.dropEffect = 'none';
+                dragOverTabId = null;
             }
         }
+    }
 
-        // Reset drag state after animation completes
-        setTimeout(() => {
-            isDragging = false;
-            tabStore.setDragging(false);
-            draggedItemId = null;
-        }, flipDurationMs + 50);
+    function handleDragLeave(e) {
+        // Only clear dragOverTabId if we're actually leaving the tab area
+        if (!e.currentTarget.contains(e.relatedTarget)) {
+            dragOverTabId = null;
+        }
+    }
+
+    function handleDrop(e, dropTabId) {
+        e.preventDefault();
+        
+        if (draggedTabId && draggedTabId !== dropTabId) {
+            // Check if both tabs have the same pinned status
+            const draggedTab = tabsData.find(t => t.id === draggedTabId);
+            const targetTab = tabsData.find(t => t.id === dropTabId);
+            
+            // Only allow drop if both are pinned or both are unpinned
+            if (!draggedTab || !targetTab || draggedTab.isPinned !== targetTab.isPinned) {
+                dragOverTabId = null;
+                return;
+            }
+            
+            // Work directly with serviceStore.services
+            const currentServices = [...serviceStore.services];
+            const draggedIndex = currentServices.findIndex(s => s.id === draggedTabId);
+            const dropIndex = currentServices.findIndex(s => s.id === dropTabId);
+            
+            if (draggedIndex !== -1 && dropIndex !== -1) {
+                // Remove dragged service
+                const [draggedService] = currentServices.splice(draggedIndex, 1);
+                
+                // Insert at correct position
+                let insertIndex;
+                if (draggedIndex < dropIndex) {
+                    // Moving right - after removal, dropIndex shifts left by 1
+                    insertIndex = dropIndex;
+                } else {
+                    // Moving left - dropIndex unchanged
+                    insertIndex = dropIndex;
+                }
+                
+                currentServices.splice(insertIndex, 0, draggedService);
+                
+                // Update service store
+                serviceStore.reorderServices(currentServices);
+            }
+        }
+        
+        dragOverTabId = null;
     }
 </script>
 
 <div
-    class="bg-[#2c4a4a] border-b border-white/5 inline-flex items-center px-1.5 py-1.5 gap-1 overflow-x-auto overflow-y-hidden w-full"
+    class="bg-white border-b border-gray-200 inline-flex items-center px-1.5 py-1.5 gap-1 overflow-x-auto overflow-y-hidden w-full"
 >
     {#if tabsData.length > 0}
         {@const tabCount = tabsData.length}
@@ -292,44 +397,33 @@
             Math.min(200, Math.floor(usableWidth / tabCount)),
         )}
 
-        <div
-            class="flex items-center gap-1"
-            use:dndzone={{
-                items: tabsData,
-                flipDurationMs,
-                dropTargetStyle: {},
-                type: "tabs",
-                dragDisabled: false,
-                // Only allow drag from .drag-handle class
-                morphDisabled: true,
-                centreDraggedOnCursor: true,
-            }}
-            onconsider={handleDndConsider}
-            onfinalize={handleDndFinalize}
-        >
+        <div class="flex items-center gap-1">
             {#each tabsData as tab (tab.id)}
                 {@const isActive = activeTabId === tab.id}
                 {@const isPinned = tab.isPinned || false}
                 {@const isMuted = tab.isMuted || false}
+                {@const isDraggedOver = dragOverTabId === tab.id}
 
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
-                    class="group flex items-center gap-2 px-3 py-1.5 transition-colors shrink-0 cursor-pointer
+                    class="group flex items-center gap-2 px-3 py-1.5 transition-all shrink-0 cursor-pointer rounded-t-lg
                         {isActive
-                        ? 'bg-[#3d5e5e] text-white'
-                        : 'bg-[#2c4a4a]/50 text-gray-400 hover:bg-[#3d5e5e]/70 hover:text-gray-300'}
-                        {isDragging && draggedItemId === tab.id
-                        ? 'opacity-50'
-                        : ''}
-                        {isPinned ? 'border-l-2 border-blue-500' : ''}"
+                        ? 'bg-white text-gray-900 border-t-2 border-blue-500 shadow-sm'
+                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-800 border-t-2 border-transparent'}
+                        {isDraggedOver ? 'border-l-2 border-blue-500' : ''}
+                        {isPinned && !isActive ? 'border-l-2 border-blue-500' : ''}"
                     style="max-width: {isPinned
                         ? '60px'
                         : idealTabWidth + 'px'}; min-width: {isPinned
                         ? '60px'
                         : '100px'};"
+                    draggable="true"
+                    ondragstart={(e) => handleDragStart(e, tab.id)}
+                    ondragend={handleDragEnd}
+                    ondragover={(e) => handleDragOver(e, tab.id)}
+                    ondragleave={handleDragLeave}
+                    ondrop={(e) => handleDrop(e, tab.id)}
                     onclick={(e) => {
                         // Don't trigger if clicking close button
                         if (!e.target.closest("button")) {
@@ -337,53 +431,40 @@
                         }
                     }}
                     oncontextmenu={(e) => handleContextMenu(e, tab.id)}
-                    animate:flip={{ duration: flipDurationMs }}
+                    transition:slide={{ duration: 200, axis: 'x' }}
                 >
-                    <!-- Drag Handle Area (icon + text) - DND library will handle drag from here -->
-                    <div
-                        class="drag-handle flex items-center gap-2 flex-1 min-w-0"
-                        onpointerdown={(e) => {
-                            if (e.button === 0) {
-                                tabStore.setDragging(true);
-                                const handlePointerUp = () => {
-                                    if (!isDragging) {
-                                        tabStore.setDragging(false);
-                                    }
-                                    window.removeEventListener(
-                                        "pointerup",
-                                        handlePointerUp,
-                                    );
-                                };
-                                window.addEventListener(
-                                    "pointerup",
-                                    handlePointerUp,
-                                );
-                            }
-                        }}
-                    >
-                        {#if tab.favicon}
-                            <img
-                                src={tab.favicon}
-                                alt=""
-                                class="w-4 h-4 object-contain shrink-0"
-                                onerror={(e) =>
-                                    (e.target.style.display = "none")}
-                            />
-                        {:else if service.icon}
-                            <img
-                                src={service.icon}
-                                alt=""
-                                class="w-4 h-4 object-contain shrink-0"
-                            />
-                        {:else}
-                            <div
-                                class="w-4 h-4 rounded bg-gray-600 shrink-0"
-                            ></div>
-                        {/if}
+                    <!-- Tab Content -->
+                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                        <!-- Favicon with loading state -->
+                        <div class="w-4 h-4 shrink-0 relative flex items-center justify-center">
+                            {#if tab.isLoading}
+                                <!-- Chrome-style loading spinner -->
+                                <div class="w-3 h-3 border border-gray-400 border-t-blue-500 rounded-full animate-spin"></div>
+                            {:else if tab.favicon}
+                                <img
+                                    src={tab.favicon}
+                                    alt=""
+                                    class="w-4 h-4 object-contain {isActive ? 'ring-1 ring-blue-200 rounded-sm' : ''}"
+                                    onerror={(e) =>
+                                        (e.target.style.display = "none")}
+                                />
+                            {:else if service?.icon}
+                                <img
+                                    src={service.icon}
+                                    alt=""
+                                    class="w-4 h-4 object-contain {isActive ? 'ring-1 ring-blue-200 rounded-sm' : ''}"
+                                />
+                            {:else}
+                                <div
+                                    class="w-4 h-4 rounded {isActive ? 'bg-blue-600' : 'bg-gray-600'}"
+                                ></div>
+                            {/if}
+                        </div>
 
                         {#if !isPinned}
                             <span
-                                class="text-sm truncate flex-1 min-w-0 font-medium"
+                                class="text-sm truncate flex-1 min-w-0 font-medium
+                                    {isActive ? 'text-gray-900 font-semibold' : ''}"
                             >
                                 {tab.title || "New Tab"}
                             </span>
@@ -394,14 +475,14 @@
                         {/if}
 
                         {#if isPinned}
-                            <Pin size={10} class="text-blue-400 shrink-0" />
+                            <Pin size={10} class="text-blue-600 shrink-0" />
                         {/if}
                     </div>
 
                     <!-- Close Button (right side) - clicking this won't trigger tab switch -->
                     {#if !isPinned}
                         <button
-                            class="p-0.5 rounded hover:bg-white/10 text-gray-400 hover:text-white transition-all shrink-0 opacity-0 group-hover:opacity-100"
+                            class="p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-all shrink-0 opacity-0 group-hover:opacity-100"
                             onclick={(e) => handleCloseTab(e, tab.id)}
                             title="Close tab"
                         >
@@ -414,7 +495,7 @@
 
         <!-- New Tab Button -->
         <button
-            class="w-7 h-7 rounded-full bg-[#3d5e5e]/50 hover:bg-[#4d6e6e]/70 text-gray-400 hover:text-white transition-all shrink-0 flex items-center justify-center"
+            class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-800 transition-all shrink-0 flex items-center justify-center"
             onclick={handleAddTab}
             title="New Tab"
         >
@@ -423,7 +504,7 @@
     {:else}
         <!-- No tabs - show add button -->
         <button
-            class="w-7 h-7 rounded-full bg-[#3d5e5e]/50 hover:bg-[#4d6e6e]/70 text-gray-400 hover:text-white transition-all shrink-0 flex items-center justify-center"
+            class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-800 transition-all shrink-0 flex items-center justify-center"
             onclick={handleAddTab}
             title="New Tab"
         >
@@ -447,24 +528,13 @@
         oncontextmenu={(e) => e.preventDefault()}
     >
         <div
-            class="absolute bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-2xl border border-gray-700 py-1 min-w-[220px] text-sm"
+            class="absolute bg-white backdrop-blur-sm rounded-lg shadow-2xl border border-gray-200 py-1 min-w-[220px] text-sm"
             style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
             onclick={(e) => e.stopPropagation()}
         >
-            <!-- New tab to the right -->
-            <button
-                class="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 flex items-center gap-3"
-                onclick={handleNewTabToRight}
-            >
-                <Plus size={16} />
-                New tab to the right
-            </button>
-
-            <div class="h-px bg-gray-700 my-1"></div>
-
             <!-- Reload -->
             <button
-                class="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 flex items-center justify-between"
+                class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center justify-between"
                 onclick={handleReloadTab}
             >
                 <div class="flex items-center gap-3">
@@ -476,7 +546,7 @@
 
             <!-- Duplicate -->
             <button
-                class="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-3"
                 onclick={handleDuplicateTab}
             >
                 <Files size={16} />
@@ -485,33 +555,19 @@
 
             <!-- Pin -->
             <button
-                class="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-3"
                 onclick={handlePinTab}
             >
                 <Pin size={16} />
                 {currentTab?.isPinned ? "Unpin" : "Pin"}
             </button>
 
-            <!-- Mute site -->
-            <button
-                class="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 flex items-center gap-3"
-                onclick={handleMuteTab}
-            >
-                {#if currentTab?.isMuted}
-                    <Volume2 size={16} />
-                    Unmute site
-                {:else}
-                    <VolumeX size={16} />
-                    Mute site
-                {/if}
-            </button>
-
-            <div class="h-px bg-gray-700 my-1"></div>
+            <div class="h-px bg-gray-200 my-1"></div>
 
             {#if tabsData.length > 1}
                 <!-- Close other tabs -->
                 <button
-                    class="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+                    class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-3"
                     onclick={handleCloseOtherTabs}
                 >
                     <X size={16} />
@@ -521,7 +577,7 @@
                 <!-- Close tabs to the right -->
                 {#if currentIndex < tabsData.length - 1}
                     <button
-                        class="w-full px-4 py-2 text-left text-gray-300 hover:bg-gray-700 flex items-center gap-3"
+                        class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-3"
                         onclick={handleCloseTabsToRight}
                     >
                         <X size={16} />
@@ -529,12 +585,12 @@
                     </button>
                 {/if}
 
-                <div class="h-px bg-gray-700 my-1"></div>
+                <div class="h-px bg-gray-200 my-1"></div>
             {/if}
 
             <!-- Close -->
             <button
-                class="w-full px-4 py-2 text-left text-red-400 hover:bg-red-500/20 flex items-center justify-between"
+                class="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 flex items-center justify-between"
                 onclick={(e) => {
                     handleCloseTab(e, contextMenu.tabId);
                     closeContextMenu();
@@ -544,25 +600,43 @@
                     <X size={16} />
                     Close
                 </div>
-                <span class="text-xs text-red-400/70">Ctrl+W</span>
+                <span class="text-xs text-red-500">Ctrl+W</span>
             </button>
         </div>
     </div>
 {/if}
 
+
+
 <style>
-    /* Override DND library cursor styles - keep pointer cursor */
-    :global(.drag-handle) {
-        cursor: pointer !important;
+    /* Drag and drop visual feedback */
+    .group[draggable="true"]:hover {
+        cursor: grab;
     }
-
-    :global(.drag-handle:active) {
-        cursor: pointer !important;
+    
+    .group[draggable="true"]:active {
+        cursor: grabbing;
     }
-
-    /* Override any grab cursor from DND library */
-    :global([draggable="true"]) {
-        cursor: pointer !important;
-        will-change: transform;
+    
+    /* Smooth transitions for drag feedback */
+    .group {
+        transition: all 0.2s ease;
+    }
+    
+    /* Active tab gets a subtle elevation */
+    .bg-white.border-t-2.border-blue-500 {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        transform: translateY(-1px);
+    }
+    
+    /* Inactive tabs have subtle shadow */
+    .bg-gray-50 {
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    
+    /* Hover effect for inactive tabs */
+    .bg-gray-50:hover {
+        transform: translateY(-0.5px);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
     }
 </style>

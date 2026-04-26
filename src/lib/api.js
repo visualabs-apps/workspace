@@ -1,188 +1,202 @@
-// API Service using Axios
-import axios from 'axios';
-import { secureStorage } from './secureStorage.js';
+// API Client for v-box
+import nativeApi from './nativeApi.js';
 
-// Base URL configuration
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://app.v-leb.local/api';
+/**
+ * Fetch subscriptions assigned to the logged-in admin
+ * @param {Object} params - Query parameters
+ * @param {number} params.advertiserId - Filter by advertiser ID (admin)
+ * @param {number} params.page - Page number
+ * @param {number} params.limit - Items per page
+ * @returns {Promise<Object>} Response with subscriptions data
+ */
+export async function getSubscriptions(params = {}) {
+    try {
+        const queryParams = new URLSearchParams();
+        
+        if (params.advertiserId) queryParams.append('advertiserId', params.advertiserId);
+        if (params.page) queryParams.append('page', params.page);
+        if (params.limit) queryParams.append('limit', params.limit);
+        if (params.status !== undefined) queryParams.append('status', params.status);
+        
+        const endpoint = `/subscriptions${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+        const response = await nativeApi.get(endpoint);
+        
+        return {
+            success: true,
+            data: response.data.data || [],
+            page: response.data.page || {}
+        };
+    } catch (error) {
+        console.error('Failed to fetch subscriptions:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to fetch subscriptions',
+            data: []
+        };
+    }
+}
 
-// Create Axios instance
-const api = axios.create({
-    baseURL: API_BASE_URL,
-    headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest', // Help with CORS
-    },
-    withCredentials: true, // Important for cookies/session if needed
-    timeout: 10000 // 10 second timeout
-});
-
-// Request Interceptor: Attach Auth Token
-api.interceptors.request.use(
-    async (config) => {
-        const token = await secureStorage.getAuthToken();
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
+/**
+ * Get unique clients from subscriptions
+ * @param {number} advertiserId - Admin user ID
+ * @returns {Promise<Array>} Array of unique clients
+ */
+export async function getClientsForAdmin(advertiserId) {
+    try {
+        const response = await getSubscriptions({ 
+            advertiserId, 
+            limit: 100 // Get more to ensure we have all clients
+        });
+        
+        if (!response.success) {
+            return [];
         }
-        return config;
-    },
-    (error) => Promise.reject(error)
-);
-
-// Response Interceptor: Handle 401 Unauthorized (Auto Logout/Refresh)
-api.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-        const originalRequest = error.config;
-
-        // If 401 Unauthorized and not already retrying
-        if (error.response?.status === 401 && !originalRequest._retry) {
-            originalRequest._retry = true;
-
-            try {
-                // Try to refresh token
-                const token = await secureStorage.getAuthToken();
-                if (!token) throw new Error('No token to refresh');
-
-                const response = await axios.post(`${API_BASE_URL}/refresh`, {}, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-
-                const { token: newToken, expires_in } = response.data;
-
-                // Save new token
-                await secureStorage.setAuthToken(newToken);
-                localStorage.setItem('token_expires_at', Date.now() + (expires_in * 1000));
-
-                // Retry original request with new token
-                originalRequest.headers.Authorization = `Bearer ${newToken}`;
-                return api(originalRequest);
-            } catch (refreshError) {
-                // Refresh failed -> Logout
-                await clearAuth();
-                window.dispatchEvent(new CustomEvent('auth:logout')); // Notify app to logout
-                return Promise.reject(refreshError);
+        
+        // Extract unique customers from subscriptions
+        const clientsMap = new Map();
+        
+        response.data.forEach(subscription => {
+            if (subscription.customer && subscription.customerId) {
+                // Use customerId as key to ensure uniqueness
+                if (!clientsMap.has(subscription.customerId)) {
+                    clientsMap.set(subscription.customerId, {
+                        id: subscription.customerId,
+                        name: subscription.customer.profile?.name || subscription.customer.username || subscription.customer.email || `Customer #${subscription.customerId}`,
+                        email: subscription.customer.email,
+                        username: subscription.customer.username,
+                        // Include subscription info for reference
+                        subscriptionId: subscription.id,
+                        brand: subscription.brand,
+                        platform: subscription.platform
+                    });
+                }
             }
-        }
-        return Promise.reject(error);
-    }
-);
-
-// ==================== Auth Methods ====================
-
-export const clearAuth = async () => {
-    await secureStorage.clearAuth();
-    localStorage.removeItem('auth_user');
-    localStorage.removeItem('auth_token'); // Clear legacy
-    localStorage.removeItem('token_expires_at');
-};
-
-export const login = async (email, password) => {
-    try {
-        const response = await api.post('/login', { email, password });
-        const { token, user, expires_in } = response.data;
-
-        await secureStorage.setAuthToken(token);
-        localStorage.setItem('auth_user', JSON.stringify(user));
-        localStorage.setItem('token_expires_at', Date.now() + (expires_in * 1000));
-
-        return { success: true, user };
+        });
+        
+        // Convert map to array and sort by name
+        return Array.from(clientsMap.values()).sort((a, b) => 
+            a.name.localeCompare(b.name)
+        );
     } catch (error) {
-        return { success: false, error: error.response?.data?.message || 'Login failed' };
+        console.error('Failed to fetch clients:', error);
+        return [];
     }
-};
+}
 
-export const logout = async () => {
+/**
+ * Get chrome profiles
+ * @param {Object} params - Query parameters
+ * @returns {Promise<Object>} Response with profiles data
+ */
+export async function getChromeProfiles(params = {}) {
     try {
-        await api.post('/logout');
-    } finally {
-        await clearAuth();
-    }
-};
-
-export const checkToken = async () => {
-    try {
-        const response = await api.get('/check-token');
-        return { success: response.data.valid, user: response.data.user };
+        const queryParams = new URLSearchParams();
+        
+        if (params.userId) queryParams.append('userId', params.userId);
+        if (params.customerId) queryParams.append('customerId', params.customerId);
+        if (params.page) queryParams.append('page', params.page);
+        if (params.limit) queryParams.append('limit', params.limit);
+        if (params.q) queryParams.append('q', params.q);
+        
+        const endpoint = `/chrome-profiles${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+        const response = await nativeApi.get(endpoint);
+        
+        return {
+            success: true,
+            data: response.data.data || [],
+            page: response.data.page || {}
+        };
     } catch (error) {
-        return { success: false, error: error.message };
+        console.error('Failed to fetch chrome profiles:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to fetch chrome profiles',
+            data: []
+        };
     }
-};
+}
 
-export const getCurrentUser = async () => {
+/**
+ * Get single chrome profile by ID
+ * @param {number} id - Profile ID
+ * @returns {Promise<Object>} Response with profile data
+ */
+export async function getChromeProfile(id) {
     try {
-        const response = await api.get('/user');
-        return { success: true, user: response.data.user };
+        const response = await nativeApi.get(`/chrome-profiles/${id}`);
+        return {
+            success: true,
+            data: response.data.data
+        };
     } catch (error) {
-        return { success: false, error: error.message };
+        console.error('Failed to fetch chrome profile:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to fetch chrome profile'
+        };
     }
-};
+}
 
-export const isAuthenticated = async () => {
-    const token = await secureStorage.getAuthToken();
-    const expiresAt = localStorage.getItem('token_expires_at');
-    if (!token) return false;
-    if (expiresAt && Date.now() > parseInt(expiresAt)) return false;
-    return true;
-};
-
-export const getStoredUser = () => {
+/**
+ * Create chrome profile
+ * @param {Object} payload - Profile data
+ * @returns {Promise<Object>} Response with created profile
+ */
+export async function createChromeProfile(payload) {
     try {
-        const userStr = localStorage.getItem('auth_user');
-        return userStr ? JSON.parse(userStr) : null;
-    } catch {
-        return null;
-    }
-};
-
-// ==================== API Resources ====================
-
-// Video Editor
-export const getCredits = () => api.get('/video-editor/credits').then(res => res.data);
-export const generateStory = (data) => api.post('/video-editor/generate-story', data).then(res => res.data);
-export const generateBRoll = (data) => api.post('/video-editor/generate-broll', data).then(res => res.data);
-export const generateTargetMarkets = (data) => api.post('/video-editor/generate-target-markets', data).then(res => res.data);
-export const checkAIStatus = (id) => api.get(`/video-editor/ai-status/${id}`).then(res => res.data);
-export const cancelAIRequest = (id) => api.delete(`/video-editor/ai-cancel/${id}`).then(res => res.data);
-export const generateVoiceOver = (data) => api.post('/video-editor/generate-voiceover', data).then(res => res.data);
-export const getAvailableVoices = () => api.get('/video-editor/available-voices').then(res => res.data);
-export const logError = (level, message, context = {}) => api.post('/video-editor/log-error', { level, message, context }).catch(() => { });
-
-// Profile
-export const updateProfile = async (data) => {
-    try {
-        const response = await api.put('/user/profile', data);
-        return { success: true, user: response.data.user };
+        const response = await nativeApi.post('/chrome-profiles', payload);
+        return {
+            success: true,
+            data: response.data.data
+        };
     } catch (error) {
-        return { success: false, error: error.response?.data?.message || 'Update failed' };
+        console.error('Failed to create chrome profile:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to create chrome profile'
+        };
     }
-};
+}
 
-// Google OAuth
-export const getGoogleOAuthUrl = async () => {
+/**
+ * Update chrome profile
+ * @param {number} id - Profile ID
+ * @param {Object} payload - Profile data to update
+ * @returns {Promise<Object>} Response with updated profile
+ */
+export async function updateChromeProfile(id, payload) {
     try {
-        const response = await api.get('/auth/google/redirect'); // Note: This redirects 302 usually, handled by browser/electron
-        // If API returns URL string instead of redirect
-        return { success: true, url: response.data.url };
+        const response = await nativeApi.put(`/chrome-profiles/${id}`, payload);
+        return {
+            success: true,
+            data: response.data.data
+        };
     } catch (error) {
-        return { success: false, error: 'Failed to get OAuth URL' };
+        console.error('Failed to update chrome profile:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to update chrome profile'
+        };
     }
-};
+}
 
-export const handleGoogleCallback = async (code) => {
+/**
+ * Delete chrome profile
+ * @param {number} id - Profile ID
+ * @returns {Promise<Object>} Response
+ */
+export async function deleteChromeProfile(id) {
     try {
-        const response = await axios.get(`${API_BASE_URL}/auth/google/callback?code=${encodeURIComponent(code)}`);
-        const { token, user, expires_in } = response.data;
-
-        await secureStorage.setAuthToken(token);
-        localStorage.setItem('auth_user', JSON.stringify(user));
-        localStorage.setItem('token_expires_at', Date.now() + (expires_in * 1000));
-
-        return { success: true, user, token, expiresIn: expires_in };
+        const response = await nativeApi.delete(`/chrome-profiles/${id}`);
+        return {
+            success: true,
+            message: response.data.message
+        };
     } catch (error) {
-        return { success: false, error: error.response?.data?.message || 'Google Auth Failed' };
+        console.error('Failed to delete chrome profile:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to delete chrome profile'
+        };
     }
-};
-
-export { API_BASE_URL };
-export default api;
+}

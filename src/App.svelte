@@ -4,42 +4,36 @@
     import ServiceView from "./components/ServiceView.svelte";
     import AddServiceModal from "./components/AddServiceModal.svelte";
     import LoginPage from "./components/LoginPage.svelte";
-    import DownloadPanel from "./components/DownloadPanel.svelte";
     import NotificationPanel from "./components/NotificationPanel.svelte";
     import TabBar from "./components/TabBar.svelte";
+    import Toast from "./components/Toast.svelte";
+    import OfflineWarning from "./components/OfflineWarning.svelte";
     import { serviceStore } from "./lib/services.svelte.js";
     import { authStore } from "./lib/auth.svelte.js";
     import { workspaceStore } from "./lib/workspaces.svelte.js";
     import { navigationStore } from "./lib/navigation.svelte.js";
     import { downloadStore } from "./lib/downloads.svelte.js";
+    import { historyStore } from "./lib/history.svelte.js";
     import { notificationStore } from "./lib/notifications.svelte.js";
     import { dndStore } from "./lib/dnd.svelte.js";
     import { tabStore } from "./lib/tabs.svelte.js";
-    import { scraperService } from "./lib/scraperService.js";
-    import { activityTracker } from "./lib/activityTracker.js";
     import { onMount } from "svelte";
-    import { Loader2, Plus, Rocket, WifiOff } from "lucide-svelte";
+    import { Loader2, Plus, Rocket } from "lucide-svelte";
 
-    // Connectivity state
     let isOnline = $state(navigator.onLine);
 
-    // Global drag state to shield webviews
     let isTabDragging = $derived(tabStore.isAnyTabDragging);
 
-    // Auth state
     let isLoggedIn = $derived(authStore.isLoggedIn);
     let isAuthLoading = $derived(authStore.isLoading);
     let isAuthInitialized = $derived(authStore.isInitialized);
 
-    // Workspace state
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
 
-    // Service state
     let services = $derived(serviceStore.services);
     let activeServiceId = $derived(serviceStore.activeServiceId);
     let isAddModalOpen = $derived(serviceStore.isAddModalOpen);
 
-    // Filter services based on active workspace
     let workspaceServices = $derived(
         services.filter((service) =>
             activeWorkspace?.apps?.includes(service.id),
@@ -50,157 +44,77 @@
         workspaceServices.find((s) => s.id === activeServiceId),
     );
 
-    // Download state
-    let isDownloadPanelOpen = $derived(downloadStore.isDownloadPanelOpen);
     let isNotificationCenterOpen = $derived(
         notificationStore.isNotificationCenterOpen,
     );
 
-    // Initialize scraper service on app startup
     onMount(async () => {
-        // Setup connection listeners
         window.addEventListener("online", () => (isOnline = true));
         window.addEventListener("offline", () => (isOnline = false));
 
-        // Wait for auth to be initialized first
         await authStore.init();
-
-        // Initialize scraper service (no auth required - endpoint is public)
-        console.log("🚀 Initializing scraper service...");
-        await scraperService.initialize();
     });
 
-    // Re-initialize scraper when user logs in (in case it failed before)
-    $effect(() => {
-        if (isLoggedIn && isAuthInitialized && !scraperService.initialized) {
-            console.log("🔄 Retrying scraper service initialization...");
-            setTimeout(() => {
-                scraperService.initialize();
-            }, 500);
-        }
-    });
-
-    // Auto-select first app if workspace has apps but none is active
     $effect(() => {
         if (workspaceServices.length > 0) {
-            // Check if current active service is in workspace
             const isActiveInWorkspace = workspaceServices.some(
                 (s) => s.id === activeServiceId,
             );
 
             if (!isActiveInWorkspace) {
-                // Set first app as active
                 serviceStore.setActive(workspaceServices[0].id);
             }
         }
     });
 
-    // Track workspace switching for activity analytics
     let previousWorkspace = null;
     $effect(() => {
         if (activeWorkspace && isLoggedIn) {
-            // Track workspace switch
             if (previousWorkspace && previousWorkspace.id !== activeWorkspace.id) {
-                activityTracker.trackSpaceSwitch(
-                    previousWorkspace.id,
-                    previousWorkspace.name,
-                    activeWorkspace.id,
-                    activeWorkspace.name
-                );
+                // Workspace switched - load history for new workspace
+                historyStore.loadHistory(activeWorkspace.id);
             } else if (!previousWorkspace) {
-                // Initial workspace load
-                activityTracker.trackSpaceSwitch(
-                    null,
-                    null,
-                    activeWorkspace.id,
-                    activeWorkspace.name
-                );
+                // Initial workspace load - load history
+                historyStore.loadHistory(activeWorkspace.id);
             }
             
             previousWorkspace = activeWorkspace;
         }
     });
 
-    // Track app switching for activity analytics
     let previousActiveService = null;
     $effect(() => {
         if (activeService && activeWorkspace && isLoggedIn) {
-            // Track app switch
             if (previousActiveService && previousActiveService.id !== activeService.id) {
-                activityTracker.trackAppAction(
-                    activeWorkspace.id,
-                    activeWorkspace.name,
-                    previousActiveService.id,
-                    previousActiveService.name,
-                    'blur'
-                );
-                
-                activityTracker.trackAppAction(
-                    activeWorkspace.id,
-                    activeWorkspace.name,
-                    activeService.id,
-                    activeService.name,
-                    'focus'
-                );
+                // App switched
             } else if (!previousActiveService) {
                 // Initial app load
-                activityTracker.trackAppAction(
-                    activeWorkspace.id,
-                    activeWorkspace.name,
-                    activeService.id,
-                    activeService.name,
-                    'open'
-                );
             }
             
             previousActiveService = activeService;
         }
     });
 
-    // Initialize auth on mount
     onMount(() => {
         authStore.init();
 
-        // Listen for deep link authentication success
-        if (window.api?.onAuthSuccess) {
-            window.api.onAuthSuccess(async ({ token, workspace }) => {
-                console.log("✅ Authentication successful via deep link");
-
-                // Set token and fetch user data
-                await authStore.setLoggedIn(null, token, 3600);
-
-                // Fetch real user data from server
-                await authStore.fetchUser();
-
-                // Initialize workspace store after login
-                await workspaceStore.init();
-            });
-        }
-
-        // Listen for deep link authentication error
         if (window.api?.onAuthError) {
             window.api.onAuthError(({ error }) => {
                 console.error("❌ Authentication error:", error);
-                // You can show error notification here if needed
             });
         }
     });
 
-    // Initialize workspace store when user logs in
     $effect(() => {
         if (isLoggedIn && isAuthInitialized && !workspaceStore.isInitialized) {
-            console.log("🔄 User logged in, initializing workspace store...");
             workspaceStore.init();
         }
     });
 
-    // Global keyboard shortcuts
     function handleKeydown(e) {
-        // Ignore if typing in input/textarea
         if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
             return;
 
-        // Ctrl/Cmd + number (1-9) - switch to app by index
         if ((e.ctrlKey || e.metaKey) && e.key >= "1" && e.key <= "9") {
             e.preventDefault();
             const index = parseInt(e.key) - 1;
@@ -209,19 +123,16 @@
             }
         }
 
-        // Ctrl/Cmd + R - reload current app
         if ((e.ctrlKey || e.metaKey) && e.key === "r") {
             e.preventDefault();
             if (activeService) {
                 const activeTab = tabStore.getActiveTab(activeService.id);
                 if (activeTab) {
-                    // Reload the active tab
                     window.location.reload();
                 }
             }
         }
 
-        // Ctrl/Cmd + W - close current tab
         if ((e.ctrlKey || e.metaKey) && e.key === "w") {
             e.preventDefault();
             if (activeService) {
@@ -232,7 +143,6 @@
             }
         }
 
-        // Ctrl/Cmd + 0 - reset zoom to 100%
         if ((e.ctrlKey || e.metaKey) && e.key === "0") {
             e.preventDefault();
             if (activeService) {
@@ -245,7 +155,6 @@
             }
         }
 
-        // Ctrl/Cmd + Plus - zoom in
         if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
             e.preventDefault();
             if (activeService) {
@@ -266,7 +175,6 @@
             }
         }
 
-        // Ctrl/Cmd + Minus - zoom out
         if ((e.ctrlKey || e.metaKey) && e.key === "-") {
             e.preventDefault();
             if (activeService) {
@@ -287,25 +195,21 @@
             }
         }
 
-        // Ctrl/Cmd + [ - go back
         if ((e.ctrlKey || e.metaKey) && e.key === "[") {
             e.preventDefault();
             navigationStore.goBack();
         }
 
-        // Ctrl/Cmd + ] - go forward
         if ((e.ctrlKey || e.metaKey) && e.key === "]") {
             e.preventDefault();
             navigationStore.goForward();
         }
 
-        // Ctrl/Cmd + N - add new app
         if ((e.ctrlKey || e.metaKey) && e.key === "n") {
             e.preventDefault();
             serviceStore.setAddModalOpen(true);
         }
 
-        // Ctrl/Cmd + Tab - cycle through apps
         if ((e.ctrlKey || e.metaKey) && e.key === "Tab") {
             e.preventDefault();
             const currentIndex = workspaceServices.findIndex(
@@ -320,28 +224,23 @@
             }
         }
 
-        // Ctrl/Cmd + J - toggle download manager
         if ((e.ctrlKey || e.metaKey) && e.key === "j") {
             e.preventDefault();
-            downloadStore.toggleDownloadPanel();
+            // Download panel is now triggered from TopToolbar button
         }
 
-        // Ctrl/Cmd + Shift + D - toggle DND
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "D") {
             e.preventDefault();
             dndStore.toggle();
         }
 
-        // Escape - close modals and panels
         if (e.key === "Escape") {
             serviceStore.setAddModalOpen(false);
-            if (isDownloadPanelOpen) downloadStore.closeDownloadPanel();
             if (isNotificationCenterOpen)
                 notificationStore.closeNotificationCenter();
         }
     }
 
-    // State for Add App popup
     let isAddAppPopupOpen = $state(false);
 
     function handleStartWithApp() {
@@ -349,7 +248,6 @@
     }
 
     function handleStartWithTab() {
-        // Create a new app with Google as default
         const newService = serviceStore.addService(
             {
                 name: "Browser",
@@ -363,7 +261,6 @@
             activeWorkspace?.id,
         );
 
-        // Add to active workspace
         if (activeWorkspace && newService) {
             workspaceStore.addAppToWorkspace(activeWorkspace.id, newService.id);
         }
@@ -375,13 +272,13 @@
 <!-- Show loading screen while checking auth -->
 {#if !isAuthInitialized}
     <div
-        class="flex h-screen w-screen items-center justify-center bg-gradient-to-r from-[#9d8c6b] via-black to-[#8b4a6b]"
+        class="flex h-screen w-screen items-center justify-center bg-gradient-to-r from-gray-50 via-white to-gray-100"
     >
         <div class="text-center">
             <Loader2
-                class="w-12 h-12 text-pink-400 animate-spin mx-auto mb-4"
+                class="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4"
             />
-            <p class="text-gray-300">Loading...</p>
+            <p class="text-gray-600">Loading...</p>
         </div>
     </div>
 {:else if !isLoggedIn}
@@ -390,7 +287,7 @@
 {:else}
     <!-- Show workspace if authenticated -->
     <div
-        class="flex flex-col h-screen w-screen overflow-hidden bg-gradient-to-r from-[#9d8c6b] via-black to-[#8b4a6b] text-gray-100 font-sans selection:bg-pink-500 selection:text-white"
+        class="flex flex-col h-screen w-screen overflow-hidden bg-gradient-to-r from-gray-50 via-white to-gray-100 text-gray-900 font-sans selection:bg-blue-500 selection:text-white"
     >
         <!-- Top Toolbar -->
         <TopToolbar service={activeService} />
@@ -402,8 +299,8 @@
 
             <!-- Right side: TabBar + Content -->
             <div class="flex-1 flex flex-col overflow-hidden">
-                <!-- TabBar (horizontal) -->
-                {#if activeService}
+                <!-- TabBar (horizontal) - always show when workspace exists -->
+                {#if activeWorkspace}
                     <TabBar service={activeService} />
                 {/if}
 
@@ -418,10 +315,10 @@
                                 <!-- Icon -->
                                 <div class="mb-4 flex justify-center">
                                     <div
-                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center"
+                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center shadow-lg"
                                     >
                                         <svg
-                                            class="w-10 h-10 text-blue-400"
+                                            class="w-10 h-10 text-blue-600"
                                             viewBox="0 0 24 24"
                                             fill="none"
                                             stroke="currentColor"
@@ -440,35 +337,35 @@
 
                                 <!-- Text -->
                                 <h2
-                                    class="text-xl font-semibold text-white mb-2"
+                                    class="text-xl font-semibold text-gray-900 mb-2"
                                 >
-                                    Welcome to V-LEB Workspace
+                                    Selamat Datang di VisualBox
                                 </h2>
-                                <p class="text-gray-400 mb-6">
-                                    Create your first workspace to organize your projects and applications
+                                <p class="text-gray-600 mb-6">
+                                    Buat profil pertama Anda untuk mengatur proyek dan aplikasi
                                 </p>
 
                                 <!-- Button -->
                                 <div class="flex justify-center">
                                     <button
                                         onclick={() => {
-                                            // Trigger add workspace popup in sidebar
+                                            // Trigger add profile popup in sidebar
                                             const addButton = document.querySelector('.popup-trigger-button');
                                             if (addButton) addButton.click();
                                         }}
-                                        class="group flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
+                                        class="group flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
                                     >
                                         <Plus
                                             size={16}
                                             class="group-hover:rotate-90 transition-transform"
                                         />
-                                        Create Your First Workspace
+                                        Buat Profil Pertama Anda
                                     </button>
                                 </div>
                             </div>
                         </div>
                     {:else if workspaceServices.length === 0}
-                        <!-- Empty workspace state (workspace exists but no apps) -->
+                        <!-- Empty profile state (profile exists but no apps) -->
                         <div
                             class="absolute inset-0 flex items-center justify-center p-8 z-20"
                         >
@@ -476,10 +373,10 @@
                                 <!-- Icon -->
                                 <div class="mb-4 flex justify-center">
                                     <div
-                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center"
+                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center shadow-lg"
                                     >
                                         <svg
-                                            class="w-10 h-10 text-purple-400"
+                                            class="w-10 h-10 text-blue-600"
                                             viewBox="0 0 24 24"
                                             fill="none"
                                             stroke="currentColor"
@@ -503,56 +400,63 @@
 
                                 <!-- Text -->
                                 <h2
-                                    class="text-xl font-semibold text-white mb-6"
+                                    class="text-xl font-semibold text-gray-900 mb-6"
                                 >
-                                    Ready to get started?
+                                    Siap untuk memulai?
                                 </h2>
 
                                 <!-- Buttons -->
                                 <div class="flex gap-3 justify-center">
                                     <button
                                         onclick={handleStartWithApp}
-                                        class="group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
+                                        class="group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
                                     >
                                         <Rocket
                                             size={16}
                                             class="group-hover:translate-y-[-2px] transition-transform"
                                         />
-                                        Start with an app
+                                        Mulai dengan aplikasi
                                     </button>
                                     <button
                                         onclick={handleStartWithTab}
-                                        class="group flex items-center gap-2 px-5 py-2.5 bg-purple-500/80 hover:bg-purple-600/80 text-white text-sm rounded-lg font-medium transition-all hover:scale-105"
+                                        class="group flex items-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg font-medium transition-all hover:scale-105"
                                     >
                                         <Plus
                                             size={16}
                                             class="group-hover:rotate-90 transition-transform"
                                         />
-                                        Start with a tab
+                                        Mulai dengan tab
                                     </button>
                                 </div>
                             </div>
                         </div>
                     {/if}
 
-                    <!-- Render ALL services from ALL workspaces (keep-alive: never destroyed) -->
-                    {#each services as service (service.id)}
-                        {@const isInActiveWorkspace =
-                            activeWorkspace?.apps?.includes(service.id)}
-                        {@const isActiveService =
-                            activeServiceId === service.id}
-                        {@const isVisible =
-                            isInActiveWorkspace && isActiveService}
+                    <!-- Render services with STABLE DOM order to prevent webview reloads -->
+                    {#if services.length > 0}
+                        {@const serviceMap = new Map(services.map(s => [s.id, s]))}
+                        {@const allServiceIds = Array.from(serviceMap.keys()).sort()}
+                        
+                        {#each allServiceIds as serviceId (serviceId)}
+                            {@const service = serviceMap.get(serviceId)}
+                            {@const isInActiveWorkspace =
+                                activeWorkspace?.apps?.includes(service.id)}
+                            {@const isActiveService =
+                                activeServiceId === service.id}
+                            {@const isVisible =
+                                isInActiveWorkspace && isActiveService}
 
-                        <div
-                            class="absolute inset-0 w-full h-full"
-                            style:z-index={isVisible ? 10 : 0}
-                            style:visibility={isVisible ? "visible" : "hidden"}
-                            style:pointer-events={isVisible ? "auto" : "none"}
-                        >
-                            <ServiceView {service} isActive={isVisible} />
-                        </div>
-                    {/each}
+                            <div
+                                class="absolute inset-0 w-full h-full"
+                                style:z-index={isVisible ? 10 : 0}
+                                style:visibility={isVisible ? "visible" : "hidden"}
+                                style:pointer-events={isVisible ? "auto" : "none"}
+                                data-service-id={service.id}
+                            >
+                                <ServiceView {service} isActive={isVisible} />
+                            </div>
+                        {/each}
+                    {/if}
 
                     <!-- Global Webview Shield for Tab Drag & Drop -->
                     {#if isTabDragging}
@@ -576,40 +480,14 @@
         />
     {/if}
 
-    <!-- Download Panel -->
-    {#if isDownloadPanelOpen}
-        <DownloadPanel />
-    {/if}
-
     <!-- Notification Panel -->
     {#if isNotificationCenterOpen}
         <NotificationPanel />
     {/if}
-
-    <!-- Offline Overlay -->
-    {#if !isOnline}
-        <div
-            class="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-        >
-            <div
-                class="bg-gray-900 border border-red-500/30 rounded-2xl p-8 max-w-sm text-center shadow-2xl animate-in fade-in zoom-in-95 duration-200"
-            >
-                <div
-                    class="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6"
-                >
-                    <WifiOff size={40} class="text-red-400" />
-                </div>
-                <h2 class="text-2xl font-bold text-white mb-3">
-                    Koneksi Terputus
-                </h2>
-                <p class="text-gray-400 text-sm">
-                    Aplikasi V-LEB Workspace membutuhkan koneksi internet aktif.
-                    Silakan periksa jaringan Anda untuk melanjutkan.
-                </p>
-            </div>
-        </div>
-    {/if}
 {/if}
+
+<!-- Offline Warning Modal (Always visible, even before login) -->
+<OfflineWarning bind:isOnline={isOnline} />
 
 <style>
     :global(body) {
@@ -620,3 +498,7 @@
         padding: 0;
     }
 </style>
+
+
+<!-- Toast Notifications -->
+<Toast />

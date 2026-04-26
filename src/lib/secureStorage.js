@@ -1,38 +1,41 @@
-// Secure Storage using Keytar for Electron
-// Stores sensitive data (tokens, passwords) in OS keychain
+// Secure Storage using Electron safeStorage API
+// Best practice: Use Electron's built-in encryption instead of keytar
 
-const SERVICE_NAME = 'v-leb-workspace';
+const SERVICE_NAME = 'visualbox';
 
 class SecureStorage {
     constructor() {
-        this.keytar = null;
+        this.safeStorage = null;
         this.isElectron = false;
         this.initialized = false;
         
-        // Try to load keytar
+        // Try to use Electron safeStorage (available via IPC)
         try {
-            if (window.require) {
-                this.keytar = window.require('keytar');
+            if (window.api?.safeStorage) {
+                this.safeStorage = window.api.safeStorage;
                 this.isElectron = true;
-                console.log('✅ Keytar initialized - using OS keychain');
+                console.log('✅ Electron safeStorage initialized');
             }
         } catch (error) {
-            console.warn('⚠️ Keytar not available, falling back to localStorage');
+            console.warn('⚠️ Electron safeStorage not available, falling back to localStorage');
         }
         
         this.initialized = true;
     }
 
     /**
-     * Set a secure value
+     * Set a secure value using Electron safeStorage
      */
     async setPassword(account, password) {
-        if (this.isElectron && this.keytar) {
+        if (this.isElectron && this.safeStorage) {
             try {
-                await this.keytar.setPassword(SERVICE_NAME, account, password);
-                return true;
+                const result = await this.safeStorage.setItem(account, password);
+                if (result.success) {
+                    return true;
+                }
+                throw new Error(result.error || 'Failed to set item');
             } catch (error) {
-                console.error('Keytar setPassword error:', error);
+                console.error('safeStorage setItem error:', error);
                 // Fallback to localStorage
                 localStorage.setItem(`${SERVICE_NAME}:${account}`, password);
                 return true;
@@ -45,15 +48,18 @@ class SecureStorage {
     }
 
     /**
-     * Get a secure value
+     * Get a secure value from Electron safeStorage
      */
     async getPassword(account) {
-        if (this.isElectron && this.keytar) {
+        if (this.isElectron && this.safeStorage) {
             try {
-                const password = await this.keytar.getPassword(SERVICE_NAME, account);
-                return password;
+                const result = await this.safeStorage.getItem(account);
+                if (result.success) {
+                    return result.value;
+                }
+                throw new Error(result.error || 'Failed to get item');
             } catch (error) {
-                console.error('Keytar getPassword error:', error);
+                console.error('safeStorage getItem error:', error);
                 // Fallback to localStorage
                 return localStorage.getItem(`${SERVICE_NAME}:${account}`);
             }
@@ -64,15 +70,18 @@ class SecureStorage {
     }
 
     /**
-     * Delete a secure value
+     * Delete a secure value from Electron safeStorage
      */
     async deletePassword(account) {
-        if (this.isElectron && this.keytar) {
+        if (this.isElectron && this.safeStorage) {
             try {
-                await this.keytar.deletePassword(SERVICE_NAME, account);
-                return true;
+                const result = await this.safeStorage.removeItem(account);
+                if (result.success) {
+                    return true;
+                }
+                throw new Error(result.error || 'Failed to remove item');
             } catch (error) {
-                console.error('Keytar deletePassword error:', error);
+                console.error('safeStorage removeItem error:', error);
                 // Fallback to localStorage
                 localStorage.removeItem(`${SERVICE_NAME}:${account}`);
                 return true;
@@ -106,34 +115,13 @@ class SecureStorage {
     }
 
     /**
-     * Store refresh token securely
-     */
-    async setRefreshToken(token) {
-        return await this.setPassword('refresh_token', token);
-    }
-
-    /**
-     * Get refresh token
-     */
-    async getRefreshToken() {
-        return await this.getPassword('refresh_token');
-    }
-
-    /**
-     * Delete refresh token
-     */
-    async deleteRefreshToken() {
-        return await this.deletePassword('refresh_token');
-    }
-
-    /**
      * Clear all auth data
+     * Note: Refresh token is handled by httpOnly cookie from backend
      */
     async clearAuth() {
         await this.deleteAuthToken();
-        await this.deleteRefreshToken();
         
-        // Also clear localStorage for user data
+        // Clear localStorage for user data
         localStorage.removeItem('auth_user');
         localStorage.removeItem('token_expires_at');
     }
@@ -142,7 +130,7 @@ class SecureStorage {
      * Check if using secure storage
      */
     isSecure() {
-        return this.isElectron && this.keytar !== null;
+        return this.isElectron && this.safeStorage !== null;
     }
 }
 

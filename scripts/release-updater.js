@@ -32,7 +32,7 @@ if (fs.existsSync(tempNotesPath)) {
 // 1. Read package.json for Version
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const version = packageJson.version;
-const appName = packageJson.productName || 'V-LEB Workspace';
+const appName = packageJson.productName || 'VisualBox';
 console.log(`📌 App Version found: ${version}`);
 
 // 2. Find the installer files
@@ -125,7 +125,7 @@ const envProductionPath = path.resolve(__dirname, '../.env.production');
 if (fs.existsSync(envProductionPath)) {
     try {
         const envContent = fs.readFileSync(envProductionPath, 'utf8');
-        const match = envContent.match(/VITE_LARAVEL_URL=(.*)/);
+        const match = envContent.match(/VITE_BACKEND_URL=(.*)/;
         if (match && match[1]) {
             appUrl = match[1].trim().replace(/"/g, '');
             console.log(`📍 Using APP_URL from .env.production: ${appUrl}`);
