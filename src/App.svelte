@@ -1,24 +1,24 @@
 <script>
-    import Sidebar from "./components/Sidebar.svelte";
-    import TopToolbar from "./components/TopToolbar.svelte";
-    import ServiceView from "./components/ServiceView.svelte";
-    import AddServiceModal from "./components/AddServiceModal.svelte";
-    import LoginPage from "./components/LoginPage.svelte";
-    import NotificationPanel from "./components/NotificationPanel.svelte";
-    import TabBar from "./components/TabBar.svelte";
-    import Toast from "./components/Toast.svelte";
-    import OfflineWarning from "./components/OfflineWarning.svelte";
-    import { serviceStore } from "./lib/services.svelte.js";
-    import { authStore } from "./lib/auth.svelte.js";
-    import { workspaceStore } from "./lib/workspaces.svelte.js";
-    import { navigationStore } from "./lib/navigation.svelte.js";
-    import { downloadStore } from "./lib/downloads.svelte.js";
-    import { historyStore } from "./lib/history.svelte.js";
-    import { notificationStore } from "./lib/notifications.svelte.js";
-    import { dndStore } from "./lib/dnd.svelte.js";
-    import { tabStore } from "./lib/tabs.svelte.js";
-    import { toastStore } from "./lib/toast.svelte.js";
-    import { panelStore } from "./lib/panels.svelte.js";
+    import Sidebar from "./components/layout/Sidebar.svelte";
+    import TopToolbar from "./components/layout/TopToolbar.svelte";
+    import ServiceView from "./components/features/ServiceView.svelte";
+    import AddServiceWindow from "./components/windows/AddServiceWindow.svelte";
+    import LoginPage from "./components/features/LoginPage.svelte";
+    import NotificationPanel from "./components/panels/NotificationPanel.svelte";
+    import TabBar from "./components/layout/TabBar.svelte";
+    import Toast from "./components/ui/Toast.svelte";
+    import OfflineWarning from "./components/ui/OfflineWarning.svelte";
+    import { serviceStore } from "./lib/stores/services.svelte.js";
+    import { authStore } from "./lib/stores/auth.svelte.js";
+    import { workspaceStore } from "./lib/stores/workspaces.svelte.js";
+    import { navigationStore } from "./lib/managers/navigation.svelte.js";
+    import { downloadStore } from "./lib/stores/downloads.svelte.js";
+    import { historyStore } from "./lib/stores/history.svelte.js";
+    import { notificationStore } from "./lib/stores/notifications.svelte.js";
+    import { dndStore } from "./lib/utils/dnd.svelte.js";
+    import { tabStore } from "./lib/stores/tabs.svelte.js";
+    import { toastStore } from "./lib/managers/toast.svelte.js";
+    import { panelStore } from "./lib/stores/panels.svelte.js";
     import { onMount } from "svelte";
     import { Loader2, Plus, Rocket } from "lucide-svelte";
 
@@ -552,7 +552,8 @@
 
     <!-- Modals -->
     {#if isAddModalOpen || isAddAppPopupOpen}
-        <AddServiceModal
+        <AddServiceWindow
+            bind:isOpen={isAddModalOpen}
             onClose={() => {
                 isAddAppPopupOpen = false;
             }}
