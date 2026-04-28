@@ -23,6 +23,7 @@ export { default as OfflineWarning } from './ui/OfflineWarning.svelte';
 
 // Window Components
 export { default as TodoWindow } from './windows/TodoWindow.svelte';
+export { default as TargetWindow } from './windows/TargetWindow.svelte';
 export { default as SettingsWindow } from './windows/SettingsWindow.svelte';
 export { default as AddServiceWindow } from './windows/AddServiceWindow.svelte';
 export { default as ProfileWindow } from './windows/ProfileWindow.svelte';
@@ -43,6 +44,7 @@ export { default as ProfileDropdown } from './dropdowns/ProfileDropdown.svelte';
 
 // Layout Components
 export { default as Sidebar } from './layout/Sidebar.svelte';
+export { default as RightFloatingSidebar } from './layout/RightFloatingSidebar.svelte';
 export { default as SidebarHorizontal } from './layout/SidebarHorizontal.svelte';
 export { default as TabBar } from './layout/TabBar.svelte';
 export { default as TopToolbar } from './layout/TopToolbar.svelte';

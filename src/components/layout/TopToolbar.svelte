@@ -14,6 +14,7 @@
         Download as DownloadIcon,
         HelpCircle,
         Star,
+        Target,
     } from "lucide-svelte";
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
     import { serviceStore } from "../../lib/stores/services.svelte.js";
@@ -29,6 +30,7 @@
     import AutocompleteDropdown from "../dropdowns/AutocompleteDropdown.svelte";
     import HistoryPanel from "../panels/HistoryPanel.svelte";
     import TodoWindow from "../windows/TodoWindow.svelte";
+    import TargetWindow from "../windows/TargetWindow.svelte";
     import BookmarkPanel from "../panels/BookmarkPanel.svelte";
     import DownloadManagerPanel from "../panels/DownloadManagerPanel.svelte";
     import ProfileDropdown from "../dropdowns/ProfileDropdown.svelte";
@@ -41,6 +43,7 @@
     let urlInput = $state("");
     let isUrlFocused = $state(false);
     let isTodoModalOpen = $state(false);
+    let isTargetModalOpen = $state(false);
     let showAutocomplete = $state(false);
     let showBrowserMenu = $state(false);
     let isBookmarked = $state(false);
@@ -304,6 +307,9 @@
             case 'todo-list':
                 isTodoModalOpen = true;
                 break;
+            case 'target':
+                isTargetModalOpen = true;
+                break;
             case 'history':
                 panelStore.openHistory();
                 break;
@@ -536,6 +542,13 @@
                 To-Do List
             </button>
             <button
+                onclick={() => handleBrowserMenuClick('target')}
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+            >
+                <Target size={16} />
+                Target Dashboard
+            </button>
+            <button
                 onclick={() => handleBrowserMenuClick('history')}
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
             >
@@ -606,6 +619,12 @@
 <TodoWindow 
     bind:isOpen={isTodoModalOpen}
     onClose={() => isTodoModalOpen = false}
+/>
+
+<!-- Target Window -->
+<TargetWindow 
+    bind:isOpen={isTargetModalOpen}
+    onClose={() => isTargetModalOpen = false}
 />
 
 <!-- History Panel -->

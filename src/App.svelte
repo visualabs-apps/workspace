@@ -1,8 +1,11 @@
 <script>
     import Sidebar from "./components/layout/Sidebar.svelte";
+    import RightFloatingSidebar from "./components/layout/RightFloatingSidebar.svelte";
     import TopToolbar from "./components/layout/TopToolbar.svelte";
     import ServiceView from "./components/features/ServiceView.svelte";
     import AddServiceWindow from "./components/windows/AddServiceWindow.svelte";
+    import TodoWindow from "./components/windows/TodoWindow.svelte";
+    import TargetWindow from "./components/windows/TargetWindow.svelte";
     import LoginPage from "./components/features/LoginPage.svelte";
     import NotificationPanel from "./components/panels/NotificationPanel.svelte";
     import TabBar from "./components/layout/TabBar.svelte";
@@ -32,6 +35,10 @@
 
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
     let isLoadingWorkspaces = $derived(workspaceStore.isLoading);
+    
+    // Quick actions state
+    let isTargetModalOpen = $state(false);
+    let isTodoModalOpen = $state(false);
 
     // Random loading messages
     const loadingMessages = [
@@ -547,6 +554,13 @@
                 </div>
             </div>
 
+            <!-- Right Floating Sidebar -->
+            {#if activeWorkspace}
+                <RightFloatingSidebar 
+                    onOpenTarget={() => isTargetModalOpen = true}
+                    onOpenTodo={() => isTodoModalOpen = true}
+                />
+            {/if}
         </div>
     </div>
 
@@ -564,6 +578,18 @@
     {#if isNotificationCenterOpen}
         <NotificationPanel />
     {/if}
+    
+    <!-- Todo Window (from Quick Actions) -->
+    <TodoWindow 
+        bind:isOpen={isTodoModalOpen}
+        onClose={() => isTodoModalOpen = false}
+    />
+    
+    <!-- Target Window (from Quick Actions) -->
+    <TargetWindow 
+        bind:isOpen={isTargetModalOpen}
+        onClose={() => isTargetModalOpen = false}
+    />
 {/if}
 
 <!-- Offline Warning Modal (Always visible, even before login) -->

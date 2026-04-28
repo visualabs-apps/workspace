@@ -15,5 +15,6 @@ export { notificationStore } from './notifications.svelte.js';
 export { panelStore } from './panels.svelte.js';
 export { serviceStore, predefinedServices } from './services.svelte.js';
 export { tabStore } from './tabs.svelte.js';
+export { targetStore } from './targets.svelte.js';
 export { todoStore } from './todos.svelte.js';
 export { workspaceStore, workspaceColors } from './workspaces.svelte.js';

@@ -127,7 +127,7 @@
     width="600px"
     height="auto"
     showCloseButton={true}
-    showMaximizeButton={false}
+    showMaximizeButton={true}
     onClose={handleClose}
 >
     {#snippet children()}
