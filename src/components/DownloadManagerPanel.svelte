@@ -1,60 +1,143 @@
 <script>
-    import { X, Download, FolderOpen, Trash2, FileText, AlertCircle } from "lucide-svelte";
-    import { clickOutside } from "../lib/clickOutside.svelte.js";
+    import { Download, FolderOpen, Trash2, FileText, AlertCircle, XCircle, Pause, Play, X } from "lucide-svelte";
+    import { slide } from 'svelte/transition';
     import { workspaceStore } from "../lib/workspaces.svelte.js";
+    import { downloadStore } from "../lib/downloads.svelte.js";
     import { toastStore } from "../lib/toast.svelte.js";
+    import { onMount, onDestroy } from "svelte";
+    import { useClickOutside } from "../lib/clickOutside.svelte.js";
 
     let { isOpen = $bindable(false) } = $props();
 
+    let clickOutsideCleanup;
+
+    onDestroy(() => {
+        if (clickOutsideCleanup) {
+            clickOutsideCleanup();
+        }
+    });
+
+    // Setup click outside detection
+    $effect(() => {
+        if (isOpen) {
+            clickOutsideCleanup = useClickOutside({
+                elementSelector: '[data-download-panel]',
+                onClickOutside: () => isOpen = false,
+                enabled: true,
+                includeEscape: true,
+                includeBlur: true,
+                includeResize: true
+            });
+        } else {
+            if (clickOutsideCleanup) {
+                clickOutsideCleanup();
+                clickOutsideCleanup = null;
+            }
+        }
+    });
+
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
     let downloads = $state([]);
-    let isLoading = $state(false);
+    let allDownloads = $state([]); // Store all downloads for filtering
     let filterMode = $state('profile'); // 'profile' or 'global'
+    let searchQuery = $state("");
 
-    // Load downloads when panel opens or filter changes
+    // Live update from download store
+    $effect(() => {
+        if (isOpen) {
+            // Reload when downloads change
+            const storeDownloads = downloadStore.downloads;
+            if (storeDownloads.length > 0) {
+                loadDownloads();
+            }
+        }
+    });
+
+    // Auto-reload every 1 second when panel is open
+    let reloadInterval;
+    let lastManualReload = $state(0);
+    
     $effect(() => {
         if (isOpen) {
             loadDownloads();
+            reloadInterval = setInterval(() => {
+                // Skip auto-reload if manual reload happened recently (within 2 seconds)
+                if (Date.now() - lastManualReload < 2000) {
+                    return;
+                }
+                loadDownloads();
+            }, 1000);
+        } else {
+            if (reloadInterval) {
+                clearInterval(reloadInterval);
+                reloadInterval = null;
+            }
         }
-    });
-
-    $effect(() => {
-        if (isOpen && filterMode) {
-            loadDownloads();
-        }
+        
+        return () => {
+            if (reloadInterval) {
+                clearInterval(reloadInterval);
+            }
+        };
     });
 
     async function loadDownloads() {
-        isLoading = true;
         try {
             const profileId = filterMode === 'global' ? 'all' : activeWorkspace?.id;
             const result = await window.api.db.getDownloads(profileId);
             if (result.success) {
                 // Check file existence only for completed downloads
                 const downloadsWithStatus = await Promise.all(
-                    result.downloads.map(async (download) => {
+                    result.downloads.map(async (download, index) => {
                         let fileExists = true;
+                        let actualFilename = download.filename;
+                        
+                        // Only extract actual filename for completed downloads
                         if (download.state === 'completed' && download.save_path) {
+                            // Extract actual filename from save_path
+                            const pathParts = download.save_path.split(/[\\/]/);
+                            actualFilename = pathParts[pathParts.length - 1];
+                            
+                            // Check file existence
                             const existsResult = await window.api.db.fileExists(download.save_path);
                             fileExists = existsResult.exists;
                         }
+                        
                         return {
                             ...download,
+                            displayFilename: actualFilename, // Use for display
+                            // Ensure unique key - use id or generate from filename + start_time + index
+                            _key: download.id || `${download.filename}-${download.start_time}-${index}`,
                             fileExists: fileExists
                         };
                     })
                 );
-                downloads = downloadsWithStatus;
+                
+                allDownloads = downloadsWithStatus;
+                filterDownloads();
             }
         } catch (error) {
             console.error('Failed to load downloads:', error);
-        } finally {
-            isLoading = false;
         }
     }
 
-    function handleClose() {
-        isOpen = false;
+    function filterDownloads() {
+        if (!searchQuery.trim()) {
+            downloads = allDownloads;
+            return;
+        }
+
+        const query = searchQuery.toLowerCase();
+        downloads = allDownloads.filter(download => 
+            download.filename?.toLowerCase().includes(query) ||
+            download.displayFilename?.toLowerCase().includes(query) ||
+            download.save_path?.toLowerCase().includes(query) ||
+            download.url?.toLowerCase().includes(query)
+        );
+    }
+
+    function handleSearchChange() {
+        filterDownloads();
     }
 
     async function handleOpenFile(download) {
@@ -103,8 +186,6 @@
     }
 
     async function handleClearAll() {
-        if (!confirm('Clear all downloads from list?')) return;
-        
         try {
             const profileId = filterMode === 'global' ? 'all' : activeWorkspace?.id;
             const result = await window.api.db.clearDownloads(profileId);
@@ -130,7 +211,11 @@
 
     function formatDate(timestamp) {
         if (!timestamp) return 'Unknown';
+        
         const date = new Date(timestamp);
+        
+        // Validate date
+        if (isNaN(date.getTime())) return 'Invalid date';
         
         // Format: DD/MM/YYYY, HH:MM
         const day = String(date.getDate()).padStart(2, '0');
@@ -193,12 +278,13 @@
         if (download.state === 'paused') {
             // Resume
             try {
-                const result = await window.api.db.resumeDownload(download.filename);
+                const result = await window.api.db.resumeDownload(download.gid);
+                
                 if (result.success) {
                     await loadDownloads();
                     toastStore.success('Download resumed');
                 } else {
-                    toastStore.error('Failed to resume download');
+                    toastStore.error(result.error || 'Failed to resume download');
                 }
             } catch (error) {
                 console.error('Failed to resume download:', error);
@@ -207,12 +293,13 @@
         } else if (download.state === 'progressing') {
             // Pause
             try {
-                const result = await window.api.db.pauseDownload(download.filename);
+                const result = await window.api.db.pauseDownload(download.gid);
+                
                 if (result.success) {
                     await loadDownloads();
                     toastStore.success('Download paused');
                 } else {
-                    toastStore.error('Failed to pause download');
+                    toastStore.error(result.error || 'Failed to pause download');
                 }
             } catch (error) {
                 console.error('Failed to pause download:', error);
@@ -225,220 +312,291 @@
         event.stopPropagation();
         
         if (download.state !== 'progressing' && download.state !== 'paused') {
+            console.log('Cannot cancel - invalid state:', download.state);
             return;
         }
         
-        if (!confirm('Cancel this download?')) return;
+        console.log('Cancelling download:', download.gid);
         
         try {
-            const result = await window.api.db.cancelDownload(download.filename);
+            const result = await window.api.db.cancelDownload(download.gid);
+            console.log('Cancel result:', result);
+            
             if (result.success) {
+                // Cleanup partial file and .aria2 control file if exists
+                if (download.save_path) {
+                    try {
+                        // Remove main file
+                        console.log('Removing file:', download.save_path);
+                        await window.api.db.removeDownloadFile(download.save_path);
+                        // Remove .aria2 control file
+                        console.log('Removing .aria2 file:', download.save_path + '.aria2');
+                        await window.api.db.removeDownloadFile(download.save_path + '.aria2');
+                    } catch (error) {
+                        console.error('Failed to cleanup partial files:', error);
+                    }
+                }
+                
+                lastManualReload = Date.now();
+                console.log('Reloading downloads...');
                 await loadDownloads();
                 toastStore.success('Download cancelled');
             } else {
-                toastStore.error('Failed to cancel download');
+                console.error('Cancel failed:', result.error);
+                toastStore.error(result.error || 'Failed to cancel download');
             }
         } catch (error) {
             console.error('Failed to cancel download:', error);
             toastStore.error('Failed to cancel download');
         }
     }
+
+    async function handleRemoveFile(download, event) {
+        event.stopPropagation();
+        
+        if (!download.fileExists || !download.save_path) {
+            toastStore.warning('File not found');
+            return;
+        }
+        
+        try {
+            const result = await window.api.db.removeDownloadFile(download.save_path);
+            if (result.success) {
+                // Also remove from list
+                await handleDeleteDownload(download, event);
+                toastStore.success('File deleted');
+            } else {
+                toastStore.error('Failed to delete file');
+            }
+        } catch (error) {
+            console.error('Failed to delete file:', error);
+            toastStore.error('Failed to delete file');
+        }
+    }
+
+    function formatSpeed(bytesPerSecond) {
+        if (!bytesPerSecond || bytesPerSecond === 0) return '';
+        const k = 1024;
+        const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+        const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+        return Math.round(bytesPerSecond / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
 </script>
 
 {#if isOpen}
-    <div
-        use:clickOutside={{ onClickOutside: handleClose, includeEscape: true }}
-        class="fixed right-4 top-16 w-[500px] max-h-[600px] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col z-50"
+    <!-- Panel - Full height from right with slide animation -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div 
+        class="fixed right-0 top-0 h-full w-96 bg-white shadow-2xl border-l border-gray-200 flex flex-col z-50"
+        data-download-panel
+        transition:slide={{ duration: 300, axis: 'x' }}
         onclick={(e) => e.stopPropagation()}
     >
         <!-- Header -->
-        <div class="flex items-center justify-between p-4 border-b border-gray-200">
-            <div class="flex items-center gap-2">
-                <Download size={18} class="text-blue-600" />
-                <h3 class="font-semibold text-gray-900">Downloads</h3>
-                <span class="text-xs text-gray-500">({downloads.length})</span>
-            </div>
-            <div class="flex items-center gap-2">
-                {#if downloads.length > 0}
-                    <button
-                        onclick={handleClearAll}
-                        class="text-xs text-gray-600 hover:text-gray-900 px-2 py-1 hover:bg-gray-100 rounded transition-colors"
-                        title="Clear all"
-                    >
-                        Clear all
-                    </button>
-                {/if}
+        <div class="p-4 border-b border-gray-200">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Download size={20} />
+                    Downloads
+                </h2>
                 <button
-                    onclick={handleClose}
-                    class="p-1 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="Close"
+                    onclick={() => isOpen = false}
+                    class="p-1 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700"
                 >
-                    <X size={18} class="text-gray-600" />
+                    ✕
+                </button>
+            </div>
+
+            <!-- Search -->
+            <div class="relative mb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
+                <input
+                    type="text"
+                    bind:value={searchQuery}
+                    oninput={handleSearchChange}
+                    placeholder="Search downloads..."
+                    class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+            </div>
+
+            <!-- Filter Tabs -->
+            <div class="flex gap-1 border-b border-gray-200">
+                <button
+                    onclick={() => { filterMode = 'profile'; loadDownloads(); }}
+                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {filterMode === 'profile' 
+                        ? 'border-blue-500 text-blue-600' 
+                        : 'border-transparent text-gray-600 hover:text-gray-900'}"
+                >
+                    This Profile
+                </button>
+                <button
+                    onclick={() => { filterMode = 'global'; loadDownloads(); }}
+                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {filterMode === 'global' 
+                        ? 'border-blue-500 text-blue-600' 
+                        : 'border-transparent text-gray-600 hover:text-gray-900'}"
+                >
+                    All Profiles
                 </button>
             </div>
         </div>
 
-        <!-- Filter Tabs -->
-        <div class="flex border-b border-gray-200 px-4">
-            <button
-                onclick={() => filterMode = 'profile'}
-                class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {filterMode === 'profile' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-900'}"
-            >
-                This Profile
-            </button>
-            <button
-                onclick={() => filterMode = 'global'}
-                class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {filterMode === 'global' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-600 hover:text-gray-900'}"
-            >
-                All Profiles
-            </button>
-        </div>
-
-        <!-- Downloads List -->
+        <!-- Content -->
         <div class="flex-1 overflow-y-auto">
-            {#if isLoading}
-                <div class="flex items-center justify-center py-12">
-                    <div class="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                </div>
-            {:else if downloads.length === 0}
-                <div class="flex flex-col items-center justify-center py-12 px-4 text-center">
-                    <Download size={48} class="text-gray-300 mb-3" />
-                    <p class="text-gray-600 font-medium mb-1">No downloads yet</p>
-                    <p class="text-sm text-gray-500">
-                        Downloaded files will appear here
-                    </p>
+            {#if downloads.length === 0}
+                <div class="p-8 text-center text-gray-500">
+                    <Download size={48} class="mx-auto mb-4 text-gray-300" />
+                    <p class="mb-2">No downloads yet</p>
+                    <p class="text-sm">Downloaded files will appear here</p>
                 </div>
             {:else}
-                <div class="divide-y divide-gray-100">
-                    {#each downloads as download (download.id)}
-                        <div class="px-4 py-3 hover:bg-gray-50 transition-colors group">
-                            <div class="flex items-start gap-3">
-                                <!-- File Icon -->
-                                <div class="text-2xl shrink-0 mt-1">
-                                    {#if download.state === 'progressing'}
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                    {:else if download.state === 'paused'}
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-orange-600"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-                                    {:else if download.state === 'completed'}
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-600"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                                    {:else if download.state === 'cancelled' || download.state === 'failed'}
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-red-600"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                {#each downloads as download (download._key)}
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <div
+                        class="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0 group"
+                        onclick={() => handleOpenFile(download)}
+                    >
+                        <div class="flex items-start gap-3">
+                            <!-- File Icon -->
+                            <div class="text-2xl shrink-0 mt-0.5">
+                                {#if download.state === 'progressing'}
+                                    <Download size={20} class="text-blue-600" />
+                                {:else if download.state === 'paused'}
+                                    <Pause size={20} class="text-orange-600" />
+                                {:else if download.state === 'completed'}
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-600"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                {:else if download.state === 'cancelled' || download.state === 'failed'}
+                                    <XCircle size={20} class="text-red-600" />
+                                {:else}
+                                    <FileText size={20} class="text-gray-400" />
+                                {/if}
+                            </div>
+
+                            <!-- Content -->
+                            <div class="flex-1 min-w-0">
+                                <div class="text-sm font-medium text-gray-900 truncate">
+                                    {download.displayFilename || download.filename}
+                                </div>
+                                
+                                <!-- File path -->
+                                {#if download.save_path}
+                                    <div class="text-xs text-gray-500 truncate mt-0.5">
+                                        {download.save_path}
+                                    </div>
+                                {/if}
+                                
+                                <!-- File info -->
+                                <div class="text-xs text-gray-500 mt-0.5">
+                                    {#if download.state === 'progressing' || download.state === 'paused'}
+                                        {formatFileSize(download.received_bytes)} / {formatFileSize(download.total_bytes)}
+                                        • {download.total_bytes > 0 ? Math.round((download.received_bytes / download.total_bytes) * 100) : 0}%
+                                        {#if download.state === 'progressing' && download.download_speed}
+                                            • <span class="text-blue-600">{formatSpeed(download.download_speed)}</span>
+                                        {/if}
                                     {:else}
-                                        {getFileIcon(download.filename)}
+                                        {formatFileSize(download.total_bytes)}
                                     {/if}
                                 </div>
 
-                                <!-- Content -->
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-start justify-between gap-2 mb-1">
-                                        <button
-                                            onclick={() => handleOpenFile(download)}
-                                            class="font-medium text-gray-900 text-sm truncate hover:text-blue-600 transition-colors text-left flex-1"
-                                            disabled={!download.fileExists}
-                                        >
-                                            {download.filename}
-                                        </button>
-                                        <button
-                                            onclick={(e) => handleDeleteDownload(download, e)}
-                                            class="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 rounded transition-all shrink-0"
-                                            title="Remove from list"
-                                        >
-                                            <Trash2 size={14} class="text-red-600" />
-                                        </button>
+                                <div class="text-xs text-gray-400 mt-1">
+                                    {formatDate(download.start_time)}
+                                    • <span class="{getStateColor(download.state)}">{getStateText(download.state)}</span>
+                                </div>
+
+                                <!-- File status warning -->
+                                {#if download.state === 'completed' && !download.fileExists}
+                                    <div class="flex items-center gap-1.5 text-xs text-orange-600 mt-1">
+                                        <AlertCircle size={12} />
+                                        <span>File deleted or moved</span>
                                     </div>
+                                {/if}
 
-                                    <!-- File info -->
-                                    <div class="flex items-center gap-2 text-xs text-gray-500 mb-2">
-                                        {#if download.state === 'progressing' || download.state === 'paused'}
-                                            <span>{formatFileSize(download.received_bytes)} / {formatFileSize(download.total_bytes)}</span>
-                                            <span>•</span>
-                                            <span>{Math.round((download.received_bytes / download.total_bytes) * 100)}%</span>
-                                        {:else}
-                                            <span>{formatFileSize(download.total_bytes)}</span>
-                                        {/if}
-                                        <span>•</span>
-                                        <span>{formatDate(download.start_time)}</span>
-                                        <span>•</span>
-                                        <span class="{getStateColor(download.state)}">{getStateText(download.state)}</span>
+                                <!-- Progress bar for active downloads -->
+                                {#if download.state === 'progressing' || download.state === 'paused'}
+                                    <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+                                        <div
+                                            class="bg-blue-600 h-1.5 rounded-full transition-all"
+                                            style="width: {download.total_bytes > 0 ? (download.received_bytes / download.total_bytes) * 100 : 0}%"
+                                        ></div>
                                     </div>
+                                {/if}
 
-                                    <!-- File status warning - only show for completed downloads -->
-                                    {#if download.state === 'completed' && !download.fileExists}
-                                        <div class="flex items-center gap-1.5 text-xs text-orange-600 mb-2">
-                                            <AlertCircle size={12} />
-                                            <span>File deleted or moved</span>
-                                        </div>
-                                    {/if}
-
-                                    <!-- Actions -->
-                                    <div class="flex items-center gap-2 mt-2">
-                                        {#if download.state === 'progressing' || download.state === 'paused'}
-                                            <button
-                                                onclick={(e) => handlePauseResume(download, e)}
-                                                class="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 px-2 py-1 hover:bg-blue-50 rounded transition-colors"
-                                            >
-                                                {#if download.state === 'paused'}
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                                    <span>Resume</span>
-                                                {:else}
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-                                                    <span>Pause</span>
-                                                {/if}
-                                            </button>
-                                            <button
-                                                onclick={(e) => handleCancelDownload(download, e)}
-                                                class="flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700 px-2 py-1 hover:bg-red-50 rounded transition-colors"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                                                <span>Cancel</span>
-                                            </button>
-                                        {/if}
-                                        {#if download.fileExists && download.state === 'completed'}
-                                            <button
-                                                onclick={() => handleShowInFolder(download)}
-                                                class="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 px-2 py-1 hover:bg-blue-50 rounded transition-colors"
-                                            >
-                                                <FolderOpen size={12} />
-                                                <span>Show in folder</span>
-                                            </button>
-                                        {/if}
-                                    </div>
-
-                                    <!-- Progress bar for active downloads -->
+                                <!-- Actions -->
+                                <div class="flex items-center gap-2 mt-2">
                                     {#if download.state === 'progressing' || download.state === 'paused'}
-                                        <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
-                                            <div
-                                                class="bg-blue-600 h-1.5 rounded-full transition-all"
-                                                style="width: {(download.received_bytes / download.total_bytes) * 100}%"
-                                            ></div>
-                                        </div>
+                                        <button
+                                            onclick={(e) => handlePauseResume(download, e)}
+                                            class="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 hover:bg-blue-50 rounded transition-colors"
+                                        >
+                                            {download.state === 'paused' ? 'Resume' : 'Pause'}
+                                        </button>
+                                        <button
+                                            onclick={(e) => handleCancelDownload(download, e)}
+                                            class="text-xs text-red-600 hover:text-red-700 px-2 py-1 hover:bg-red-50 rounded transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
                                     {/if}
+                                    {#if download.fileExists && download.state === 'completed'}
+                                        <button
+                                            onclick={(e) => { e.stopPropagation(); handleShowInFolder(download); }}
+                                            class="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 hover:bg-blue-50 rounded transition-colors"
+                                        >
+                                            Show in folder
+                                        </button>
+                                        <button
+                                            onclick={(e) => handleRemoveFile(download, e)}
+                                            class="text-xs text-orange-600 hover:text-orange-700 px-2 py-1 hover:bg-orange-50 rounded transition-colors"
+                                        >
+                                            Remove file
+                                        </button>
+                                    {/if}
+                                    <button
+                                        onclick={(e) => handleDeleteDownload(download, e)}
+                                        class="text-xs text-gray-600 hover:text-gray-700 px-2 py-1 hover:bg-gray-100 rounded transition-colors"
+                                    >
+                                        Remove from list
+                                    </button>
                                 </div>
                             </div>
                         </div>
-                    {/each}
-                </div>
+                    </div>
+                {/each}
             {/if}
         </div>
+
+        <!-- Footer with Clear All -->
+        {#if downloads.length > 0}
+            <div class="p-4 border-t border-gray-200">
+                <button
+                    onclick={handleClearAll}
+                    class="w-full px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                    <Trash2 size={16} />
+                    Clear All Downloads
+                </button>
+            </div>
+        {/if}
     </div>
 {/if}
 
 <style>
     /* Custom scrollbar */
-    .overflow-y-auto::-webkit-scrollbar {
+    div::-webkit-scrollbar {
         width: 6px;
     }
-
-    .overflow-y-auto::-webkit-scrollbar-track {
-        background: transparent;
+    
+    div::-webkit-scrollbar-track {
+        background: #f1f1f1;
     }
-
-    .overflow-y-auto::-webkit-scrollbar-thumb {
-        background: rgba(156, 163, 175, 0.3);
+    
+    div::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
         border-radius: 3px;
     }
-
-    .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-        background: rgba(156, 163, 175, 0.5);
+    
+    div::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
     }
 </style>

@@ -241,7 +241,11 @@
 
         const handleContextMenu = (e) => {
             e.preventDefault();
-            window.api.showContextMenu(e.params);
+            // Include partition information for cookie export
+            window.api.showContextMenu({
+                ...e.params,
+                partition: service.partition
+            });
         };
 
         webviewElement.addEventListener("dom-ready", handleDomReady);

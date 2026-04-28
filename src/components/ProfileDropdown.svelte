@@ -1,16 +1,19 @@
 <script>
-    import { User, LogOut, ChevronDown } from "lucide-svelte";
-    import { authStore } from "../lib/auth.svelte.js";
+    import { ChevronDown, Edit, Trash2, Cookie } from "lucide-svelte";
+    import { workspaceStore } from "../lib/workspaces.svelte.js";
     import Dropdown from "./Dropdown.svelte";
+    import CookieManagerModal from "./CookieManagerModal.svelte";
 
-    let { onClose = () => {} } = $props();
+    let { onClose = () => {}, onEditProfile = () => {}, onDeleteProfile = () => {} } = $props();
 
-    let user = $derived(authStore.user);
+    let activeWorkspace = $derived(workspaceStore.activeWorkspace);
     let showDropdown = $state(false);
+    let showCookieManager = $state(false);
+    let currentPartition = $state(null);
 
-    // Get user initials
+    // Get workspace initials
     function getInitials(name) {
-        if (!name) return "U";
+        if (!name) return "W";
         return name
             .split(" ")
             .map((n) => n[0])
@@ -19,19 +22,29 @@
             .toUpperCase();
     }
 
-    function handleLogout() {
-        if (confirm("Are you sure you want to logout?")) {
-            authStore.logout();
-        }
-        showDropdown = false;
-        onClose();
-    }
-
     function toggleDropdown(e) {
         e.stopPropagation();
         showDropdown = !showDropdown;
         if (!showDropdown) {
             onClose();
+        }
+    }
+
+    function handleEditProfile() {
+        showDropdown = false;
+        onEditProfile(activeWorkspace);
+    }
+
+    function handleDeleteProfile() {
+        showDropdown = false;
+        onDeleteProfile(activeWorkspace);
+    }
+
+    function handleManageCookies() {
+        showDropdown = false;
+        if (activeWorkspace?.id) {
+            currentPartition = `persist:workspace-${activeWorkspace.id}`;
+            showCookieManager = true;
         }
     }
 </script>
@@ -46,16 +59,19 @@
         <button
             onclick={toggleDropdown}
             class="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors group"
-            title="Profile Menu"
+            title="Active Profile"
         >
-            <!-- User Avatar -->
-            <div class="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
-                {getInitials(user?.name || user?.email || "User")}
+            <!-- Profile Avatar with color -->
+            <div 
+                class="w-7 h-7 rounded-full flex items-center justify-center text-white text-sm font-semibold"
+                style="background: linear-gradient(135deg, {activeWorkspace?.color?.hex || activeWorkspace?.color?.value || activeWorkspace?.color || '#6366f1'}, {activeWorkspace?.color?.hex || activeWorkspace?.color?.value || activeWorkspace?.color || '#6366f1'}dd);"
+            >
+                {getInitials(activeWorkspace?.name || "Workspace")}
             </div>
             
-            <!-- User Name (optional, can be hidden on small screens) -->
+            <!-- Profile Name -->
             <span class="text-sm font-medium text-gray-700 hidden sm:block max-w-[120px] truncate">
-                {user?.name || user?.email || "User"}
+                {activeWorkspace?.name || "No Profile"}
             </span>
             
             <!-- Dropdown Arrow -->
@@ -67,51 +83,36 @@
     {/snippet}
 
     {#snippet children()}
-        <!-- User Info Header -->
-        <div class="px-4 py-3 border-b border-gray-100">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold">
-                    {getInitials(user?.name || user?.email || "User")}
-                </div>
-                <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-gray-900 truncate">
-                        {user?.name || "User"}
-                    </p>
-                    <p class="text-xs text-gray-500 truncate">
-                        {user?.email || "user@example.com"}
-                    </p>
-                </div>
-            </div>
-        </div>
-
         <!-- Menu Items -->
         <div class="py-1">
-            <!-- My Profile -->
             <button
-                onclick={() => {
-                    // TODO: Add profile management functionality
-                    showDropdown = false;
-                    onClose();
-                }}
-                class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                onclick={handleEditProfile}
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
             >
-                <User size={16} />
-                <span class="text-sm">My Profile</span>
+                <Edit size={16} class="text-gray-500" />
+                Edit Profile
             </button>
-        </div>
-
-        <!-- Separator -->
-        <div class="h-px bg-gray-200 my-1"></div>
-
-        <!-- Logout -->
-        <div class="py-1">
+            
             <button
-                onclick={handleLogout}
-                class="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"
+                onclick={handleManageCookies}
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2"
             >
-                <LogOut size={16} />
-                <span class="text-sm">Logout</span>
+                <Cookie size={16} class="text-gray-500" />
+                Manage Cookies
+            </button>
+            
+            <div class="border-t border-gray-200 my-1"></div>
+            
+            <button
+                onclick={handleDeleteProfile}
+                class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 transition-colors flex items-center gap-2"
+            >
+                <Trash2 size={16} class="text-red-500" />
+                Delete Profile
             </button>
         </div>
     {/snippet}
 </Dropdown>
+
+<!-- Cookie Manager Modal -->
+<CookieManagerModal bind:isOpen={showCookieManager} partition={currentPartition} />

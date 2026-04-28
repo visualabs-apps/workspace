@@ -55,12 +55,14 @@ function createDownloadStore() {
         try {
             const result = await window.api.db.saveDownload({
                 id: download.id,
+                gid: download.gid || null,
                 profileId: download.profileId || null,
                 filename: download.filename,
                 url: download.url,
                 savePath: download.savePath || '',
                 totalBytes: download.totalBytes || 0,
                 receivedBytes: download.receivedBytes || 0,
+                downloadSpeed: download.downloadSpeed || 0,
                 state: download.state,
                 startTime: download.startTime,
                 endTime: download.endTime || null,
@@ -78,28 +80,18 @@ function createDownloadStore() {
     // Initial listener setup
     if (typeof window !== 'undefined' && window.api) {
         window.api.onDownloadStarted((data) => {
-            const id = uuidv4();
             const profileId = workspaceStore.activeWorkspace?.id || null;
             
-            // Check if we already have an active download with same filename
-            const existingActive = downloads.find(d => 
-                d.filename === data.filename && 
-                (d.state === 'progressing' || d.state === 'paused')
-            );
-            
-            if (existingActive) {
-                // Cancel the existing download first
-                console.log('Replacing existing download:', data.filename);
-            }
-            
             const download = {
-                id: id,
+                id: data.id,
+                gid: data.gid,
                 profileId: profileId,
                 filename: data.filename,
                 url: data.url,
                 savePath: data.savePath || '',
-                totalBytes: data.totalBytes,
+                totalBytes: data.totalBytes || 0,
                 receivedBytes: 0,
+                downloadSpeed: 0,
                 state: 'progressing',
                 startTime: data.startTime || Date.now(),
                 endTime: null,
@@ -113,17 +105,24 @@ function createDownloadStore() {
             
             // Save to SQLite
             saveDownload(download);
+            
+            // Show toast notification
+            const profileName = workspaceStore.activeWorkspace?.name || 'Unknown Profile';
+            if (typeof window !== 'undefined' && window.toastStore) {
+                window.toastStore.info(`Download started: ${data.filename}`);
+            }
         });
 
         window.api.onDownloadProgress((data) => {
-            // Find download by filename (simplest approx for now)
-            const download = downloads.find(d => d.filename === data.filename && (d.state === 'progressing' || d.state === 'paused'));
+            // Find download by gid
+            const download = downloads.find(d => d.gid === data.gid && (d.state === 'progressing' || d.state === 'paused'));
             if (download) {
                 const index = downloads.indexOf(download);
                 const updated = {
                     ...download,
                     receivedBytes: data.receivedBytes,
                     totalBytes: data.totalBytes,
+                    downloadSpeed: data.downloadSpeed || 0,
                     state: data.state
                 };
                 
@@ -133,13 +132,16 @@ function createDownloadStore() {
                     ...downloads.slice(index + 1)
                 ];
                 
-                // Save to SQLite
-                saveDownload(updated);
+                // Save to SQLite periodically (every 2 seconds to avoid too many writes)
+                if (!download._lastSave || Date.now() - download._lastSave > 2000) {
+                    updated._lastSave = Date.now();
+                    saveDownload(updated);
+                }
             }
         });
 
         window.api.onDownloadPaused((data) => {
-            const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
+            const download = downloads.find(d => d.gid === data.gid && d.state === 'progressing');
             if (download) {
                 const index = downloads.indexOf(download);
                 const updated = {
@@ -159,7 +161,7 @@ function createDownloadStore() {
         });
 
         window.api.onDownloadCompleted((data) => {
-            const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
+            const download = downloads.find(d => d.gid === data.gid);
             if (download) {
                 const index = downloads.indexOf(download);
                 const updated = {
@@ -183,6 +185,11 @@ function createDownloadStore() {
                 // Get profile name for notification
                 const profileName = workspaceStore.activeWorkspace?.name || 'Unknown Profile';
                 
+                // Show toast notification
+                if (typeof window !== 'undefined' && window.toastStore) {
+                    window.toastStore.success(`Download completed from profile "${profileName}": ${data.filename}`);
+                }
+                
                 // Notify user with profile info
                 if (window.api.showNotification) {
                     window.api.showNotification({
@@ -194,7 +201,7 @@ function createDownloadStore() {
         });
 
         window.api.onDownloadCancelled((data) => {
-            const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
+            const download = downloads.find(d => d.gid === data.gid);
             if (download) {
                 const index = downloads.indexOf(download);
                 const updated = {
@@ -215,7 +222,7 @@ function createDownloadStore() {
         });
 
         window.api.onDownloadFailed((data) => {
-            const download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
+            const download = downloads.find(d => d.gid === data.gid);
             if (download) {
                 const index = downloads.indexOf(download);
                 const updated = {
@@ -232,7 +239,19 @@ function createDownloadStore() {
                 
                 // Save to SQLite
                 saveDownload(updated);
+                
+                // Show toast notification
+                const profileName = workspaceStore.activeWorkspace?.name || 'Unknown Profile';
+                if (typeof window !== 'undefined' && window.toastStore) {
+                    window.toastStore.error(`Download failed from profile "${profileName}": ${data.filename}`);
+                }
             }
+        });
+
+        // Listen for download removed event (when replacing existing download)
+        window.api.onDownloadRemoved?.((data) => {
+            console.log('🗑️ Removing download from UI:', data.id);
+            downloads = downloads.filter(d => d.id !== data.id);
         });
     }
 

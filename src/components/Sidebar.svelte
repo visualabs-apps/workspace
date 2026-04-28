@@ -3,7 +3,7 @@
     import { workspaceStore } from "../lib/workspaces.svelte.js";
     import { getClientsForAdmin } from "../lib/api.js";
     import { toastStore } from "../lib/toast.svelte.js";
-    import { Plus, Trash2 } from "lucide-svelte";
+    import { Plus, Trash2, Pencil } from "lucide-svelte";
     import ProfileModal from "./ProfileModal.svelte";
 
     // Auth state
@@ -134,7 +134,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-    class="w-16 h-full bg-white border-r border-gray-200 text-gray-900 flex flex-col items-center py-4 shrink-0 shadow-lg relative z-10 select-none"
+    class="w-16 h-full bg-white border-r border-gray-200 text-gray-900 flex flex-col items-center py-4 shrink-0 shadow-lg relative z-[100] select-none"
     style="-webkit-app-region: drag"
 >
     <!-- Add Workspace Button -->
@@ -158,11 +158,6 @@
                         <div class="w-10 h-10 rounded-full bg-gray-200 animate-pulse"></div>
                     </div>
                 {/each}
-            {:else if workspaces.length === 0}
-                <!-- Empty State -->
-                <div class="text-center py-4">
-                    <p class="text-xs text-gray-400">No profiles yet</p>
-                </div>
             {:else}
                 <!-- Profile List -->
                 {#each workspaces as workspace (workspace.id)}
@@ -170,7 +165,7 @@
                     <button
                         onclick={() => handleWorkspaceSwitch(workspace.id)}
                         oncontextmenu={(e) => handleWorkspaceContextMenu(e, workspace.id)}
-                        class="w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-md hover:shadow-xl relative {workspace.id === activeWorkspace?.id ? 'opacity-100 ring-2 ring-blue-400' : 'opacity-70 hover:opacity-100'}"
+                        class="w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-md hover:shadow-xl relative {workspace.id === activeWorkspace?.id ? 'opacity-100 ring-[3px] ring-blue-400 scale-110 active-profile' : 'opacity-70 hover:opacity-100 hover:scale-105'}"
                         style="background: linear-gradient(135deg, {workspace.color?.hex || workspace.color?.value || workspace.color || '#6366f1'}, {workspace.color?.hex || workspace.color?.value || workspace.color || '#6366f1'}dd);"
                     >
                         <!-- Display client initials -->
@@ -180,7 +175,7 @@
                     </button>
 
                     <!-- Hover Tooltip -->
-                    <div class="absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 delay-300">
+                    <div class="absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[99999] delay-300">
                         <div class="bg-gray-900 text-white rounded-lg shadow-xl px-3 py-2 min-w-[180px] max-w-[250px]">
                             <p class="font-medium text-sm break-words">{workspace.name}</p>
                             {#if workspace.customerName}
@@ -223,7 +218,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-        class="fixed inset-0 z-40"
+        class="fixed inset-0 z-[200]"
         onclick={closeContextMenu}
     >
         <div
@@ -239,7 +234,7 @@
                 class="w-full px-3 py-2 text-left text-gray-700 hover:bg-gray-50 rounded-lg transition-colors flex items-center gap-2"
                 type="button"
             >
-                <Plus size={14} class="rotate-45" />
+                <Pencil size={14} />
                 Edit Profile
             </button>
             <button
@@ -291,5 +286,19 @@
 
     .animate-pulse {
         animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* Active profile ring animation */
+    @keyframes ring-pulse {
+        0%, 100% {
+            box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.7);
+        }
+        50% {
+            box-shadow: 0 0 0 6px rgba(96, 165, 250, 0);
+        }
+    }
+
+    .active-profile {
+        animation: ring-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
 </style>

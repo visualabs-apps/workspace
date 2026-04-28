@@ -1,12 +1,16 @@
 const { log } = require('console')
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, session, nativeTheme, safeStorage } = require('electron')
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, session, nativeTheme, safeStorage, dialog } = require('electron')
 const path = require('path')
 const https = require('https')
 const http = require('http')
 const { URL } = require('url')
 const Database = require('better-sqlite3')
+const Aria2Manager = require('./aria2Manager.cjs')
 
 const isDevEnvironment = process.env.DEV_ENV === 'true'
+
+// Initialize aria2
+const aria2 = new Aria2Manager();
 
 nativeTheme.themeSource = 'light';
 
@@ -91,12 +95,14 @@ function initDatabase() {
         db.exec(`
             CREATE TABLE IF NOT EXISTS downloads (
                 id TEXT PRIMARY KEY,
+                gid TEXT,
                 profile_id INTEGER,
                 filename TEXT NOT NULL,
                 url TEXT NOT NULL,
                 save_path TEXT NOT NULL,
                 total_bytes INTEGER NOT NULL DEFAULT 0,
                 received_bytes INTEGER NOT NULL DEFAULT 0,
+                download_speed INTEGER NOT NULL DEFAULT 0,
                 state TEXT NOT NULL,
                 start_time INTEGER NOT NULL,
                 end_time INTEGER,
@@ -105,6 +111,30 @@ function initDatabase() {
                 created_at INTEGER NOT NULL
             )
         `);
+        
+        // Migration: Add gid and download_speed columns if they don't exist
+        try {
+            db.exec(`ALTER TABLE downloads ADD COLUMN gid TEXT`);
+            console.log('✅ Added gid column to downloads table');
+        } catch (e) {
+            // Column already exists, ignore
+        }
+        
+        try {
+            db.exec(`ALTER TABLE downloads ADD COLUMN download_speed INTEGER NOT NULL DEFAULT 0`);
+            console.log('✅ Added download_speed column to downloads table');
+        } catch (e) {
+            // Column already exists, ignore
+        }
+        
+        // Clean up old downloads with invalid timestamps (before year 2000)
+        const cleanupResult = db.prepare(`
+            DELETE FROM downloads WHERE start_time < 946684800000
+        `).run();
+        
+        if (cleanupResult.changes > 0) {
+            console.log(`🧹 Cleaned up ${cleanupResult.changes} old downloads with invalid timestamps`);
+        }
         
         db.exec(`
             CREATE INDEX IF NOT EXISTS idx_tabs_profile_id ON tabs(profile_id);
@@ -498,6 +528,229 @@ const createWindow = () => {
 
         // Standard actions
         template.push({
+            label: 'Import Cookies',
+            click: async () => {
+                try {
+                    // Get cookies from clipboard
+                    const clipboardText = require('electron').clipboard.readText();
+                    
+                    if (!clipboardText) {
+                        event.sender.send('show-toast', {
+                            type: 'error',
+                            message: 'Clipboard kosong'
+                        });
+                        return;
+                    }
+                    
+                    // Parse JSON
+                    let cookies;
+                    try {
+                        cookies = JSON.parse(clipboardText);
+                    } catch (e) {
+                        event.sender.send('show-toast', {
+                            type: 'error',
+                            message: 'Format cookies tidak valid (harus JSON)'
+                        });
+                        return;
+                    }
+                    
+                    if (!Array.isArray(cookies)) {
+                        event.sender.send('show-toast', {
+                            type: 'error',
+                            message: 'Format cookies harus berupa array'
+                        });
+                        return;
+                    }
+                    
+                    console.log('🍪 Importing', cookies.length, 'cookies');
+                    console.log('🍪 Partition:', params.partition);
+                    
+                    // Helper function to generate proper cookie URL
+                    const getCookieUrl = (cookie) => {
+                        const protocol = cookie.secure ? 'https://' : 'http://';
+                        const domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+                        return protocol + domain;
+                    };
+                    
+                    // Get session based on partition
+                    let targetSession;
+                    if (params.partition) {
+                        targetSession = session.fromPartition(params.partition);
+                        console.log('🍪 Using partition session:', params.partition);
+                    } else {
+                        targetSession = session.defaultSession;
+                        console.log('🍪 Using default session');
+                    }
+                    
+                    // Import cookies
+                    let successCount = 0;
+                    let failCount = 0;
+                    
+                    for (const cookie of cookies) {
+                        try {
+                            const cookieUrl = getCookieUrl(cookie);
+                            console.log('🍪 Setting cookie:', cookie.name, 'for', cookieUrl);
+                            
+                            await targetSession.cookies.set({
+                                url: cookieUrl,
+                                name: cookie.name,
+                                value: cookie.value,
+                                domain: cookie.domain,
+                                path: cookie.path || '/',
+                                expirationDate: cookie.expirationDate,
+                                secure: cookie.secure || false,
+                                httpOnly: cookie.httpOnly || false,
+                                sameSite: cookie.sameSite || 'unspecified'
+                            });
+                            
+                            successCount++;
+                        } catch (err) {
+                            console.error('🍪 Failed to set cookie:', cookie.name, err.message);
+                            failCount++;
+                        }
+                    }
+                    
+                    // Flush cookie store to ensure cookies are saved
+                    await targetSession.cookies.flushStore();
+                    console.log('🍪 Cookie store flushed');
+                    
+                    // Reload webview to apply cookies
+                    event.sender.send('reload-webview');
+                    
+                    // Send success message
+                    event.sender.send('show-toast', {
+                        type: 'success',
+                        message: `${successCount} cookies berhasil diimport${failCount > 0 ? `, ${failCount} gagal` : ''}`
+                    });
+                    
+                    console.log(`✅ Imported ${successCount} cookies, ${failCount} failed`);
+                } catch (error) {
+                    console.error('Failed to import cookies:', error);
+                    event.sender.send('show-toast', {
+                        type: 'error',
+                        message: 'Gagal import cookies: ' + error.message
+                    });
+                }
+            }
+        });
+        
+        template.push({
+            label: 'Export Cookies',
+            click: async () => {
+                try {
+                    // Get the URL from params
+                    const url = params.pageURL || params.frameURL;
+                    
+                    if (!url) {
+                        console.error('No URL available for cookie export');
+                        event.sender.send('show-toast', {
+                            type: 'error',
+                            message: 'Tidak ada URL untuk export cookies'
+                        });
+                        return;
+                    }
+                    
+                    console.log('🍪 Exporting cookies for URL:', url);
+                    
+                    // Parse URL to get domain
+                    const urlObj = new URL(url);
+                    const domain = urlObj.hostname;
+                    
+                    console.log('🍪 Domain:', domain);
+                    console.log('🍪 Partition:', params.partition);
+                    
+                    // Helper function to generate proper cookie URL
+                    const getCookieUrl = (cookie) => {
+                        const protocol = cookie.secure ? 'https://' : 'http://';
+                        return protocol + cookie.domain.replace(/^\./, '');
+                    };
+                    
+                    // Get session based on partition
+                    let targetSession;
+                    if (params.partition) {
+                        targetSession = session.fromPartition(params.partition);
+                        console.log('🍪 Using partition session:', params.partition);
+                    } else {
+                        targetSession = session.defaultSession;
+                        console.log('🍪 Using default session');
+                    }
+                    
+                    // Get ALL cookies from the session first (for debugging)
+                    const allSessionCookies = await targetSession.cookies.get({});
+                    console.log('🍪 Total cookies in session:', allSessionCookies.length);
+                    
+                    // Filter cookies that match the domain (including subdomains)
+                    const allCookies = allSessionCookies.filter(c => {
+                        // Match exact domain or parent domain (e.g., .roblox.com matches www.roblox.com)
+                        const cookieDomain = c.domain.startsWith('.') ? c.domain.substring(1) : c.domain;
+                        return domain === cookieDomain || domain.endsWith('.' + cookieDomain) || cookieDomain.endsWith('.' + domain);
+                    });
+                    console.log('🍪 Cookies matching domain:', allCookies.length);
+                    
+                    // Filter out session-only and expired cookies
+                    const now = Date.now() / 1000;
+                    const validCookies = allCookies.filter(c => {
+                        // Remove session-only cookies
+                        if (c.session) {
+                            console.log('🍪 Skipping session-only cookie:', c.name);
+                            return false;
+                        }
+                        // Remove expired cookies
+                        if (c.expirationDate && c.expirationDate < now) {
+                            console.log('🍪 Skipping expired cookie:', c.name);
+                            return false;
+                        }
+                        return true;
+                    });
+                    
+                    console.log('🍪 Valid cookies after filtering:', validCookies.length);
+                    
+                    if (validCookies.length === 0) {
+                        event.sender.send('show-toast', {
+                            type: 'info',
+                            message: `Tidak ada cookies untuk ${domain}`
+                        });
+                        return;
+                    }
+                    
+                    // Format cookies with all required fields
+                    const formattedCookies = validCookies.map(c => ({
+                        name: c.name,
+                        value: c.value,
+                        domain: c.domain,
+                        path: c.path,
+                        expirationDate: c.expirationDate,
+                        secure: c.secure,
+                        httpOnly: c.httpOnly,
+                        sameSite: c.sameSite || 'unspecified'
+                    }));
+                    
+                    // Format cookies as JSON
+                    const cookiesJson = JSON.stringify(formattedCookies, null, 2);
+                    
+                    // Copy to clipboard
+                    require('electron').clipboard.writeText(cookiesJson);
+                    
+                    // Send success message
+                    event.sender.send('show-toast', {
+                        type: 'success',
+                        message: `${validCookies.length} cookies dari ${domain} disalin ke clipboard`
+                    });
+                    
+                    console.log(`✅ Exported ${validCookies.length} cookies from ${domain}`);
+                } catch (error) {
+                    console.error('Failed to export cookies:', error);
+                    event.sender.send('show-toast', {
+                        type: 'error',
+                        message: 'Gagal export cookies: ' + error.message
+                    });
+                }
+            }
+        });
+        
+        template.push({ type: 'separator' });
+        
+        template.push({
             label: 'Muat Ulang',
             click: () => {
                 event.sender.send('reload-webview');
@@ -790,17 +1043,19 @@ ipcMain.handle('db-save-download', async (event, download) => {
         if (!db) return { success: false, error: 'Database not initialized' };
         const stmt = db.prepare(`
             INSERT OR REPLACE INTO downloads 
-            (id, profile_id, filename, url, save_path, total_bytes, received_bytes, state, start_time, end_time, mime_type, file_exists, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, gid, profile_id, filename, url, save_path, total_bytes, received_bytes, download_speed, state, start_time, end_time, mime_type, file_exists, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run(
             download.id,
+            download.gid || null,
             download.profileId || null,
             download.filename,
             download.url,
             download.savePath,
             download.totalBytes || 0,
             download.receivedBytes || 0,
+            download.downloadSpeed || 0,
             download.state,
             download.startTime,
             download.endTime || null,
@@ -909,6 +1164,99 @@ ipcMain.handle('open-file', async (event, filePath) => {
     }
 });
 
+// Cookie operations
+ipcMain.handle('get-cookies-from-partition', async (event, partition) => {
+    try {
+        console.log('🍪 Getting cookies from partition:', partition);
+        
+        const targetSession = partition 
+            ? session.fromPartition(partition)
+            : session.defaultSession;
+        
+        const cookies = await targetSession.cookies.get({});
+        console.log('🍪 Found', cookies.length, 'cookies');
+        
+        return cookies;
+    } catch (error) {
+        console.error('get-cookies-from-partition error:', error);
+        throw error;
+    }
+});
+
+ipcMain.handle('set-cookie-to-partition', async (event, partition, cookie) => {
+    try {
+        console.log('🍪 Setting cookie to partition:', partition, cookie.name);
+        
+        const targetSession = partition 
+            ? session.fromPartition(partition)
+            : session.defaultSession;
+        
+        // Helper function to generate proper cookie URL
+        const getCookieUrl = (cookie) => {
+            const protocol = cookie.secure ? 'https://' : 'http://';
+            const domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+            return protocol + domain;
+        };
+        
+        await targetSession.cookies.set({
+            url: getCookieUrl(cookie),
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path || '/',
+            expirationDate: cookie.expirationDate,
+            secure: cookie.secure || false,
+            httpOnly: cookie.httpOnly || false,
+            sameSite: cookie.sameSite || 'unspecified'
+        });
+        
+        // Flush cookie store
+        await targetSession.cookies.flushStore();
+        console.log('🍪 Cookie set successfully');
+        
+        return { success: true };
+    } catch (error) {
+        console.error('set-cookie-to-partition error:', error);
+        throw error;
+    }
+});
+
+ipcMain.handle('delete-cookie-from-partition', async (event, partition, name, domain, path) => {
+    try {
+        console.log('🍪 Deleting cookie from partition:', partition, name);
+        
+        const targetSession = partition 
+            ? session.fromPartition(partition)
+            : session.defaultSession;
+        
+        // Helper function to generate proper cookie URL
+        const protocol = 'https://';
+        const cleanDomain = domain.startsWith('.') ? domain.substring(1) : domain;
+        const url = protocol + cleanDomain;
+        
+        await targetSession.cookies.remove(url, name);
+        
+        // Flush cookie store
+        await targetSession.cookies.flushStore();
+        console.log('🍪 Cookie deleted successfully');
+        
+        return { success: true };
+    } catch (error) {
+        console.error('delete-cookie-from-partition error:', error);
+        throw error;
+    }
+});
+
+// Download dialog helpers
+ipcMain.handle('get-downloads-path', async () => {
+    try {
+        return { success: true, path: app.getPath('downloads') };
+    } catch (error) {
+        console.error('get-downloads-path error:', error);
+        return { success: false, error: error.message, path: '' };
+    }
+});
+
 // ============================================================================
 // SAFE STORAGE API - Secure token storage using Electron's built-in encryption
 // ============================================================================
@@ -1005,135 +1353,320 @@ async function handleDeepLink(url) {
     }
 }
 
-const { download } = require('electron-dl');
 const fs = require('fs-extra');
+const { v4: uuidv4 } = require('uuid');
 
-// Store active download items for cancellation
-const activeDownloads = new Map(); // filename -> downloadItem
+// Store active aria2 downloads
+const aria2Downloads = new Map(); // gid -> download info
 const downloadHandlerRegistered = new WeakSet(); // Track which sessions already have handlers
 
-function handleDownload(session) {
+// Poll aria2 for download status updates
+let statusPollInterval = null;
+
+function startStatusPolling() {
+    if (statusPollInterval) return;
+    
+    statusPollInterval = setInterval(async () => {
+        if (!aria2.isReady || !mainWindow) return;
+        
+        try {
+            // Get all active downloads
+            const active = await aria2.getActive();
+            const waiting = await aria2.getWaiting();
+            const stopped = await aria2.getStopped();
+            
+            // Process active downloads
+            for (const download of active) {
+                const info = aria2Downloads.get(download.gid);
+                if (!info) continue;
+                
+                const completedLength = parseInt(download.completedLength || 0);
+                const totalLength = parseInt(download.totalLength || 0);
+                const downloadSpeed = parseInt(download.downloadSpeed || 0);
+                
+                // Check if download is paused
+                const state = download.status === 'paused' ? 'paused' : 'progressing';
+                
+                console.log(`Status polling - GID: ${download.gid}, aria2 status: ${download.status}, sending state: ${state}`);
+                
+                mainWindow.webContents.send('download-progress', {
+                    id: info.id,
+                    gid: download.gid,
+                    filename: info.filename,
+                    receivedBytes: completedLength,
+                    totalBytes: totalLength,
+                    downloadSpeed: downloadSpeed,
+                    state: state
+                });
+            }
+            
+            // Process waiting downloads
+            for (const download of waiting) {
+                const info = aria2Downloads.get(download.gid);
+                if (!info) continue;
+                
+                const completedLength = parseInt(download.completedLength || 0);
+                const totalLength = parseInt(download.totalLength || 0);
+                
+                // Check if download is paused
+                const state = download.status === 'paused' ? 'paused' : 'progressing';
+                
+                console.log(`Waiting download - GID: ${download.gid}, aria2 status: ${download.status}, sending state: ${state}, completed: ${completedLength}`);
+                
+                // Update with current progress
+                mainWindow.webContents.send('download-progress', {
+                    id: info.id,
+                    gid: download.gid,
+                    filename: info.filename,
+                    receivedBytes: completedLength,
+                    totalBytes: totalLength,
+                    downloadSpeed: 0,
+                    state: state
+                });
+            }
+            
+            // Process stopped downloads (completed, error, removed)
+            for (const download of stopped) {
+                const info = aria2Downloads.get(download.gid);
+                if (!info) continue;
+                
+                if (download.status === 'complete') {
+                    const files = download.files || [];
+                    const savePath = files.length > 0 ? files[0].path : '';
+                    
+                    mainWindow.webContents.send('download-completed', {
+                        id: info.id,
+                        gid: download.gid,
+                        filename: info.filename,
+                        savePath: savePath,
+                        state: 'completed'
+                    });
+                    
+                    // Remove from tracking after notifying
+                    aria2Downloads.delete(download.gid);
+                    
+                } else if (download.status === 'error') {
+                    mainWindow.webContents.send('download-failed', {
+                        id: info.id,
+                        gid: download.gid,
+                        filename: info.filename,
+                        error: download.errorMessage || 'Unknown error',
+                        state: 'failed'
+                    });
+                    
+                    aria2Downloads.delete(download.gid);
+                    
+                } else if (download.status === 'removed') {
+                    mainWindow.webContents.send('download-cancelled', {
+                        id: info.id,
+                        gid: download.gid,
+                        filename: info.filename,
+                        state: 'cancelled'
+                    });
+                    
+                    aria2Downloads.delete(download.gid);
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error polling aria2 status:', error);
+        }
+    }, 500); // Poll every 500ms
+}
+
+function handleAria2Download(session) {
     // Prevent duplicate registration on same session
     if (downloadHandlerRegistered.has(session)) {
+        console.log('⚠️ Download handler already registered for this session');
         return;
     }
     downloadHandlerRegistered.add(session);
     
-    session.on('will-download', (event, item, webContents) => {
+    console.log('✅ Registering download handler for session');
+    
+    // Start status polling
+    startStatusPolling();
+    
+    session.on('will-download', async (event, item, webContents) => {
+        console.log('🎯 will-download event triggered!');
+        console.log('   URL:', item.getURL());
+        console.log('   Filename:', item.getFilename());
+        
+        // Cancel the default Electron download
+        event.preventDefault();
+        
         const fileName = item.getFilename();
         const url = item.getURL();
-        const startTime = item.getStartTime();
+        const totalBytes = item.getTotalBytes();
         
-        // Get default downloads folder
-        const downloadsPath = app.getPath('downloads');
+        console.log('🔔 Download intercepted:', fileName, 'from', url);
         
-        // Ensure downloads folder exists (sync)
-        fs.ensureDirSync(downloadsPath);
-        
-        let savePath = path.join(downloadsPath, fileName);
-        
-        // Check if file exists and auto-rename (sync)
-        if (fs.existsSync(savePath)) {
-            const ext = path.extname(fileName);
-            const nameWithoutExt = path.basename(fileName, ext);
-            
-            let counter = 1;
-            while (fs.existsSync(savePath)) {
-                const newFileName = `${nameWithoutExt} (${counter})${ext}`;
-                savePath = path.join(downloadsPath, newFileName);
-                counter++;
+        // Check if aria2 is ready
+        if (!aria2.isReady) {
+            console.error('❌ aria2 is not ready, cannot download:', fileName);
+            if (mainWindow) {
+                mainWindow.webContents.send('download-failed', {
+                    filename: fileName,
+                    error: 'Download manager is not ready. Please try again.',
+                    state: 'failed'
+                });
             }
+            return;
         }
         
-        // Set save path IMMEDIATELY (must be sync to prevent dialog)
-        item.setSavePath(savePath);
-        
-        const finalFileName = path.basename(savePath);
-        
-        // Store download item for potential cancellation
-        activeDownloads.set(finalFileName, item);
-        
-        // Send download started event
-        mainWindow.webContents.send('download-started', {
-            filename: finalFileName,
-            url: url,
-            startTime: startTime,
-            totalBytes: item.getTotalBytes(),
-            savePath: savePath
-        });
-
-        item.on('updated', (event, state) => {
-            if (state === 'interrupted') {
-                log('Download is interrupted but can be resumed')
-            } else if (state === 'progressing') {
-                if (item.isPaused()) {
-                    log('Download is paused')
-                    mainWindow.webContents.send('download-paused', {
-                        filename: finalFileName,
-                        state: 'paused'
-                    });
-                } else {
-                    mainWindow.webContents.send('download-progress', {
-                        filename: finalFileName,
-                        receivedBytes: item.getReceivedBytes(),
-                        totalBytes: item.getTotalBytes(),
-                        state: 'progressing'
-                    });
+        try {
+            // Get default downloads path
+            const downloadsPath = app.getPath('downloads');
+            
+            console.log('📂 Opening save dialog...');
+            console.log('   Default path:', downloadsPath);
+            console.log('   Suggested filename:', fileName);
+            
+            // Show native save dialog
+            const saveResult = await dialog.showSaveDialog(mainWindow, {
+                defaultPath: path.join(downloadsPath, fileName),
+                filters: [
+                    { name: 'All Files', extensions: ['*'] }
+                ]
+            });
+            
+            console.log('💾 Save dialog result:', saveResult);
+            
+            // User cancelled
+            if (saveResult.canceled || !saveResult.filePath) {
+                console.log('❌ Download cancelled by user');
+                return;
+            }
+            
+            const savePath = saveResult.filePath;
+            const saveDir = path.dirname(savePath);
+            const actualFilename = path.basename(savePath);
+            
+            console.log('📁 Save location:', saveDir);
+            console.log('📄 Filename:', actualFilename);
+            
+            // Check if there's an existing download with the same path
+            // If user chose to replace, we should remove the old entry
+            if (db) {
+                try {
+                    const existingDownload = db.prepare(`
+                        SELECT id, gid FROM downloads 
+                        WHERE save_path = ? 
+                        ORDER BY start_time DESC 
+                        LIMIT 1
+                    `).get(savePath);
+                    
+                    if (existingDownload) {
+                        console.log('🔄 Found existing download for this path, removing old entry');
+                        
+                        // Cancel old aria2 download if still active
+                        if (existingDownload.gid && aria2Downloads.has(existingDownload.gid)) {
+                            try {
+                                await aria2.cancel(existingDownload.gid);
+                                aria2Downloads.delete(existingDownload.gid);
+                            } catch (e) {
+                                console.log('Old download already completed or cancelled');
+                            }
+                        }
+                        
+                        // Delete old entry from database
+                        db.prepare('DELETE FROM downloads WHERE id = ?').run(existingDownload.id);
+                        
+                        // Notify renderer to remove from UI
+                        if (mainWindow) {
+                            mainWindow.webContents.send('download-removed', {
+                                id: existingDownload.id
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking existing download:', error);
                 }
             }
-        })
-        
-        item.once('done', (event, state) => {
-            // Remove from active downloads when done
-            activeDownloads.delete(finalFileName);
             
-            if (state === 'completed') {
-                log('Download successfully')
-                mainWindow.webContents.send('download-completed', {
-                    filename: finalFileName,
-                    state: 'completed',
-                    savePath: item.getSavePath()
-                });
-            } else if (state === 'cancelled') {
-                log('Download cancelled by user')
-                // Clean up partial file if exists (async is ok here)
-                fs.remove(savePath).catch(err => {
-                    console.error('Failed to remove cancelled download:', err);
-                });
-                mainWindow.webContents.send('download-cancelled', {
-                    filename: finalFileName,
-                    state: 'cancelled'
-                });
-            } else {
-                log(`Download failed: ${state}`)
+            // Delete existing file if it exists (user chose to replace)
+            if (fs.existsSync(savePath)) {
+                console.log('🗑️ Removing existing file:', savePath);
+                await fs.remove(savePath);
+                
+                // Also remove .aria2 control file if exists
+                const aria2File = savePath + '.aria2';
+                if (fs.existsSync(aria2File)) {
+                    await fs.remove(aria2File);
+                }
+            }
+            
+            // Generate unique ID for tracking
+            const downloadId = uuidv4();
+            
+            // Add download to aria2
+            const gid = await aria2.addDownload(url, {
+                filename: actualFilename,
+                dir: saveDir
+            });
+            
+            // Store download info
+            aria2Downloads.set(gid, {
+                id: downloadId,
+                gid: gid,
+                filename: actualFilename,
+                url: url,
+                savePath: savePath,
+                startTime: Date.now()
+            });
+            
+            // Send download started event
+            mainWindow.webContents.send('download-started', {
+                id: downloadId,
+                gid: gid,
+                filename: actualFilename,
+                url: url,
+                startTime: Date.now(),
+                totalBytes: totalBytes,
+                savePath: savePath
+            });
+            
+            console.log(`📥 Download started via aria2: ${actualFilename} (gid: ${gid})`);
+            
+        } catch (error) {
+            console.error('Failed to start download:', error);
+            
+            // Send failure event
+            if (mainWindow) {
                 mainWindow.webContents.send('download-failed', {
-                    filename: finalFileName,
-                    state: state
+                    filename: fileName,
+                    error: error.message,
+                    state: 'failed'
                 });
             }
-        })
+        }
     });
+    
+    console.log('✅ Download handler registered successfully');
 }
 
-// IPC handler to cancel download
-ipcMain.handle('cancel-download', async (event, filename) => {
+// IPC handler to cancel download (aria2)
+ipcMain.handle('cancel-download', async (event, gid) => {
     try {
-        console.log('🔴 Cancel request for:', filename);
-        const downloadItem = activeDownloads.get(filename);
+        console.log('🔴 Cancel request for gid:', gid);
         
-        if (!downloadItem) {
-            console.log('❌ Download item not found in activeDownloads');
-            console.log('📋 Active downloads:', Array.from(activeDownloads.keys()));
-            return { success: false, error: 'Download not found' };
+        if (!aria2.isReady) {
+            return { success: false, error: 'aria2 is not ready' };
         }
         
-        console.log('📊 Download state:', {
-            isPaused: downloadItem.isPaused(),
-            state: downloadItem.getState()
-        });
+        await aria2.cancel(gid);
         
-        downloadItem.cancel();
-        activeDownloads.delete(filename);
+        // Send cancelled event
+        const info = aria2Downloads.get(gid);
+        if (info && mainWindow) {
+            mainWindow.webContents.send('download-cancelled', {
+                id: info.id,
+                gid: gid,
+                filename: info.filename,
+                state: 'cancelled'
+            });
+        }
+        
         console.log('✅ Download cancelled successfully');
         return { success: true };
     } catch (error) {
@@ -1142,30 +1675,28 @@ ipcMain.handle('cancel-download', async (event, filename) => {
     }
 });
 
-// IPC handler to pause download
-ipcMain.handle('pause-download', async (event, filename) => {
+// IPC handler to pause download (aria2)
+ipcMain.handle('pause-download', async (event, gid) => {
     try {
-        console.log('🔵 Pause request for:', filename);
-        const downloadItem = activeDownloads.get(filename);
+        console.log('🔵 Pause request for gid:', gid);
         
-        if (!downloadItem) {
-            console.log('❌ Download item not found in activeDownloads');
-            console.log('📋 Active downloads:', Array.from(activeDownloads.keys()));
-            return { success: false, error: 'Download not found' };
+        if (!aria2.isReady) {
+            return { success: false, error: 'aria2 is not ready' };
         }
         
-        console.log('📊 Download state:', {
-            isPaused: downloadItem.isPaused(),
-            canResume: downloadItem.canResume(),
-            state: downloadItem.getState()
-        });
+        await aria2.pause(gid);
         
-        if (downloadItem.isPaused()) {
-            console.log('⚠️ Download already paused');
-            return { success: false, error: 'Download already paused' };
+        // Send paused event
+        const info = aria2Downloads.get(gid);
+        if (info && mainWindow) {
+            mainWindow.webContents.send('download-paused', {
+                id: info.id,
+                gid: gid,
+                filename: info.filename,
+                state: 'paused'
+            });
         }
         
-        downloadItem.pause();
         console.log('✅ Download paused successfully');
         return { success: true };
     } catch (error) {
@@ -1174,39 +1705,38 @@ ipcMain.handle('pause-download', async (event, filename) => {
     }
 });
 
-// IPC handler to resume download
-ipcMain.handle('resume-download', async (event, filename) => {
+// IPC handler to resume download (aria2)
+ipcMain.handle('resume-download', async (event, gid) => {
     try {
-        console.log('🟢 Resume request for:', filename);
-        const downloadItem = activeDownloads.get(filename);
+        console.log('🟢 Resume request for gid:', gid);
         
-        if (!downloadItem) {
-            console.log('❌ Download item not found in activeDownloads');
-            console.log('📋 Active downloads:', Array.from(activeDownloads.keys()));
-            return { success: false, error: 'Download not found' };
+        if (!aria2.isReady) {
+            return { success: false, error: 'aria2 is not ready' };
         }
         
-        console.log('📊 Download state:', {
-            isPaused: downloadItem.isPaused(),
-            canResume: downloadItem.canResume(),
-            state: downloadItem.getState()
-        });
-        
-        if (!downloadItem.isPaused()) {
-            console.log('⚠️ Download is not paused');
-            return { success: false, error: 'Download is not paused' };
-        }
-        
-        if (!downloadItem.canResume()) {
-            console.log('⚠️ Download cannot be resumed (server may not support resume)');
-            return { success: false, error: 'Download cannot be resumed - server does not support resume' };
-        }
-        
-        downloadItem.resume();
+        await aria2.resume(gid);
         console.log('✅ Download resumed successfully');
         return { success: true };
     } catch (error) {
         console.error('❌ resume-download error:', error);
+        return { success: false, error: error.message };
+    }
+});
+
+// IPC handler to remove download file
+ipcMain.handle('remove-download-file', async (event, filePath) => {
+    try {
+        console.log('🗑️ Remove file request:', filePath);
+        
+        if (!filePath || !fs.existsSync(filePath)) {
+            return { success: false, error: 'File not found' };
+        }
+        
+        await fs.remove(filePath);
+        console.log('✅ File removed successfully');
+        return { success: true };
+    } catch (error) {
+        console.error('❌ remove-download-file error:', error);
         return { success: false, error: error.message };
     }
 });
@@ -1226,9 +1756,27 @@ function handlePermissions(session) {
     });
 }
 
-app.on('ready', () => {
+app.on('ready', async () => {
     // Initialize database first
     initDatabase();
+    
+    // Block Ctrl+R, F5, and other shortcuts globally for all web contents (including webviews)
+    app.on('web-contents-created', (event, contents) => {
+        contents.on('before-input-event', (event, input) => {
+            // Block Ctrl+R and F5 (reload shortcuts)
+            if (
+                ((input.control || input.meta) && input.key.toLowerCase() === 'r') ||
+                input.key === 'F5'
+            ) {
+                event.preventDefault();
+            }
+            
+            // Optional: Block Ctrl+Shift+I (DevTools) in production
+            // if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+            //     event.preventDefault();
+            // }
+        });
+    });
     
     createTray();
     createWindow();
@@ -1250,8 +1798,18 @@ app.on('ready', () => {
         setInterval(checkForNewVersion, VERSION_CHECK_INTERVAL);
     }, 5000);
 
-    // Register download handler for default session
-    handleDownload(session.defaultSession);
+    // Start aria2 and wait for it to be ready before registering download handlers
+    try {
+        const downloadsPath = app.getPath('downloads');
+        await aria2.start(downloadsPath);
+        console.log('✅ aria2 started successfully');
+        
+        // Register aria2 download handler for default session AFTER aria2 is ready
+        handleAria2Download(session.defaultSession);
+    } catch (error) {
+        console.error('❌ Failed to start aria2:', error);
+        // Fallback: don't register download handler if aria2 fails
+    }
 
     app.on('web-contents-created', (event, contents) => {
         if (contents.getType() === 'webview') {
@@ -1261,8 +1819,10 @@ app.on('ready', () => {
 
             const ses = contents.session;
             if (ses) {
-                // Register download handler for webview session too
-                handleDownload(ses);
+                // Register aria2 download handler for webview session too (only if aria2 is ready)
+                if (aria2.isReady) {
+                    handleAria2Download(ses);
+                }
                 handlePermissions(ses);
             }
         }
@@ -1282,22 +1842,16 @@ app.on('window-all-closed', (e) => {
     e.preventDefault();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
     isQuitting = true;
     
-    // Save all active downloads state before quit
-    console.log('💾 Saving active downloads before quit...');
-    activeDownloads.forEach((item, filename) => {
-        if (!item.isPaused() && item.getState() === 'progressing') {
-            // Pause download before quit so it can be resumed later
-            try {
-                item.pause();
-                console.log(`⏸️ Paused download: ${filename}`);
-            } catch (err) {
-                console.error(`Failed to pause ${filename}:`, err);
-            }
-        }
-    });
+    // Stop aria2 gracefully
+    console.log('🛑 Stopping aria2...');
+    try {
+        await aria2.stop();
+    } catch (error) {
+        console.error('Failed to stop aria2:', error);
+    }
 });
 
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {

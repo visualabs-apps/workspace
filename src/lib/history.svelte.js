@@ -119,26 +119,16 @@ function createHistoryStore() {
                 params.append('limit', Math.min(limit, 100).toString()); // Backend max is 100
                 params.append('page', '1');
                 
-                console.log('📚 Loading history for profile:', workspace.id, 'URL:', `/chrome-histories?${params.toString()}`);
-                
                 const response = await nativeApi.get(
                     `/chrome-histories?${params.toString()}`
                 );
                 
-                console.log('📚 History response:', response.data);
-                
                 if (response.data.success) {
                     historyCache = response.data.data;
                     lastUpdate = Date.now();
-                    console.log('✅ History loaded:', historyCache.length, 'entries');
                 }
             } catch (error) {
-                console.error('❌ Failed to load history:', error);
-                console.error('Error details:', {
-                    message: error.message,
-                    status: error.status,
-                    statusCode: error.statusCode
-                });
+                console.error('Failed to load history:', error);
             } finally {
                 isLoading = false;
             }

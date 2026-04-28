@@ -20,7 +20,11 @@
     import { tabStore } from "../lib/tabs.svelte.js";
     import { workspaceStore } from "../lib/workspaces.svelte.js";
     import { bookmarkStore } from "../lib/bookmarks.svelte.js";
+    import { downloadStore } from "../lib/downloads.svelte.js";
     import { toastStore } from "../lib/toast.svelte.js";
+    import { authStore } from "../lib/auth.svelte.js";
+    import { getClientsForAdmin } from "../lib/api.js";
+    import { panelStore } from "../lib/panels.svelte.js";
     import WindowControls from "./WindowControls.svelte";
     import AutocompleteDropdown from "./AutocompleteDropdown.svelte";
     import HistoryPanel from "./HistoryPanel.svelte";
@@ -28,7 +32,9 @@
     import BookmarkPanel from "./BookmarkPanel.svelte";
     import DownloadManagerPanel from "./DownloadManagerPanel.svelte";
     import ProfileDropdown from "./ProfileDropdown.svelte";
+    import ProfileModal from "./ProfileModal.svelte";
     import Dropdown from "./Dropdown.svelte";
+    import { onMount } from "svelte";
 
     let { service = null } = $props();
 
@@ -36,17 +42,78 @@
     let isUrlFocused = $state(false);
     let isTodoModalOpen = $state(false);
     let showAutocomplete = $state(false);
-    let isHistoryPanelOpen = $state(false);
-    let isBookmarkPanelOpen = $state(false);
-    let isDownloadPanelOpen = $state(false);
     let showBrowserMenu = $state(false);
     let isBookmarked = $state(false);
+    let isEditProfileModalOpen = $state(false);
+    let editingProfile = $state(null);
+    let clients = $state([]);
+    let isLoadingClients = $state(false);
 
     // Update notification state
     let updateInfo = $state(null); // { version, notes, downloadUrl }
     
     // Get active workspace
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
+    
+    // Get user from auth store
+    let user = $derived(authStore.user);
+    
+    // Load clients for profile editing
+    async function loadClients() {
+        if (!user?.id) return;
+        
+        isLoadingClients = true;
+        try {
+            clients = await getClientsForAdmin(user.id);
+        } catch (error) {
+            console.error('Failed to load clients:', error);
+            clients = [];
+        } finally {
+            isLoadingClients = false;
+        }
+    }
+    
+    // Load clients when user is available
+    $effect(() => {
+        if (user?.id && clients.length === 0) {
+            loadClients();
+        }
+    });
+    
+    // Get active downloads count from database
+    let activeDownloadsCount = $state(0);
+    
+    // Update active downloads count periodically
+    let countInterval;
+    $effect(() => {
+        async function updateCount() {
+            try {
+                const result = await window.api.db.getDownloads(activeWorkspace?.id);
+                if (result.success) {
+                    const activeCount = result.downloads.filter(d => 
+                        d.state === 'progressing' || d.state === 'paused'
+                    ).length;
+                    activeDownloadsCount = activeCount;
+                }
+            } catch (error) {
+                console.error('Failed to get active downloads count:', error);
+            }
+        }
+        
+        updateCount();
+        countInterval = setInterval(updateCount, 2000); // Update every 2 seconds
+        
+        return () => {
+            if (countInterval) clearInterval(countInterval);
+        };
+    });
+    
+    // Expose toastStore to window for downloads.svelte.js
+    onMount(() => {
+        if (typeof window !== 'undefined') {
+            window.toastStore = toastStore;
+        }
+    });
 
     // Derived from navigation store
     let canGoBack = $derived(navigationStore.canGoBack);
@@ -234,39 +301,23 @@
         showBrowserMenu = false;
         
         switch (action) {
-            case 'new-tab':
-                // Create new service/tab
-                const newService = serviceStore.addService(
-                    {
-                        name: "New Tab",
-                        url: "https://www.google.com",
-                        icon: null,
-                        color: "#4285f4",
-                    },
-                    null,
-                    null,
-                    null,
-                    workspaceStore.activeWorkspaceId,
-                );
-
-                if (workspaceStore.activeWorkspace && newService) {
-                    workspaceStore.addAppToWorkspace(
-                        workspaceStore.activeWorkspace.id,
-                        newService.id,
-                    );
-                }
-                break;
             case 'todo-list':
                 isTodoModalOpen = true;
                 break;
             case 'history':
-                isHistoryPanelOpen = true;
+                panelStore.openHistory();
                 break;
             case 'bookmarks':
-                isBookmarkPanelOpen = true;
+                panelStore.openBookmarks();
                 break;
             case 'downloads':
-                isDownloadPanelOpen = true;
+                panelStore.openDownloads();
+                break;
+            case 'my-profile':
+                // Show user info in toast
+                const user = authStore.user;
+                const userInfo = `Name: ${user?.name || 'N/A'} | Email: ${user?.email || 'N/A'} | Role: ${user?.role || 'N/A'}`;
+                toastStore.info(userInfo);
                 break;
             case 'settings':
                 // TODO: Open settings
@@ -274,12 +325,35 @@
             case 'help':
                 // TODO: Open help
                 break;
+            case 'logout':
+                if (confirm("Are you sure you want to logout?")) {
+                    authStore.logout();
+                }
+                break;
         }
     }
 
     function toggleBrowserMenu(e) {
         e.stopPropagation();
         showBrowserMenu = !showBrowserMenu;
+    }
+
+    function handleEditProfile(workspace) {
+        editingProfile = workspace;
+        isEditProfileModalOpen = true;
+    }
+
+    function handleDeleteProfile(workspace) {
+        if (confirm(`Hapus profile "${workspace.name}"?`)) {
+            workspaceStore.deleteWorkspace(workspace.id);
+            toastStore.success('Profile dihapus');
+        }
+    }
+
+    async function handleProfileUpdateSuccess(updatedProfile, color) {
+        // Refresh workspace data
+        await workspaceStore.loadWorkspaces();
+        toastStore.success('Profile diperbarui');
     }
 </script>
 
@@ -405,18 +479,30 @@
     {/if}
 
     <!-- Profile Dropdown -->
-    <ProfileDropdown />
+    <ProfileDropdown 
+        onEditProfile={handleEditProfile}
+        onDeleteProfile={handleDeleteProfile}
+    />
 
     <!-- Download Manager Icon -->
-    <button
-        type="button"
-        onclick={() => isDownloadPanelOpen = true}
-        class="p-2 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors"
-        style="-webkit-app-region: no-drag"
-        title="Downloads (Ctrl+J)"
-    >
-        <DownloadIcon size={20} />
-    </button>
+    <div data-download-trigger="download-panel" style="-webkit-app-region: no-drag">
+        <button
+            type="button"
+            onclick={(e) => {
+                e.stopPropagation();
+                panelStore.toggleDownloads();
+            }}
+            class="p-2 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors relative"
+            title="Unduhan (Ctrl+J)"
+        >
+            <DownloadIcon size={20} />
+            {#if activeDownloadsCount > 0}
+                <span class="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
+                    {activeDownloadsCount}
+                </span>
+            {/if}
+        </button>
+    </div>
 
     <!-- Browser Menu (Settings) -->
     <Dropdown 
@@ -441,18 +527,6 @@
         {/snippet}
 
         {#snippet children()}
-            <!-- New Tab -->
-            <button
-                onclick={() => handleBrowserMenuClick('new-tab')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
-            >
-                <Square size={16} />
-                New tab
-                <span class="ml-auto text-xs text-gray-400">Ctrl+T</span>
-            </button>
-            
-            <hr class="my-2 border-gray-100" />
-            
             <!-- Browser Features -->
             <button
                 onclick={() => handleBrowserMenuClick('todo-list')}
@@ -466,7 +540,7 @@
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
             >
                 <Clock size={16} />
-                History
+                Riwayat Penjelajahan
                 <span class="ml-auto text-xs text-gray-400">Ctrl+H</span>
             </button>
             <button
@@ -482,7 +556,7 @@
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
             >
                 <DownloadIcon size={16} />
-                Downloads
+                Unduhan
                 <span class="ml-auto text-xs text-gray-400">Ctrl+J</span>
             </button>
             
@@ -490,18 +564,36 @@
             
             <!-- Settings & Help -->
             <button
+                onclick={() => handleBrowserMenuClick('my-profile')}
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                Profil Saya
+            </button>
+            <button
                 onclick={() => handleBrowserMenuClick('settings')}
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
             >
                 <Settings size={16} />
-                Settings
+                Pengaturan
             </button>
             <button
                 onclick={() => handleBrowserMenuClick('help')}
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
             >
                 <HelpCircle size={16} />
-                Help
+                Bantuan
+            </button>
+            
+            <hr class="my-2 border-gray-100" />
+            
+            <!-- Logout -->
+            <button
+                onclick={() => handleBrowserMenuClick('logout')}
+                class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                Logout
             </button>
         {/snippet}
     </Dropdown>
@@ -518,13 +610,25 @@
 
 <!-- History Panel -->
 <HistoryPanel 
-    isOpen={isHistoryPanelOpen}
-    onClose={() => isHistoryPanelOpen = false}
+    bind:isOpen={panelStore.isHistoryPanelOpen}
+    onClose={() => panelStore.closeHistory()}
 />
 
 
 <!-- Bookmark Panel -->
-<BookmarkPanel bind:isOpen={isBookmarkPanelOpen} />
+<BookmarkPanel bind:isOpen={panelStore.isBookmarkPanelOpen} />
 
 <!-- Download Manager Panel -->
-<DownloadManagerPanel bind:isOpen={isDownloadPanelOpen} />
+<DownloadManagerPanel bind:isOpen={panelStore.isDownloadPanelOpen} />
+
+<!-- Edit Profile Modal -->
+<ProfileModal
+    bind:isOpen={isEditProfileModalOpen}
+    mode="edit"
+    editingProfile={editingProfile}
+    clients={clients}
+    isLoadingClients={isLoadingClients}
+    onSuccess={handleProfileUpdateSuccess}
+    onSelectClient={() => {}}
+    onColorChange={() => {}}
+/>

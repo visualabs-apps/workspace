@@ -55,15 +55,27 @@ const api = {
         getDownloads: (profileId) => ipcRenderer.invoke('db-get-downloads', profileId),
         deleteDownload: (id) => ipcRenderer.invoke('db-delete-download', id),
         clearDownloads: (profileId) => ipcRenderer.invoke('db-clear-downloads', profileId),
-        cancelDownload: (filename) => ipcRenderer.invoke('cancel-download', filename),
-        pauseDownload: (filename) => ipcRenderer.invoke('pause-download', filename),
-        resumeDownload: (filename) => ipcRenderer.invoke('resume-download', filename),
+        cancelDownload: (gid) => ipcRenderer.invoke('cancel-download', gid),
+        pauseDownload: (gid) => ipcRenderer.invoke('pause-download', gid),
+        resumeDownload: (gid) => ipcRenderer.invoke('resume-download', gid),
+        removeDownloadFile: (filePath) => ipcRenderer.invoke('remove-download-file', filePath),
         
         // File operations
         fileExists: (filePath) => ipcRenderer.invoke('file-exists', filePath),
         openFileLocation: (filePath) => ipcRenderer.invoke('open-file-location', filePath),
         openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
+        
+        // Cookie operations
+        getCookiesFromPartition: (partition) => ipcRenderer.invoke('get-cookies-from-partition', partition),
+        setCookieToPartition: (partition, cookie) => ipcRenderer.invoke('set-cookie-to-partition', partition, cookie),
+        deleteCookieFromPartition: (partition, name, domain, path) => ipcRenderer.invoke('delete-cookie-from-partition', partition, name, domain, path),
     },
+
+    // Download dialog helpers
+    getDownloadsPath: () => ipcRenderer.invoke('get-downloads-path'),
+    selectFolder: () => ipcRenderer.invoke('select-folder'),
+    listDirectory: (path) => ipcRenderer.invoke('list-directory', path),
+    createFolder: (parentPath, folderName) => ipcRenderer.invoke('create-folder', parentPath, folderName),
 
     // Download handlers
     onDownloadStarted: (callback) => ipcRenderer.on('download-started', (event, data) => callback(data)),
@@ -72,6 +84,9 @@ const api = {
     onDownloadCompleted: (callback) => ipcRenderer.on('download-completed', (event, data) => callback(data)),
     onDownloadCancelled: (callback) => ipcRenderer.on('download-cancelled', (event, data) => callback(data)),
     onDownloadFailed: (callback) => ipcRenderer.on('download-failed', (event, data) => callback(data)),
+    onDownloadRemoved: (callback) => ipcRenderer.on('download-removed', (event, data) => callback(data)),
+    onShowDownloadDialog: (callback) => ipcRenderer.on('show-download-dialog', (event, data) => callback(data)),
+    startDownload: (options) => ipcRenderer.invoke('start-download', options),
 
     // Notification handlers
     showNotification: (data) => ipcRenderer.send('show-notification', data),
@@ -114,6 +129,11 @@ const api = {
         const handler = () => callback();
         ipcRenderer.on('reload-webview', handler);
         return () => ipcRenderer.removeListener('reload-webview', handler);
+    },
+    onShowToast: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('show-toast', handler);
+        return () => ipcRenderer.removeListener('show-toast', handler);
     },
 }
 

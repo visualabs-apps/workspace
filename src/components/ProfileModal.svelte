@@ -1,8 +1,9 @@
 <script>
     import { clickOutside } from "../lib/clickOutside.svelte.js";
-    import { Plus, ChevronDown, X } from "lucide-svelte";
+    import { Plus, ChevronDown, X, Pencil } from "lucide-svelte";
     import { createChromeProfile, updateChromeProfile } from "../lib/api.js";
     import { toastStore } from "../lib/toast.svelte.js";
+    import CookieManagerModal from "./CookieManagerModal.svelte";
 
     // Props
     let {
@@ -20,12 +21,15 @@
     let profileName = $state("");
     let selectedClient = $state(null);
     let userAgent = $state("");
-    let cookiesText = $state("");
     let profileColor = $state("#9d8c6b");
     let showClientDropdown = $state(false);
     let showColorPicker = $state(false);
     let nameError = $state(false);
     let isSubmitting = $state(false);
+    
+    // Cookie manager state
+    let showCookieManager = $state(false);
+    let currentPartition = $state(null);
 
     // Color picker state
     let colorRgb = $state({ r: 157, g: 140, b: 107 });
@@ -44,7 +48,6 @@
             profileName = editingProfile.name;
             profileColor = editingProfile.color?.hex || editingProfile.color?.value || editingProfile.color || '#9d8c6b';
             userAgent = editingProfile.userAgent || "";
-            cookiesText = editingProfile.cookies ? JSON.stringify(editingProfile.cookies, null, 2) : "";
             selectedClient = clients.find(c => c.id === editingProfile.customerId) || null;
         } else if (isOpen && mode === 'add') {
             resetForm();
@@ -55,7 +58,6 @@
         profileName = "";
         selectedClient = null;
         userAgent = "";
-        cookiesText = "";
         profileColor = getRandomColor();
         showClientDropdown = false;
         showColorPicker = false;
@@ -144,10 +146,9 @@
                 const nameChanged = profileName.trim() !== editingProfile.name;
                 const clientChanged = selectedClient?.id !== editingProfile.customerId;
                 const userAgentChanged = (userAgent.trim() || '') !== (editingProfile.userAgent || '');
-                const cookiesChanged = cookiesText.trim() !== (editingProfile.cookies ? JSON.stringify(editingProfile.cookies, null, 2) : '');
                 
                 // If only color changed, just save to SQLite and refresh
-                if (!nameChanged && !clientChanged && !userAgentChanged && !cookiesChanged) {
+                if (!nameChanged && !clientChanged && !userAgentChanged) {
                     if (profileColor && editingProfile.id) {
                         try {
                             await window.api.db.saveProfileColor(editingProfile.id, profileColor);
@@ -164,28 +165,11 @@
                 }
             }
 
-            // Parse cookies if provided
-            let parsedCookies = null;
-            if (cookiesText && cookiesText.trim()) {
-                try {
-                    parsedCookies = JSON.parse(cookiesText.trim());
-                    if (!Array.isArray(parsedCookies)) {
-                        throw new Error('Cookies must be an array');
-                    }
-                } catch (error) {
-                    console.error('Invalid cookies JSON:', error);
-                    alert('Invalid cookies format. Please provide a valid JSON array.');
-                    isSubmitting = false;
-                    return;
-                }
-            }
-
             // Prepare payload
             const payload = {
                 name: profileName.trim(),
                 customerId: selectedClient?.id || undefined,
-                userAgent: userAgent.trim() || undefined,
-                cookies: parsedCookies
+                userAgent: userAgent.trim() || undefined
             };
 
             let response;
@@ -225,33 +209,44 @@
 </script>
 
 {#if isOpen}
-    <div
-        use:clickOutside={{ 
-            onClickOutside: handleClose,
-            includeEscape: true
-        }}
-        class="popup-container fixed left-20 top-12 w-[600px] bg-white backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200 p-6 z-50 text-gray-900 max-h-[calc(100vh-100px)] overflow-y-auto"
-        onclick={(e) => {
-            e.stopPropagation();
-        }}
-    >
-        <div class="flex items-center justify-between mb-1">
-            <div class="flex items-center gap-2">
-                <Plus size={18} class="text-gray-900 {mode === 'edit' ? 'rotate-45' : ''}" />
-                <h3 class="font-bold text-lg">{mode === 'edit' ? 'Edit' : 'Tambah'} Profil</h3>
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[300] flex items-center justify-center">
+        <div
+            use:clickOutside={{ 
+                onClickOutside: handleClose,
+                includeEscape: true
+            }}
+            class="bg-white rounded-2xl shadow-2xl border border-gray-200 w-[90vw] max-w-3xl max-h-[85vh] flex flex-col"
+            onclick={(e) => {
+                e.stopPropagation();
+            }}
+        >
+            <!-- Header -->
+            <div class="flex items-center justify-between p-6 border-b border-gray-200">
+                <div class="flex items-center gap-2">
+                    {#if mode === 'edit'}
+                        <Pencil size={18} class="text-gray-900" />
+                    {:else}
+                        <Plus size={18} class="text-gray-900" />
+                    {/if}
+                    <div>
+                        <h3 class="font-bold text-lg">{mode === 'edit' ? 'Edit' : 'Tambah'} Profil</h3>
+                        <p class="text-xs text-gray-500 mt-0.5">
+                            {mode === 'edit' ? 'Perbarui pengaturan profil' : 'Buat profil baru untuk klien'}
+                        </p>
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onclick={handleClose}
+                    class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Tutup"
+                >
+                    <X size={18} class="text-gray-600" />
+                </button>
             </div>
-            <button
-                type="button"
-                onclick={handleClose}
-                class="p-1 hover:bg-gray-100 rounded-lg transition-colors"
-                title="Tutup"
-            >
-                <X size={18} class="text-gray-600" />
-            </button>
-        </div>
-        <p class="text-xs text-gray-400 mb-4">
-            {mode === 'edit' ? 'Perbarui pengaturan profil' : 'Buat profil baru untuk klien'}
-        </p>
+
+            <!-- Content -->
+            <div class="flex-1 overflow-y-auto p-6">
 
         <!-- 2 Column Layout -->
         <div class="grid grid-cols-2 gap-4">
@@ -348,16 +343,27 @@
 
             <!-- Right Column -->
             <div class="space-y-4">
-                <!-- Cookies -->
+                <!-- Cookies Manager -->
                 <div>
-                    <label class="text-xs font-medium text-gray-600 mb-2 block">Cookies (Optional)</label>
-                    <textarea
-                        bind:value={cookiesText}
-                        placeholder={'[{"name":"session","value":"abc123","domain":".example.com"}]'}
-                        rows="8"
-                        class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors text-xs font-mono resize-none"
-                    ></textarea>
-                    <p class="text-xs text-gray-500 mt-1">JSON array format</p>
+                    <label class="text-xs font-medium text-gray-600 mb-2 block">Cookies</label>
+                    <button
+                        type="button"
+                        onclick={() => {
+                            if (mode === 'edit' && editingProfile && editingProfile.id) {
+                                currentPartition = `persist:workspace-${editingProfile.id}`;
+                                showCookieManager = true;
+                            } else {
+                                toastStore.info('Simpan profile terlebih dahulu untuk manage cookies');
+                            }
+                        }}
+                        class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl text-gray-900 hover:bg-gray-100 hover:border-gray-400 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={mode === 'add'}
+                    >
+                        Manage Cookies
+                    </button>
+                    <p class="text-xs text-gray-500 mt-1">
+                        {mode === 'add' ? 'Tersedia setelah profile dibuat' : 'View and edit profile cookies'}
+                    </p>
                 </div>
 
                 <!-- Color Picker -->
@@ -478,8 +484,13 @@
                 Cancel
             </button>
         </div>
+            </div>
+        </div>
     </div>
 {/if}
+
+<!-- Cookie Manager Modal -->
+<CookieManagerModal bind:isOpen={showCookieManager} partition={currentPartition} />
 
 <style>
     @keyframes shake {

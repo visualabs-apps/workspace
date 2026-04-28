@@ -192,7 +192,7 @@
                             oninput={handleEmailInput}
                             disabled={isLoading}
                             class="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 text-sm"
-                            placeholder="john@example.com"
+                            placeholder="Silahkan masukkan alamat email Anda"
                             autocomplete="email"
                             required
                         />
@@ -224,7 +224,7 @@
                             oninput={clearError}
                             disabled={isLoading}
                             class="w-full pl-10 pr-12 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 text-sm"
-                            placeholder="••••••••"
+                            placeholder="Silahkan masukkan password Anda"
                             autocomplete="current-password"
                             required
                         />

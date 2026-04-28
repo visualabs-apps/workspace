@@ -17,6 +17,8 @@
     import { notificationStore } from "./lib/notifications.svelte.js";
     import { dndStore } from "./lib/dnd.svelte.js";
     import { tabStore } from "./lib/tabs.svelte.js";
+    import { toastStore } from "./lib/toast.svelte.js";
+    import { panelStore } from "./lib/panels.svelte.js";
     import { onMount } from "svelte";
     import { Loader2, Plus, Rocket } from "lucide-svelte";
 
@@ -29,6 +31,21 @@
     let isAuthInitialized = $derived(authStore.isInitialized);
 
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
+    let isLoadingWorkspaces = $derived(workspaceStore.isLoading);
+
+    // Random loading messages
+    const loadingMessages = [
+        "Memuat data profil Anda",
+        "Menyiapkan workspace",
+        "Mengambil data dari server",
+        "Memproses informasi profil",
+        "Menginisialisasi aplikasi",
+        "Memuat konfigurasi",
+        "Menyinkronkan data",
+        "Mempersiapkan lingkungan kerja"
+    ];
+    
+    let currentLoadingMessage = $state(loadingMessages[Math.floor(Math.random() * loadingMessages.length)]);
 
     let services = $derived(serviceStore.services);
     let activeServiceId = $derived(serviceStore.activeServiceId);
@@ -53,6 +70,34 @@
         window.addEventListener("offline", () => (isOnline = false));
 
         await authStore.init();
+        
+        // Change loading message every 3 seconds
+        const loadingInterval = setInterval(() => {
+            if (isLoadingWorkspaces) {
+                currentLoadingMessage = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+            }
+        }, 3000);
+        
+        // Global toast listener (only one instance)
+        const handleShowToast = (data) => {
+            const { type, message } = data;
+            if (type === 'success') {
+                toastStore.success(message);
+            } else if (type === 'error') {
+                toastStore.error(message);
+            } else if (type === 'info') {
+                toastStore.info(message);
+            } else {
+                toastStore.info(message);
+            }
+        };
+        
+        const removeShowToastListener = window.api?.onShowToast?.(handleShowToast);
+        
+        return () => {
+            clearInterval(loadingInterval);
+            if (typeof removeShowToastListener === 'function') removeShowToastListener();
+        };
     });
 
     $effect(() => {
@@ -128,7 +173,7 @@
             if (activeService) {
                 const activeTab = tabStore.getActiveTab(activeService.id);
                 if (activeTab) {
-                    window.location.reload();
+                    navigationStore.reload();
                 }
             }
         }
@@ -226,7 +271,17 @@
 
         if ((e.ctrlKey || e.metaKey) && e.key === "j") {
             e.preventDefault();
-            // Download panel is now triggered from TopToolbar button
+            panelStore.toggleDownloads();
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.key === "h") {
+            e.preventDefault();
+            panelStore.toggleHistory();
+        }
+
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "O") {
+            e.preventDefault();
+            panelStore.toggleBookmarks();
         }
 
         if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "D") {
@@ -306,7 +361,31 @@
 
                 <!-- Content Area -->
                 <div class="flex-1 relative overflow-hidden">
-                    {#if !activeWorkspace}
+                    {#if isLoadingWorkspaces}
+                        <!-- Loading workspaces state -->
+                        <div
+                            class="absolute inset-0 flex items-center justify-center p-8 z-20"
+                        >
+                            <div class="text-center w-full max-w-md">
+                                <!-- Icon -->
+                                <div class="mb-4 flex justify-center">
+                                    <Loader2
+                                        class="w-16 h-16 text-blue-600 animate-spin"
+                                    />
+                                </div>
+
+                                <!-- Text -->
+                                <h2
+                                    class="text-xl font-semibold text-gray-900 mb-2"
+                                >
+                                    {currentLoadingMessage}
+                                </h2>
+                                <p class="text-gray-500 text-sm">
+                                    Mohon tunggu sebentar...
+                                </p>
+                            </div>
+                        </div>
+                    {:else if !activeWorkspace}
                         <!-- No workspace state -->
                         <div
                             class="absolute inset-0 flex items-center justify-center p-8 z-20"
