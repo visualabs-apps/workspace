@@ -1,22 +1,23 @@
 <script>
-    import { Settings, User, Bell, Lock, Palette, TabIcon, Search } from "lucide-svelte";
+    import { Settings, User, Bell, Lock, Palette, Layers, Search } from "lucide-svelte";
     import BaseWindow from "../base/BaseWindow.svelte";
     import { toastStore } from "../../lib/managers/toast.svelte.js";
+    import { tabLifetimeManager } from "../../lib/managers/tabLifetime.svelte.js";
 
     let { isOpen = $bindable(false), onClose = () => {} } = $props();
 
     let activeTab = $state("general");
     
     // Settings state
-    let tabLifetime = $state("30"); // minutes, "forever" for unlimited
+    let tabLifetime = $state("30"); // minutes or "forever" for unlimited
     let defaultSearchEngine = $state("google");
-    let launchOnStartup = $state(true);
+    let launchOnStartup = $state(false);
     let minimizeToTray = $state(false);
     let showNotifications = $state(true);
     
     const tabs = [
         { id: "general", label: "General", icon: Settings },
-        { id: "tabs", label: "Tabs", icon: TabIcon },
+        { id: "tabs", label: "Tabs", icon: Layers },
         { id: "search", label: "Search", icon: Search },
         { id: "account", label: "Account", icon: User },
         { id: "notifications", label: "Notifications", icon: Bell },
@@ -31,36 +32,93 @@
         { id: "yahoo", name: "Yahoo", url: "https://search.yahoo.com/search?p=" }
     ];
 
-    function handleSave() {
-        // Save settings to localStorage or backend
-        const settings = {
-            tabLifetime,
-            defaultSearchEngine,
-            launchOnStartup,
-            minimizeToTray,
-            showNotifications
-        };
-        
-        localStorage.setItem('app-settings', JSON.stringify(settings));
-        
-        toastStore.success('Settings saved successfully');
-        onClose();
+    async function handleSave() {
+        try {
+            // Save general settings
+            await window.api.settings.setLaunchOnStartup(launchOnStartup);
+            await window.api.settings.setMinimizeToTray(minimizeToTray);
+            await window.api.settings.setShowNotifications(showNotifications);
+            
+            // Save tab lifetime setting
+            await window.api.settings.setTabLifetime(tabLifetime);
+            
+            // Update tab lifetime manager with new setting
+            tabLifetimeManager.setLifetime(tabLifetime);
+            
+            // Save default search engine
+            await window.api.settings.setDefaultSearchEngine(defaultSearchEngine);
+            
+            // Dispatch event to notify other components about settings update
+            window.dispatchEvent(new CustomEvent('settings-updated'));
+            
+            toastStore.success('Settings saved successfully');
+            onClose();
+        } catch (error) {
+            console.error('Failed to save settings:', error);
+            toastStore.error('Failed to save settings');
+        }
     }
     
     // Load settings on mount
     $effect(() => {
         if (isOpen) {
-            const saved = localStorage.getItem('app-settings');
-            if (saved) {
-                const settings = JSON.parse(saved);
-                tabLifetime = settings.tabLifetime || "30";
-                defaultSearchEngine = settings.defaultSearchEngine || "google";
-                launchOnStartup = settings.launchOnStartup ?? true;
-                minimizeToTray = settings.minimizeToTray ?? false;
-                showNotifications = settings.showNotifications ?? true;
-            }
+            loadSettings();
         }
     });
+    
+    async function loadSettings() {
+        try {
+            // Load general settings from electron
+            const launchResult = await window.api.settings.getLaunchOnStartup();
+            if (launchResult.success) {
+                launchOnStartup = launchResult.enabled;
+            }
+            
+            const trayResult = await window.api.settings.getMinimizeToTray();
+            if (trayResult.success) {
+                minimizeToTray = trayResult.enabled;
+            }
+            
+            const notifResult = await window.api.settings.getShowNotifications();
+            if (notifResult.success) {
+                showNotifications = notifResult.enabled;
+            }
+            
+            // Load tab lifetime setting
+            const tabLifetimeResult = await window.api.settings.getTabLifetime();
+            if (tabLifetimeResult.success) {
+                const minutes = tabLifetimeResult.minutes;
+                
+                // Check if it's a predefined value
+                const predefinedValues = ['0.5', '15', '30', '60', '120', 'forever'];
+                if (predefinedValues.includes(minutes)) {
+                    tabLifetime = minutes;
+                } else {
+                    // It's a custom value
+                    tabLifetime = 'custom';
+                    
+                    // Try to load custom values
+                    const customValueResult = await window.api.db.getSetting('customTimeValue');
+                    const customUnitResult = await window.api.db.getSetting('customTimeUnit');
+                    
+                    if (customValueResult.success && customValueResult.value !== null) {
+                        customTimeValue = customValueResult.value;
+                    }
+                    if (customUnitResult.success && customUnitResult.value !== null) {
+                        customTimeUnit = customUnitResult.value;
+                    }
+                }
+            }
+            
+            // Load default search engine
+            const searchEngineResult = await window.api.settings.getDefaultSearchEngine();
+            if (searchEngineResult.success) {
+                defaultSearchEngine = searchEngineResult.engine;
+            }
+        } catch (error) {
+            console.error('Failed to load settings:', error);
+        }
+    }
 </script>
 
 <BaseWindow

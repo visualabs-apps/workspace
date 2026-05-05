@@ -77,6 +77,23 @@ const api = {
     listDirectory: (path) => ipcRenderer.invoke('list-directory', path),
     createFolder: (parentPath, folderName) => ipcRenderer.invoke('create-folder', parentPath, folderName),
 
+    // App Settings
+    settings: {
+        setLaunchOnStartup: (enabled) => ipcRenderer.invoke('settings-launch-on-startup', enabled),
+        getLaunchOnStartup: () => ipcRenderer.invoke('settings-get-launch-on-startup'),
+        setMinimizeToTray: (enabled) => ipcRenderer.invoke('settings-minimize-to-tray', enabled),
+        getMinimizeToTray: () => ipcRenderer.invoke('settings-get-minimize-to-tray'),
+        setShowNotifications: (enabled) => ipcRenderer.invoke('settings-show-notifications', enabled),
+        getShowNotifications: () => ipcRenderer.invoke('settings-get-show-notifications'),
+        setTabLifetime: (minutes) => ipcRenderer.invoke('settings-tab-lifetime', minutes),
+        getTabLifetime: () => ipcRenderer.invoke('settings-get-tab-lifetime'),
+        setDefaultSearchEngine: (engine) => ipcRenderer.invoke('settings-default-search-engine', engine),
+        getDefaultSearchEngine: () => ipcRenderer.invoke('settings-get-default-search-engine'),
+    },
+    
+    // Favicon fetching (main process handles CORS)
+    getFavicon: (url) => ipcRenderer.invoke('get-favicon', url),
+
     // Download handlers
     onDownloadStarted: (callback) => ipcRenderer.on('download-started', (event, data) => callback(data)),
     onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, data) => callback(data)),

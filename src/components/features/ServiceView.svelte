@@ -19,6 +19,9 @@
     let domReadyState = $state(false);
     let showZoomIndicator = $state(false);
     let zoomIndicatorTimeout = null;
+    
+    // Track if webview should be unloaded (removed from DOM)
+    let shouldUnload = $derived(service.isUnloaded === true && !isActive);
 
     function updateNavigationState() {
         if (isActive && webview && domReadyState) {
@@ -305,8 +308,8 @@
             loadingState = false;
         }
         
-        // Attach to container
-        if (container && webviewElement) {
+        // Attach to container if not unloaded
+        if (container && webviewElement && !shouldUnload) {
             // Check if webview is already attached somewhere else
             if (webviewElement.parentNode && webviewElement.parentNode !== container) {
                 webviewElement.parentNode.removeChild(webviewElement);
@@ -395,6 +398,33 @@
             if (typeof removeReloadWebviewListener === 'function') removeReloadWebviewListener();
         };
     });
+    
+    // Effect to handle unloading/reloading webview based on shouldUnload flag
+    $effect(() => {
+        const webviewElement = webviewRegistry.get(service.id);
+        
+        if (shouldUnload && webviewElement && webviewElement.parentNode) {
+            // Unload: remove webview from DOM to free memory
+            try {
+                webviewElement.parentNode.removeChild(webviewElement);
+                webview = null;
+            } catch (e) {
+                // Ignore errors
+            }
+        } else if (!shouldUnload && webviewElement && container && !webviewElement.parentNode) {
+            // Reload: attach webview back to DOM
+            try {
+                container.appendChild(webviewElement);
+                webview = webviewElement;
+                // Reload the page to refresh content
+                if (webviewElement.reload) {
+                    webviewElement.reload();
+                }
+            } catch (e) {
+                // Ignore errors
+            }
+        }
+    });
 
     onDestroy(() => {
         // Detach webview from container but DON'T destroy it
@@ -427,6 +457,23 @@
             class="w-full h-full" 
             data-webview-container="true"
         ></div>
+        
+        <!-- Unloaded indicator -->
+        {#if shouldUnload}
+            <div class="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
+                <div class="text-center">
+                    <div class="text-gray-400 text-sm mb-2">
+                        <svg class="w-12 h-12 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                        </svg>
+                        Tab unloaded to save memory
+                    </div>
+                    <div class="text-gray-500 text-xs">
+                        Click to reload
+                    </div>
+                </div>
+            </div>
+        {/if}
         
         <!-- Chrome-style loading progress bar (top of webview) -->
         {#if loadingState && isActive}

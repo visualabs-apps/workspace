@@ -12,6 +12,7 @@
     import { serviceStore } from "../../lib/stores/services.svelte.js";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
+    import Favicon from "../ui/Favicon.svelte";
 
     let { service = null } = $props();
 
@@ -440,19 +441,12 @@
                             {#if tab.isLoading}
                                 <!-- Chrome-style loading spinner -->
                                 <div class="w-3 h-3 border border-gray-400 border-t-blue-500 rounded-full animate-spin"></div>
-                            {:else if tab.favicon}
-                                <img
-                                    src={tab.favicon}
-                                    alt=""
-                                    class="w-4 h-4 object-contain {isActive ? 'ring-1 ring-blue-200 rounded-sm' : ''}"
-                                    onerror={(e) =>
-                                        (e.target.style.display = "none")}
-                                />
-                            {:else if service?.icon}
-                                <img
-                                    src={service.icon}
-                                    alt=""
-                                    class="w-4 h-4 object-contain {isActive ? 'ring-1 ring-blue-200 rounded-sm' : ''}"
+                            {:else if tab.favicon || tab.url}
+                                <Favicon 
+                                    url={tab.url || tab.favicon}
+                                    size={16}
+                                    class="object-contain {isActive ? 'ring-1 ring-blue-200 rounded-sm' : ''}"
+                                    alt={tab.title}
                                 />
                             {:else}
                                 <div
