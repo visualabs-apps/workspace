@@ -40,4 +40,4 @@ function checkForNewVersion(app, mainWindow, isDevEnvironment) {
     });
 }
 
-module.exports = { checkForNewVersion };
+module.exports = { checkForNewVersion, compareVersions };

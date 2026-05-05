@@ -23,7 +23,7 @@
     "dist:win": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:production && electron-builder --win",
     "dist:nsis": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:production && electron-builder --win nsis",
     "release": "node scripts/pre-release.mjs",
-    "test": "vitest",
+    "test": "vitest run",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "test:run": "vitest run"

@@ -17,7 +17,7 @@ function getSecureStore() {
 function registerSafeStorageHandlers() {
     ipcMain.handle('safe-storage-set', async (event, key, value) => {
         try {
-            if (!safeStorage.isEncryptionAvailable()) {
+            if (!safeStorage || !safeStorage.isEncryptionAvailable || !safeStorage.isEncryptionAvailable()) {
                 throw new Error('Encryption not available');
             }
             const encrypted = safeStorage.encryptString(value);
@@ -32,7 +32,7 @@ function registerSafeStorageHandlers() {
 
     ipcMain.handle('safe-storage-get', async (event, key) => {
         try {
-            if (!safeStorage.isEncryptionAvailable()) {
+            if (!safeStorage || !safeStorage.isEncryptionAvailable || !safeStorage.isEncryptionAvailable()) {
                 throw new Error('Encryption not available');
             }
             const store = getSecureStore();

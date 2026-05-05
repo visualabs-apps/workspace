@@ -2,7 +2,29 @@ import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [
+    svelte({
+      compilerOptions: {
+        dev: true,
+        // Force client-side compilation for Svelte 5 runes
+        generate: 'client',
+        hydratable: false,
+        runes: true,
+        // Enable Svelte 4 compatibility for testing
+        compatibility: {
+          componentApi: 4
+        }
+      },
+      // Ensure Svelte 5 runs in client mode for tests
+      preprocess: [],
+      onwarn: (warning, handler) => {
+        // Ignore warnings about missing lifecycle functions in tests
+        if (warning.code === 'missing-export') return;
+        if (warning.code === 'unused-export-let') return;
+        handler(warning);
+      }
+    })
+  ],
   test: {
     environment: 'happy-dom',
     setupFiles: ['./src/test/setup.js'],
@@ -18,6 +40,16 @@ export default defineConfig({
       'build/',
       'dist/'
     ],
+    // Force Svelte 5 to use client-side mode
+    environmentOptions: {
+      happyDOM: {
+        settings: {
+          navigator: {
+            userAgent: 'Mozilla/5.0 (Test Environment)'
+          }
+        }
+      }
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -51,7 +83,10 @@ export default defineConfig({
     'import.meta.env.MODE': '"test"',
     // Additional Svelte 5 client-side flags
     'process.env.SSR': 'false',
-    'process.client': 'true'
+    'process.client': 'true',
+    // Svelte 5 specific flags
+    'import.meta.env.DEV': 'true',
+    'import.meta.env.PROD': 'false'
   },
   server: {
     deps: {

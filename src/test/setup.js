@@ -18,7 +18,7 @@ Object.defineProperty(global, 'import', {
   writable: true
 });
 
-// Mock import.meta.env for Svelte 5
+// Mock import.meta.env for Svelte 5 with proper client-side flags
 global.import = {
   meta: {
     env: {
@@ -27,7 +27,8 @@ global.import = {
       DEV: true,
       BASE_URL: '/',
       PROD: false,
-      DEV: true
+      // Additional Svelte 5 client-side flags
+      RUNTIME: 'browser'
     }
   }
 };
@@ -47,7 +48,14 @@ Object.defineProperty(global, 'process', {
   writable: true
 });
 
-
+// Ensure globalThis has proper browser properties
+if (typeof globalThis !== 'undefined') {
+  globalThis.window = global.window;
+  globalThis.document = global.document;
+  globalThis.navigator = global.navigator || {
+    userAgent: 'Mozilla/5.0 (Test Environment)'
+  };
+}
 
 // Don't mock Svelte - let it work naturally for client-side testing
 
@@ -114,3 +122,20 @@ global.console = {
   warn: vi.fn(),
   error: vi.fn()
 };
+
+// Additional Svelte 5 specific setup
+// Mock the Svelte 5 runtime if needed
+if (typeof globalThis.SvelteComponent === 'undefined') {
+  globalThis.SvelteComponent = class {};
+}
+
+// Ensure proper browser environment for Svelte 5 runes
+Object.defineProperty(global, 'requestAnimationFrame', {
+  value: (callback) => setTimeout(callback, 16),
+  writable: true
+});
+
+Object.defineProperty(global, 'cancelAnimationFrame', {
+  value: (id) => clearTimeout(id),
+  writable: true
+});
