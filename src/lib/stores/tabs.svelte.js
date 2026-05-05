@@ -8,6 +8,28 @@ function createTabStore() {
     let serviceTabs = $state({});
     let globalIsDragging = $state(false);
 
+    function updateTab(serviceId, tabId, updates) {
+        const currentData = serviceTabs[serviceId];
+        if (!currentData) return;
+
+        const tabIndex = currentData.tabs.findIndex(t => t.id === tabId);
+        if (tabIndex === -1) return;
+
+        const updatedTabs = [
+            ...currentData.tabs.slice(0, tabIndex),
+            { ...currentData.tabs[tabIndex], ...updates },
+            ...currentData.tabs.slice(tabIndex + 1)
+        ];
+
+        serviceTabs = {
+            ...serviceTabs,
+            [serviceId]: {
+                ...currentData,
+                tabs: updatedTabs
+            }
+        };
+    }
+
     return {
         get serviceTabs() { return serviceTabs; },
 
@@ -46,6 +68,7 @@ function createTabStore() {
                     url: initialUrl,
                     favicon: null,
                     isLoading: false,
+                    isUnloaded: false,
                     createdAt: Date.now()
                 };
                 serviceTabs = {
@@ -66,6 +89,7 @@ function createTabStore() {
                 url,
                 favicon: null,
                 isLoading: true,
+                isUnloaded: false,
                 createdAt: Date.now()
             };
 
@@ -77,6 +101,7 @@ function createTabStore() {
                     activeTabId: newTab.id
                 }
             };
+            
             return newTab;
         },
 
@@ -107,6 +132,7 @@ function createTabStore() {
                     activeTabId
                 }
             };
+            
             return true;
         },
 
@@ -121,30 +147,18 @@ function createTabStore() {
                         activeTabId: tabId
                     }
                 };
+                
+                // If tab was unloaded, mark it as loaded again
+                const tab = currentData.tabs.find(t => t.id === tabId);
+                if (tab?.isUnloaded) {
+                    updateTab(serviceId, tabId, { isUnloaded: false, isLoading: true });
+                }
             }
         },
 
         // Update tab properties (title, url, favicon, etc.)
         updateTab(serviceId, tabId, updates) {
-            const currentData = serviceTabs[serviceId];
-            if (!currentData) return;
-
-            const tabIndex = currentData.tabs.findIndex(t => t.id === tabId);
-            if (tabIndex === -1) return;
-
-            const updatedTabs = [
-                ...currentData.tabs.slice(0, tabIndex),
-                { ...currentData.tabs[tabIndex], ...updates },
-                ...currentData.tabs.slice(tabIndex + 1)
-            ];
-
-            serviceTabs = {
-                ...serviceTabs,
-                [serviceId]: {
-                    ...currentData,
-                    tabs: updatedTabs
-                }
-            };
+            updateTab(serviceId, tabId, updates);
         },
 
         // Remove all tabs for a service (when service is deleted)

@@ -6,3 +6,4 @@ export { default as ListItem } from './ListItem.svelte';
 export { default as SearchInput } from './SearchInput.svelte';
 export { default as Toast } from './Toast.svelte';
 export { default as OfflineWarning } from './OfflineWarning.svelte';
+export { default as Favicon } from './Favicon.svelte';

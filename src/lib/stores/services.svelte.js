@@ -5,6 +5,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { tabStore } from './tabs.svelte.js';
 import { workspaceStore } from './workspaces.svelte.js';
+import { tabLifetimeManager } from '../managers/tabLifetime.svelte.js';
 
 export const predefinedServices = [
     { name: 'WhatsApp', url: 'https://web.whatsapp.com', icon: 'https://icon.horse/icon/web.whatsapp.com', color: '#25D366' },
@@ -63,6 +64,34 @@ function createServiceStore() {
     // Initialize tabs for existing services
     storedServices.forEach(service => {
         tabStore.initServiceTabs(service.id, service.url, service.name);
+        // Track service in lifetime manager
+        tabLifetimeManager.markActive(service.id);
+    });
+
+    // Initialize lifetime manager
+    tabLifetimeManager.init();
+    
+    // Set callback for when service should be unloaded
+    tabLifetimeManager.onUnload((serviceId) => {
+        // Find the service
+        const service = servicesMap.get(serviceId);
+        if (!service) {
+            tabLifetimeManager.removeService(serviceId);
+            return;
+        }
+        
+        // Only unload if not active
+        if (activeServiceId !== serviceId) {
+            // Mark service as unloaded
+            const index = services.findIndex(s => s.id === serviceId);
+            if (index !== -1) {
+                services = [
+                    ...services.slice(0, index),
+                    { ...services[index], isUnloaded: true },
+                    ...services.slice(index + 1)
+                ];
+            }
+        }
     });
 
     // Save to localStorage effect and sync servicesMap
@@ -87,7 +116,24 @@ function createServiceStore() {
             return services.filter(s => s.workspaceId === currentWorkspaceId);
         },
 
-        setActive: (id) => { activeServiceId = id },
+        setActive: (id) => { 
+            activeServiceId = id;
+            // Mark service as active in lifetime manager
+            tabLifetimeManager.markActive(id);
+            
+            // If service was unloaded, mark it as loaded again
+            const service = servicesMap.get(id);
+            if (service?.isUnloaded) {
+                const index = services.findIndex(s => s.id === id);
+                if (index !== -1) {
+                    services = [
+                        ...services.slice(0, index),
+                        { ...services[index], isUnloaded: false, isLoading: true },
+                        ...services.slice(index + 1)
+                    ];
+                }
+            }
+        },
 
         toggleSidebar: () => { isSideBarCollapsed = !isSideBarCollapsed },
         setAddModalOpen: (val) => { isAddModalOpen = val },
@@ -107,13 +153,17 @@ function createServiceStore() {
                 userAgent: '', // Default
                 zoom: 1.0,
                 unreadCount: 0,
-                isLoading: true // initially loading
+                isLoading: true, // initially loading
+                isUnloaded: false // not unloaded initially
             };
             services = [...services, service];
             activeServiceId = id;
 
             // Initialize tabs for this service
             tabStore.initServiceTabs(id, service.url, service.name);
+            
+            // Mark service as active in lifetime manager
+            tabLifetimeManager.markActive(id);
 
             return service;
         },
@@ -123,6 +173,9 @@ function createServiceStore() {
 
             // Remove tabs for this service
             tabStore.removeServiceTabs(id);
+            
+            // Remove service from lifetime manager
+            tabLifetimeManager.removeService(id);
 
             if (activeServiceId === id && services.length > 0) {
                 activeServiceId = services[0].id;

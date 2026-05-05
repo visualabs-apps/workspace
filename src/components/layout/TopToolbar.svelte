@@ -35,6 +35,7 @@
     import DownloadManagerPanel from "../panels/DownloadManagerPanel.svelte";
     import ProfileDropdown from "../dropdowns/ProfileDropdown.svelte";
     import ProfileWindow from "../windows/ProfileWindow.svelte";
+    import SettingsWindow from "../windows/SettingsWindow.svelte";
     import Dropdown from "../dropdowns/Dropdown.svelte";
     import { onMount } from "svelte";
 
@@ -44,6 +45,7 @@
     let isUrlFocused = $state(false);
     let isTodoModalOpen = $state(false);
     let isTargetModalOpen = $state(false);
+    let isSettingsModalOpen = $state(false);
     let showAutocomplete = $state(false);
     let showBrowserMenu = $state(false);
     let isBookmarked = $state(false);
@@ -51,6 +53,15 @@
     let editingProfile = $state(null);
     let clients = $state([]);
     let isLoadingClients = $state(false);
+    let defaultSearchEngine = $state("google"); // Default search engine
+
+    // Search engine configurations
+    const searchEngines = {
+        google: { name: "Google", url: "https://www.google.com/search?q=" },
+        bing: { name: "Bing", url: "https://www.bing.com/search?q=" },
+        duckduckgo: { name: "DuckDuckGo", url: "https://duckduckgo.com/?q=" },
+        yahoo: { name: "Yahoo", url: "https://search.yahoo.com/search?p=" }
+    };
 
     // Update notification state
     let updateInfo = $state(null); // { version, notes, downloadUrl }
@@ -116,7 +127,23 @@
         if (typeof window !== 'undefined') {
             window.toastStore = toastStore;
         }
+        
+        // Load default search engine setting
+        loadSearchEngineSetting();
     });
+    
+    // Load default search engine from settings
+    async function loadSearchEngineSetting() {
+        try {
+            const result = await window.api.settings.getDefaultSearchEngine();
+            if (result.success) {
+                defaultSearchEngine = result.engine;
+                console.log('📍 Default search engine:', defaultSearchEngine);
+            }
+        } catch (error) {
+            console.error('Failed to load search engine setting:', error);
+        }
+    }
 
     // Derived from navigation store
     let canGoBack = $derived(navigationStore.canGoBack);
@@ -175,6 +202,20 @@
                 updateInfo = info;
             });
         }
+    });
+    
+    // Listen for settings changes (reload search engine when settings are saved)
+    $effect(() => {
+        // Create custom event listener for settings update
+        const handleSettingsUpdate = () => {
+            loadSearchEngineSetting();
+        };
+        
+        window.addEventListener('settings-updated', handleSettingsUpdate);
+        
+        return () => {
+            window.removeEventListener('settings-updated', handleSettingsUpdate);
+        };
     });
 
     function openDownloadPage() {
@@ -235,7 +276,10 @@
                 url = "https://" + url;
             }
         } else {
-            url = `https://www.google.com/search?q=${encodeURIComponent(input)}`;
+            // Use default search engine from settings
+            const searchEngine = searchEngines[defaultSearchEngine] || searchEngines.google;
+            url = `${searchEngine.url}${encodeURIComponent(input)}`;
+            console.log(`🔍 Searching with ${searchEngine.name}: ${input}`);
         }
 
         // Case 1: Tab actively running in current service - navigate it
@@ -326,7 +370,7 @@
                 toastStore.info(userInfo);
                 break;
             case 'settings':
-                // TODO: Open settings
+                isSettingsModalOpen = true;
                 break;
             case 'help':
                 // TODO: Open help
@@ -625,6 +669,12 @@
 <TargetWindow 
     bind:isOpen={isTargetModalOpen}
     onClose={() => isTargetModalOpen = false}
+/>
+
+<!-- Settings Window -->
+<SettingsWindow 
+    bind:isOpen={isSettingsModalOpen}
+    onClose={() => isSettingsModalOpen = false}
 />
 
 <!-- History Panel -->
