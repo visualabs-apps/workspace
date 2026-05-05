@@ -10,8 +10,8 @@ async function handleDeepLink(url, mainWindow) {
             const workspace = urlObj.searchParams.get('workspace') || 'default';
 
             if (token) {
-                // Store token using safeStorage
-                if (safeStorage.isEncryptionAvailable()) {
+                // Store token using safeStorage if available
+                if (safeStorage && safeStorage.isEncryptionAvailable && safeStorage.isEncryptionAvailable()) {
                     const store = getSecureStore();
                     const encrypted = safeStorage.encryptString(token);
                     store.set(`auth_token_${workspace}`, encrypted.toString('base64'));

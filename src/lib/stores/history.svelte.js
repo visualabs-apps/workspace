@@ -318,3 +318,4 @@ function createHistoryStore() {
 }
 
 export const historyStore = createHistoryStore();
+export { createHistoryStore };
