@@ -4,7 +4,7 @@
     import { onDestroy } from 'svelte';
     import { bookmarkStore } from "../../lib/stores/bookmarks.svelte.js";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
-    import { serviceStore } from "../../lib/stores/services.svelte.js";
+    import { appStore } from "../../lib/stores/apps.svelte.js";
     import { useClickOutside } from "../../lib/utils/clickOutside.svelte.js";
 
     let { isOpen = $bindable(false), onClose = () => {} } = $props();
@@ -129,7 +129,7 @@
     }
 
     function handleBookmarkClick(bookmark) {
-        const newService = serviceStore.addService(
+        const newApp = appStore.addApp(
             {
                 name: bookmark.title,
                 url: bookmark.url,
@@ -142,9 +142,9 @@
             activeWorkspace?.id,
         );
 
-        if (activeWorkspace && newService) {
-            workspaceStore.addAppToWorkspace(activeWorkspace.id, newService.id);
-            serviceStore.setActive(newService.id);
+        if (activeWorkspace && newApp) {
+            workspaceStore.addAppToWorkspace(activeWorkspace.id, newApp.id);
+            appStore.setActive(newApp.id);
         }
 
         handleClose();
@@ -418,3 +418,9 @@
         background: #a8a8a8;
     }
 </style>
+
+
+
+
+
+

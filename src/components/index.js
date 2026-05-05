@@ -22,7 +22,6 @@ export { default as Toast } from './ui/Toast.svelte';
 export { default as OfflineWarning } from './ui/OfflineWarning.svelte';
 
 // Window Components
-export { default as TodoWindow } from './windows/TodoWindow.svelte';
 export { default as TargetWindow } from './windows/TargetWindow.svelte';
 export { default as SettingsWindow } from './windows/SettingsWindow.svelte';
 export { default as AddServiceWindow } from './windows/AddServiceWindow.svelte';
@@ -32,7 +31,6 @@ export { default as CookieManagerWindow } from './windows/CookieManagerWindow.sv
 // Panel Components
 export { default as BookmarkPanel } from './panels/BookmarkPanel.svelte';
 export { default as DownloadManagerPanel } from './panels/DownloadManagerPanel.svelte';
-export { default as DownloadPanel } from './panels/DownloadPanel.svelte';
 export { default as HistoryPanel } from './panels/HistoryPanel.svelte';
 export { default as NotificationPanel } from './panels/NotificationPanel.svelte';
 
@@ -45,7 +43,6 @@ export { default as ProfileDropdown } from './dropdowns/ProfileDropdown.svelte';
 // Layout Components
 export { default as Sidebar } from './layout/Sidebar.svelte';
 export { default as RightFloatingSidebar } from './layout/RightFloatingSidebar.svelte';
-export { default as SidebarHorizontal } from './layout/SidebarHorizontal.svelte';
 export { default as TabBar } from './layout/TabBar.svelte';
 export { default as TopToolbar } from './layout/TopToolbar.svelte';
 export { default as WindowControls } from './layout/WindowControls.svelte';

@@ -8,17 +8,17 @@
         Pin,
     } from "lucide-svelte";
     import { slide, fade } from 'svelte/transition';
-    import { tabStore } from "../../lib/stores/tabs.svelte.js";
-    import { serviceStore } from "../../lib/stores/services.svelte.js";
+    import { appStateStore } from "../../lib/stores/appState.svelte.js";
+    import { appStore } from "../../lib/stores/apps.svelte.js";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
     import Favicon from "../ui/Favicon.svelte";
 
-    let { service = null } = $props();
+    let { app = null } = $props();
 
     // Get all apps from current workspace as tabs
     let workspaceApps = $derived(
-        serviceStore.services.filter(app => 
+        appStore.apps.filter(app => 
             workspaceStore.activeWorkspace?.apps?.includes(app.id)
         )
     );
@@ -36,7 +36,7 @@
         }))
     );
 
-    let activeTabId = $derived(serviceStore.activeServiceId);
+    let activeTabId = $derived(appStore.activeServiceId);
 
     // Drag and drop state
     let draggedTabId = $state(null);
@@ -82,14 +82,14 @@
                         }
                         
                         if (newActiveIndex >= 0 && newActiveIndex < workspaceApps.length) {
-                            serviceStore.setActive(workspaceApps[newActiveIndex].id);
+                            appStore.setActive(workspaceApps[newActiveIndex].id);
                         }
                     }
                     
                     // Close the tab after switching
                     setTimeout(() => {
                         workspaceStore.removeAppFromWorkspace(workspaceStore.activeWorkspace.id, tabToClose);
-                        serviceStore.removeService(tabToClose);
+                        appStore.removeApp(tabToClose);
                     }, 10);
                 }
             }
@@ -120,11 +120,11 @@
     function handleReloadTab() {
         if (contextMenu.tabId) {
             // Switch to the app first
-            serviceStore.setActive(contextMenu.tabId);
+            appStore.setActive(contextMenu.tabId);
             
             // Trigger reload event that ServiceView can listen to
             const reloadEvent = new CustomEvent('reloadTab', { 
-                detail: { serviceId: contextMenu.tabId } 
+                detail: { appId: contextMenu.tabId } 
             });
             window.dispatchEvent(reloadEvent);
         }
@@ -146,7 +146,7 @@
             const app = workspaceApps.find((a) => a.id === contextMenu.tabId);
             if (app) {
                 // Create new app with same properties
-                const newService = serviceStore.addService(
+                const newApp = appStore.addApp(
                     {
                         name: app.name,
                         url: app.url,
@@ -159,8 +159,8 @@
                     workspaceStore.activeWorkspace?.id,
                 );
 
-                if (workspaceStore.activeWorkspace && newService) {
-                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+                if (workspaceStore.activeWorkspace && newApp) {
+                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id);
                 }
             }
         }
@@ -174,9 +174,9 @@
             );
             appsToClose.forEach((app) => {
                 workspaceStore.removeAppFromWorkspace(workspaceStore.activeWorkspace.id, app.id);
-                serviceStore.removeService(app.id);
+                appStore.removeApp(app.id);
             });
-            serviceStore.setActive(contextMenu.tabId);
+            appStore.setActive(contextMenu.tabId);
         }
         closeContextMenu();
     }
@@ -190,7 +190,7 @@
                 const appsToClose = workspaceApps.slice(currentIndex + 1);
                 appsToClose.forEach((app) => {
                     workspaceStore.removeAppFromWorkspace(workspaceStore.activeWorkspace.id, app.id);
-                    serviceStore.removeService(app.id);
+                    appStore.removeApp(app.id);
                 });
             }
         }
@@ -204,13 +204,13 @@
                 const newPinnedState = !app.isPinned;
                 
                 // Update the isPinned status
-                serviceStore.updateService(contextMenu.tabId, {
+                appStore.updateApp(contextMenu.tabId, {
                     isPinned: newPinnedState
                 });
 
                 // Reorder: pinned tabs should be at the left
                 setTimeout(() => {
-                    const updatedApps = serviceStore.services.filter(s => 
+                    const updatedApps = appStore.apps.filter(s => 
                         workspaceStore.activeWorkspace?.apps?.includes(s.id)
                     );
                     
@@ -221,12 +221,12 @@
                     // Reorder: pinned first, then unpinned
                     const reorderedApps = [...pinnedApps, ...unpinnedApps];
                     
-                    // Update the services order
-                    const otherServices = serviceStore.services.filter(s => 
+                    // Update the apps order
+                    const otherServices = appStore.apps.filter(s => 
                         !workspaceStore.activeWorkspace?.apps?.includes(s.id)
                     );
                     
-                    serviceStore.reorderServices([...reorderedApps, ...otherServices]);
+                    appStore.reorderApps([...reorderedApps, ...otherServices]);
                 }, 50);
             }
         }
@@ -234,8 +234,8 @@
     }
 
     function handleAddTab() {
-        // Create a new service/app in sidebar (1 app = 1 tab)
-        const newService = serviceStore.addService(
+        // Create a new app/app in sidebar (1 app = 1 tab)
+        const newApp = appStore.addApp(
             {
                 name: "Browser",
                 url: "https://www.google.com",
@@ -249,13 +249,13 @@
         );
 
         // Add to active workspace
-        if (workspaceStore.activeWorkspace && newService) {
-            workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+        if (workspaceStore.activeWorkspace && newApp) {
+            workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id);
         }
 
-        // Switch to the new service/app
-        if (newService) {
-            serviceStore.setActive(newService.id);
+        // Switch to the new app/app
+        if (newApp) {
+            appStore.setActive(newApp.id);
         }
     }
 
@@ -278,20 +278,20 @@
             }
             
             if (newActiveIndex >= 0 && newActiveIndex < workspaceApps.length) {
-                serviceStore.setActive(workspaceApps[newActiveIndex].id);
+                appStore.setActive(workspaceApps[newActiveIndex].id);
             }
         }
         
-        // Remove app from service store and workspace
-        serviceStore.removeService(tabId);
+        // Remove app from app store and workspace
+        appStore.removeApp(tabId);
         if (workspaceStore.activeWorkspace) {
             workspaceStore.removeAppFromWorkspace(workspaceStore.activeWorkspace.id, tabId);
         }
     }
 
     function handleTabClick(tabId) {
-        // Switch to the app/service
-        serviceStore.setActive(tabId);
+        // Switch to the app/app
+        appStore.setActive(tabId);
     }
 
     // Native HTML5 Drag and Drop functions
@@ -304,7 +304,7 @@
         e.target.style.opacity = '0.5';
         
         // Set global drag state to prevent webview interactions
-        tabStore.setDragging(true);
+        appStateStore.setDragging(true);
     }
 
     function handleDragEnd(e) {
@@ -312,7 +312,7 @@
         e.target.style.opacity = '1';
         draggedTabId = null;
         dragOverTabId = null;
-        tabStore.setDragging(false);
+        appStateStore.setDragging(false);
     }
 
     function handleDragOver(e, tabId) {
@@ -355,13 +355,13 @@
                 return;
             }
             
-            // Work directly with serviceStore.services
-            const currentServices = [...serviceStore.services];
+            // Work directly with appStore.apps
+            const currentServices = [...appStore.apps];
             const draggedIndex = currentServices.findIndex(s => s.id === draggedTabId);
             const dropIndex = currentServices.findIndex(s => s.id === dropTabId);
             
             if (draggedIndex !== -1 && dropIndex !== -1) {
-                // Remove dragged service
+                // Remove dragged app
                 const [draggedService] = currentServices.splice(draggedIndex, 1);
                 
                 // Insert at correct position
@@ -376,8 +376,8 @@
                 
                 currentServices.splice(insertIndex, 0, draggedService);
                 
-                // Update service store
-                serviceStore.reorderServices(currentServices);
+                // Update app store
+                appStore.reorderApps(currentServices);
             }
         }
         
@@ -634,3 +634,8 @@
         box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
     }
 </style>
+
+
+
+
+

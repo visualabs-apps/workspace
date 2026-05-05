@@ -1,9 +1,9 @@
 <script>
-    import { Target, CheckSquare, ChevronLeft } from "lucide-svelte";
+    import { Target, Bell, ChevronLeft } from "lucide-svelte";
+    import { toastStore } from "../../lib/managers/toast.svelte.js";
     
     let { 
-        onOpenTarget = () => {},
-        onOpenTodo = () => {}
+        onOpenTarget = () => {}
     } = $props();
 
     let isActive = $state(false);
@@ -49,20 +49,20 @@
         {/if}
     </button>
 
-    <!-- Sidebar Item - Todo -->
+    <!-- Sidebar Item - Notification -->
     <button
-        onclick={onOpenTodo}
-        class="sidebarItem relative flex flex-col items-center justify-center w-full py-4 px-2 transition-all duration-300 group hover:bg-green-50/80 rounded-bl-2xl"
+        onclick={() => toastStore.info('Notification feature coming soon!')}
+        class="sidebarItem relative flex flex-col items-center justify-center w-full py-4 px-2 transition-all duration-300 group hover:bg-purple-50/80 rounded-bl-2xl"
     >
-        <div class="p-2 rounded-xl bg-white group-hover:bg-green-500 transition-all duration-300 shadow-sm group-hover:shadow-md group-hover:scale-110">
-            <CheckSquare size={24} class="text-gray-600 group-hover:text-white transition-all duration-300" strokeWidth={2} />
+        <div class="p-2 rounded-xl bg-white group-hover:bg-purple-500 transition-all duration-300 shadow-sm group-hover:shadow-md group-hover:scale-110">
+            <Bell size={24} class="text-gray-600 group-hover:text-white transition-all duration-300" strokeWidth={2} />
         </div>
         
         <!-- Tooltip - Only show when panel is active -->
         {#if isActive}
-            <div class="absolute top-1/2 left-full -translate-y-1/2 ml-3 px-3 py-2 text-sm font-medium whitespace-nowrap text-white rounded-lg bg-gradient-to-r from-green-600 to-green-500 opacity-0 invisible pointer-events-none transition-all duration-200 group-hover:opacity-100 group-hover:visible group-hover:ml-4 shadow-lg z-[300]">
-                To-Do List
-                <div class="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-green-600"></div>
+            <div class="absolute top-1/2 left-full -translate-y-1/2 ml-3 px-3 py-2 text-sm font-medium whitespace-nowrap text-white rounded-lg bg-gradient-to-r from-purple-600 to-purple-500 opacity-0 invisible pointer-events-none transition-all duration-200 group-hover:opacity-100 group-hover:visible group-hover:ml-4 shadow-lg z-[300]">
+                Notifications (Coming Soon)
+                <div class="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-purple-600"></div>
             </div>
         {/if}
     </button>
@@ -79,3 +79,7 @@
         />
     </button>
 </div>
+
+
+
+

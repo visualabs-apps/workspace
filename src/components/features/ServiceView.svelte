@@ -1,13 +1,13 @@
 <script>
     import { onMount, onDestroy } from "svelte";
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
-    import { serviceStore } from "../../lib/stores/services.svelte.js";
+    import { appStore } from "../../lib/stores/apps.svelte.js";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { linkRoutingStore } from "../../lib/utils/linkRouting.svelte.js";
     import { historyStore } from "../../lib/stores/history.svelte.js";
     import { Rocket, Plus } from "lucide-svelte";
 
-    let { service, isActive } = $props();
+    let { app, isActive } = $props();
 
     // Global webview registry - persistent across component lifecycle
     const webviewRegistry = globalThis.webviewRegistry || (globalThis.webviewRegistry = new Map());
@@ -21,14 +21,14 @@
     let zoomIndicatorTimeout = null;
     
     // Track if webview should be unloaded (removed from DOM)
-    let shouldUnload = $derived(service.isUnloaded === true && !isActive);
+    let shouldUnload = $derived(app.isUnloaded === true && !isActive);
 
     function updateNavigationState() {
         if (isActive && webview && domReadyState) {
             try {
                 const canGoBack = webview.canGoBack?.() || false;
                 const canGoForward = webview.canGoForward?.() || false;
-                const currentUrl = webview.getURL?.() || service.url;
+                const currentUrl = webview.getURL?.() || app.url;
                 
                 navigationStore.updateState({
                     canGoBack,
@@ -64,12 +64,12 @@
 
     $effect(() => {
         if (webview && domReadyState) {
-            const zoomLevel = service.zoomLevel ?? 0;
+            const zoomLevel = app.zoomLevel ?? 0;
 
             try {
                 if (webview.getWebContentsId) {
                     webview.setZoomLevel(zoomLevel);
-                    webview.setAudioMuted(service.isMuted || false);
+                    webview.setAudioMuted(app.isMuted || false);
                 }
             } catch (e) {
                 // Webview not ready yet, will retry on next effect
@@ -80,7 +80,7 @@
     function handleWheel(e) {
         if (e.ctrlKey) {
             e.preventDefault();
-            const currentZoom = service.zoomLevel ?? 0;
+            const currentZoom = app.zoomLevel ?? 0;
 
             const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
 
@@ -91,7 +91,7 @@
 
             const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
 
-            serviceStore.updateService(service.id, {
+            appStore.updateApp(app.id, {
                 zoomLevel: newZoomLevel,
             });
 
@@ -104,7 +104,7 @@
     }
 
     function getZoomPercent() {
-        const zoomLevel = service.zoomLevel ?? 0;
+        const zoomLevel = app.zoomLevel ?? 0;
         return Math.round(Math.pow(1.2, zoomLevel) * 100);
     }
 
@@ -117,10 +117,10 @@
             }
 
             // Apply zoom level after webview is ready
-            const zoomLevel = service.zoomLevel ?? 0;
+            const zoomLevel = app.zoomLevel ?? 0;
             try {
                 webviewElement.setZoomLevel(zoomLevel);
-                webviewElement.setAudioMuted(service.isMuted || false);
+                webviewElement.setAudioMuted(app.isMuted || false);
             } catch (e) {
                 // Ignore errors
             }
@@ -151,15 +151,15 @@
                 // Webview not ready yet
             }
             if (url) {
-                serviceStore.updateService(service.id, { url });
+                appStore.updateApp(app.id, { url });
                 
                 // Add to history when navigation completes
                 if (workspaceStore.activeWorkspace) {
                     historyStore.addEntry(
                         workspaceStore.activeWorkspace.id,
                         url,
-                        service.name,
-                        service.icon
+                        app.name,
+                        app.icon
                     );
                 }
             }
@@ -167,8 +167,8 @@
         };
 
         const handlePageTitleUpdated = (e) => {
-            // Update service name so it shows in sidebar and TabBar
-            serviceStore.updateService(service.id, { name: e.title });
+            // Update app name so it shows in sidebar and TabBar
+            appStore.updateApp(app.id, { name: e.title });
 
             if (isActive) {
                 navigationStore.updateState({ currentTitle: e.title });
@@ -183,7 +183,7 @@
                             workspaceStore.activeWorkspace.id,
                             currentUrl,
                             e.title,
-                            service.icon
+                            app.icon
                         );
                     }
                 } catch (err) {
@@ -195,16 +195,16 @@
             const match = e.title.match(/^\(?(\d+)\)?\s/);
             if (match) {
                 const count = parseInt(match[1], 10);
-                serviceStore.updateService(service.id, { unreadCount: count });
-            } else if (service.unreadCount > 0) {
-                serviceStore.updateService(service.id, { unreadCount: 0 });
+                appStore.updateApp(app.id, { unreadCount: count });
+            } else if (app.unreadCount > 0) {
+                appStore.updateApp(app.id, { unreadCount: 0 });
             }
         };
 
         const handlePageFaviconUpdated = (e) => {
-            // Update service icon so it shows in sidebar
+            // Update app icon so it shows in sidebar
             if (e.favicons && e.favicons.length > 0) {
-                serviceStore.updateService(service.id, {
+                appStore.updateApp(app.id, {
                     icon: e.favicons[0]
                 });
             }
@@ -220,8 +220,8 @@
             if (routing.action === "external") {
                 window.open(url, "_blank");
             } else if (routing.action === "new-tab") {
-                // Create new service/app
-                const newService = serviceStore.addService(
+                // Create new app/app
+                const newApp = appStore.addApp(
                     {
                         name: "New Tab",
                         url: url,
@@ -234,8 +234,8 @@
                     workspaceStore.activeWorkspace?.id,
                 );
 
-                if (workspaceStore.activeWorkspace && newService) {
-                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+                if (workspaceStore.activeWorkspace && newApp) {
+                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id);
                 }
             } else {
                 window.open(url, "_blank", "width=1000,height=800");
@@ -247,7 +247,7 @@
             // Include partition information for cookie export
             window.api.showContextMenu({
                 ...e.params,
-                partition: service.partition
+                partition: app.partition
             });
         };
 
@@ -279,22 +279,22 @@
     // Webview Registry Pattern Implementation
     onMount(() => {
         // Get or create webview from registry
-        let webviewElement = webviewRegistry.get(service.id);
+        let webviewElement = webviewRegistry.get(app.id);
         
         if (!webviewElement) {
             // Create new webview
             webviewElement = document.createElement('webview');
-            webviewElement.src = service.url;
-            webviewElement.partition = service.partition;
+            webviewElement.src = app.url;
+            webviewElement.partition = app.partition;
             webviewElement.allowpopups = true;
-            webviewElement.useragent = service.userAgent || 
+            webviewElement.useragent = app.userAgent || 
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0";
             webviewElement.style.width = '100%';
             webviewElement.style.height = '100%';
             webviewElement.setAttribute('data-webview', 'true'); // Add identifier for dropdown detection
             
             // Store in registry
-            webviewRegistry.set(service.id, webviewElement);
+            webviewRegistry.set(app.id, webviewElement);
             
             // Setup listeners
             const cleanup = setupWebviewListeners(webviewElement);
@@ -325,8 +325,8 @@
 
         // Listen for tab reload events from TabBar
         const handleTabReload = (event) => {
-            const { serviceId } = event.detail;
-            if (serviceId === service.id && webview) {
+            const { appId } = event.detail;
+            if (appId === app.id && webview) {
                 try {
                     webview.reload();
                 } catch (e) {
@@ -341,8 +341,8 @@
         const handleOpenLinkNewTab = (url) => {
             if (!url) return;
             
-            // Create new service/app
-            const newService = serviceStore.addService(
+            // Create new app/app
+            const newApp = appStore.addApp(
                 {
                     name: "New Tab",
                     url: url,
@@ -355,8 +355,8 @@
                 workspaceStore.activeWorkspace?.id,
             );
 
-            if (workspaceStore.activeWorkspace && newService) {
-                workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newService.id);
+            if (workspaceStore.activeWorkspace && newApp) {
+                workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id);
             }
         };
 
@@ -401,7 +401,7 @@
     
     // Effect to handle unloading/reloading webview based on shouldUnload flag
     $effect(() => {
-        const webviewElement = webviewRegistry.get(service.id);
+        const webviewElement = webviewRegistry.get(app.id);
         
         if (shouldUnload && webviewElement && webviewElement.parentNode) {
             // Unload: remove webview from DOM to free memory
@@ -513,3 +513,10 @@
         }
     }
 </style>
+
+
+
+
+
+
+

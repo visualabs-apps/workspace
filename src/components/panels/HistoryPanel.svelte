@@ -4,7 +4,7 @@
     import { onMount, onDestroy } from 'svelte';
     import { historyStore } from "../../lib/stores/history.svelte.js";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
-    import { serviceStore } from "../../lib/stores/services.svelte.js";
+    import { appStore } from "../../lib/stores/apps.svelte.js";
     import { useClickOutside } from "../../lib/utils/clickOutside.svelte.js";
 
     let { isOpen = false, onClose = () => {} } = $props();
@@ -157,7 +157,7 @@
     }
 
     function handleEntryClick(entry) {
-        const newService = serviceStore.addService(
+        const newApp = appStore.addApp(
             {
                 name: entry.title,
                 url: entry.url,
@@ -170,9 +170,9 @@
             currentWorkspace?.id,
         );
 
-        if (currentWorkspace && newService) {
-            workspaceStore.addAppToWorkspace(currentWorkspace.id, newService.id);
-            serviceStore.setActive(newService.id);
+        if (currentWorkspace && newApp) {
+            workspaceStore.addAppToWorkspace(currentWorkspace.id, newApp.id);
+            appStore.setActive(newApp.id);
         }
 
         onClose();
@@ -485,3 +485,8 @@
         }
     }
 </style>
+
+
+
+
+

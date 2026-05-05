@@ -4,7 +4,7 @@
  * Import semua yang dibutuhkan dari satu tempat.
  * 
  * Example:
- * import { authStore, serviceStore, nativeApi, toastStore } from './lib';
+ * import { authStore, appStore, nativeApi, toastStore } from './lib';
  */
 
 // Stores

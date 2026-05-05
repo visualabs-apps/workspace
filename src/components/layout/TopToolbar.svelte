@@ -17,8 +17,8 @@
         Target,
     } from "lucide-svelte";
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
-    import { serviceStore } from "../../lib/stores/services.svelte.js";
-    import { tabStore } from "../../lib/stores/tabs.svelte.js";
+    import { appStore } from "../../lib/stores/apps.svelte.js";
+    import { appStateStore } from "../../lib/stores/appState.svelte.js";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { bookmarkStore } from "../../lib/stores/bookmarks.svelte.js";
     import { downloadStore } from "../../lib/stores/downloads.svelte.js";
@@ -29,7 +29,6 @@
     import WindowControls from "./WindowControls.svelte";
     import AutocompleteDropdown from "../dropdowns/AutocompleteDropdown.svelte";
     import HistoryPanel from "../panels/HistoryPanel.svelte";
-    import TodoWindow from "../windows/TodoWindow.svelte";
     import TargetWindow from "../windows/TargetWindow.svelte";
     import BookmarkPanel from "../panels/BookmarkPanel.svelte";
     import DownloadManagerPanel from "../panels/DownloadManagerPanel.svelte";
@@ -39,11 +38,10 @@
     import Dropdown from "../dropdowns/Dropdown.svelte";
     import { onMount } from "svelte";
 
-    let { service = null } = $props();
+    let { app = null } = $props();
 
     let urlInput = $state("");
     let isUrlFocused = $state(false);
-    let isTodoModalOpen = $state(false);
     let isTargetModalOpen = $state(false);
     let isSettingsModalOpen = $state(false);
     let showAutocomplete = $state(false);
@@ -153,10 +151,10 @@
 
     // Get active tab explicitly to rely on its URL state
     let activeTabId = $derived(
-        service ? tabStore.getActiveTabId(service.id) : null,
+        app ? appStateStore.getActiveTabId(app.id) : null,
     );
     let activeTab = $derived(
-        service ? tabStore.getActiveTab(service.id) : null,
+        app ? appStateStore.getActiveTab(app.id) : null,
     );
 
     // Single source of truth for the displayed URL
@@ -165,8 +163,8 @@
             // Priority: the tab's current URL, falling back to navigationStore, or empty
             return activeTab.url || currentUrl || "";
         }
-        if (service) {
-            return service.url || "";
+        if (app) {
+            return app.url || "";
         }
         return "";
     });
@@ -184,7 +182,7 @@
         const url = displayUrl();
         const workspace = activeWorkspace;
         const tabId = activeTabId;
-        const currentService = service;
+        const currentService = app;
         
         if (workspace && url) {
             bookmarkStore.isBookmarked(workspace.id, url).then(result => {
@@ -228,8 +226,8 @@
         if (!activeWorkspace) return;
         
         const url = displayUrl();
-        const title = activeTab?.title || service?.name || 'Bookmark';
-        const favicon = activeTab?.favicon || service?.icon || '';
+        const title = activeTab?.title || app?.name || 'Bookmark';
+        const favicon = activeTab?.favicon || app?.icon || '';
         
         // Check current bookmark status from database
         const currentlyBookmarked = await bookmarkStore.isBookmarked(activeWorkspace.id, url);
@@ -282,19 +280,19 @@
             console.log(`🔍 Searching with ${searchEngine.name}: ${input}`);
         }
 
-        // Case 1: Tab actively running in current service - navigate it
-        if (service && activeTabId) {
+        // Case 1: Tab actively running in current app - navigate it
+        if (app && activeTabId) {
             // Eagerly update tab url to prevent visual snap-back
-            tabStore.updateTab(service.id, activeTabId, { url });
+            appStateStore.updateTab(app.id, activeTabId, { url });
             navigationStore.navigate(url);
         }
-        // Case 2: We are inside an empty Service (no tabs) - add new tab
-        else if (service) {
-            tabStore.addTab(service.id, url, "New Tab");
+        // Case 2: We are inside an empty app (no tabs) - add new tab
+        else if (app) {
+            appStateStore.addTab(app.id, url, "New Tab");
         }
-        // Case 3: We are inside an empty Workspace (no services) - add new service
+        // Case 3: We are inside an empty Workspace (no services) - add new app
         else {
-            const newService = serviceStore.addService(
+            const newApp = appStore.addApp(
                 {
                     name: "Browser",
                     url: url,
@@ -307,10 +305,10 @@
                 workspaceStore.activeWorkspaceId,
             );
 
-            if (workspaceStore.activeWorkspace && newService) {
+            if (workspaceStore.activeWorkspace && newApp) {
                 workspaceStore.addAppToWorkspace(
                     workspaceStore.activeWorkspace.id,
-                    newService.id,
+                    newApp.id,
                 );
             }
         }
@@ -349,7 +347,7 @@
         
         switch (action) {
             case 'todo-list':
-                isTodoModalOpen = true;
+                toastStore.info('To-Do List feature coming soon!');
                 break;
             case 'target':
                 isTargetModalOpen = true;
@@ -461,7 +459,7 @@
         <button
             class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-700 hover:text-gray-900 transition-colors"
             title="Home"
-            onclick={() => service && navigationStore.goHome(service.url)}
+            onclick={() => app && navigationStore.goHome(app.url)}
         >
             <Home size={16} />
         </button>
@@ -659,12 +657,6 @@
     <WindowControls variant="light" />
 </div>
 
-<!-- Todo Window -->
-<TodoWindow 
-    bind:isOpen={isTodoModalOpen}
-    onClose={() => isTodoModalOpen = false}
-/>
-
 <!-- Target Window -->
 <TargetWindow 
     bind:isOpen={isTargetModalOpen}
@@ -701,3 +693,9 @@
     onSelectClient={() => {}}
     onColorChange={() => {}}
 />
+
+
+
+
+
+

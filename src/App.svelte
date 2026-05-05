@@ -4,14 +4,13 @@
     import TopToolbar from "./components/layout/TopToolbar.svelte";
     import ServiceView from "./components/features/ServiceView.svelte";
     import AddServiceWindow from "./components/windows/AddServiceWindow.svelte";
-    import TodoWindow from "./components/windows/TodoWindow.svelte";
     import TargetWindow from "./components/windows/TargetWindow.svelte";
     import LoginPage from "./components/features/LoginPage.svelte";
     import NotificationPanel from "./components/panels/NotificationPanel.svelte";
     import TabBar from "./components/layout/TabBar.svelte";
     import Toast from "./components/ui/Toast.svelte";
     import OfflineWarning from "./components/ui/OfflineWarning.svelte";
-    import { serviceStore } from "./lib/stores/services.svelte.js";
+    import { appStore } from "./lib/stores/apps.svelte.js";
     import { authStore } from "./lib/stores/auth.svelte.js";
     import { workspaceStore } from "./lib/stores/workspaces.svelte.js";
     import { navigationStore } from "./lib/managers/navigation.svelte.js";
@@ -19,7 +18,7 @@
     import { historyStore } from "./lib/stores/history.svelte.js";
     import { notificationStore } from "./lib/stores/notifications.svelte.js";
     import { dndStore } from "./lib/utils/dnd.svelte.js";
-    import { tabStore } from "./lib/stores/tabs.svelte.js";
+    import { appStateStore } from "./lib/stores/appState.svelte.js";
     import { toastStore } from "./lib/managers/toast.svelte.js";
     import { panelStore } from "./lib/stores/panels.svelte.js";
     import { onMount } from "svelte";
@@ -27,7 +26,7 @@
 
     let isOnline = $state(navigator.onLine);
 
-    let isTabDragging = $derived(tabStore.isAnyTabDragging);
+    let isTabDragging = $derived(appStateStore.isAnyTabDragging);
 
     let isLoggedIn = $derived(authStore.isLoggedIn);
     let isAuthLoading = $derived(authStore.isLoading);
@@ -38,7 +37,6 @@
     
     // Quick actions state
     let isTargetModalOpen = $state(false);
-    let isTodoModalOpen = $state(false);
 
     // Random loading messages
     const loadingMessages = [
@@ -54,18 +52,18 @@
     
     let currentLoadingMessage = $state(loadingMessages[Math.floor(Math.random() * loadingMessages.length)]);
 
-    let services = $derived(serviceStore.services);
-    let activeServiceId = $derived(serviceStore.activeServiceId);
-    let isAddModalOpen = $derived(serviceStore.isAddModalOpen);
+    let apps = $derived(appStore.apps);
+    let activeAppId = $derived(appStore.activeAppId);
+    let isAddModalOpen = $derived(appStore.isAddModalOpen);
 
-    let workspaceServices = $derived(
-        services.filter((service) =>
-            activeWorkspace?.apps?.includes(service.id),
+    let workspaceApps = $derived(
+        apps.filter((app) =>
+            activeWorkspace?.apps?.includes(app.id),
         ),
     );
 
-    let activeService = $derived(
-        workspaceServices.find((s) => s.id === activeServiceId),
+    let activeApp = $derived(
+        workspaceApps.find((s) => s.id === activeAppId),
     );
 
     let isNotificationCenterOpen = $derived(
@@ -108,13 +106,13 @@
     });
 
     $effect(() => {
-        if (workspaceServices.length > 0) {
-            const isActiveInWorkspace = workspaceServices.some(
-                (s) => s.id === activeServiceId,
+        if (workspaceApps.length > 0) {
+            const isActiveInWorkspace = workspaceApps.some(
+                (s) => s.id === activeAppId,
             );
 
             if (!isActiveInWorkspace) {
-                serviceStore.setActive(workspaceServices[0].id);
+                appStore.setActive(workspaceApps[0].id);
             }
         }
     });
@@ -134,16 +132,16 @@
         }
     });
 
-    let previousActiveService = null;
+    let previousActiveApp = null;
     $effect(() => {
-        if (activeService && activeWorkspace && isLoggedIn) {
-            if (previousActiveService && previousActiveService.id !== activeService.id) {
+        if (activeApp && activeWorkspace && isLoggedIn) {
+            if (previousActiveApp && previousActiveApp.id !== activeApp.id) {
                 // App switched
-            } else if (!previousActiveService) {
+            } else if (!previousActiveApp) {
                 // Initial app load
             }
             
-            previousActiveService = activeService;
+            previousActiveApp = activeApp;
         }
     });
 
@@ -170,15 +168,15 @@
         if ((e.ctrlKey || e.metaKey) && e.key >= "1" && e.key <= "9") {
             e.preventDefault();
             const index = parseInt(e.key) - 1;
-            if (workspaceServices[index]) {
-                serviceStore.setActive(workspaceServices[index].id);
+            if (workspaceApps[index]) {
+                appStore.setActive(workspaceApps[index].id);
             }
         }
 
         if ((e.ctrlKey || e.metaKey) && e.key === "r") {
             e.preventDefault();
-            if (activeService) {
-                const activeTab = tabStore.getActiveTab(activeService.id);
+            if (activeApp) {
+                const activeTab = appStateStore.getActiveTab(activeApp.id);
                 if (activeTab) {
                     navigationStore.reload();
                 }
@@ -187,20 +185,20 @@
 
         if ((e.ctrlKey || e.metaKey) && e.key === "w") {
             e.preventDefault();
-            if (activeService) {
-                const activeTab = tabStore.getActiveTab(activeService.id);
+            if (activeApp) {
+                const activeTab = appStateStore.getActiveTab(activeApp.id);
                 if (activeTab) {
-                    tabStore.closeTab(activeService.id, activeTab.id);
+                    appStateStore.closeTab(activeApp.id, activeTab.id);
                 }
             }
         }
 
         if ((e.ctrlKey || e.metaKey) && e.key === "0") {
             e.preventDefault();
-            if (activeService) {
-                const activeTab = tabStore.getActiveTab(activeService.id);
+            if (activeApp) {
+                const activeTab = appStateStore.getActiveTab(activeApp.id);
                 if (activeTab) {
-                    tabStore.updateTab(activeService.id, activeTab.id, {
+                    appStateStore.updateTab(activeApp.id, activeTab.id, {
                         zoomLevel: 0,
                     });
                 }
@@ -209,8 +207,8 @@
 
         if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
             e.preventDefault();
-            if (activeService) {
-                const activeTab = tabStore.getActiveTab(activeService.id);
+            if (activeApp) {
+                const activeTab = appStateStore.getActiveTab(activeApp.id);
                 if (activeTab) {
                     const currentZoom = activeTab.zoomLevel ?? 0;
                     const currentPercent = Math.round(
@@ -220,7 +218,7 @@
                     newPercent = Math.min(500, newPercent);
                     const newZoomLevel =
                         Math.log(newPercent / 100) / Math.log(1.2);
-                    tabStore.updateTab(activeService.id, activeTab.id, {
+                    appStateStore.updateTab(activeApp.id, activeTab.id, {
                         zoomLevel: newZoomLevel,
                     });
                 }
@@ -229,8 +227,8 @@
 
         if ((e.ctrlKey || e.metaKey) && e.key === "-") {
             e.preventDefault();
-            if (activeService) {
-                const activeTab = tabStore.getActiveTab(activeService.id);
+            if (activeApp) {
+                const activeTab = appStateStore.getActiveTab(activeApp.id);
                 if (activeTab) {
                     const currentZoom = activeTab.zoomLevel ?? 0;
                     const currentPercent = Math.round(
@@ -240,7 +238,7 @@
                     newPercent = Math.max(25, newPercent);
                     const newZoomLevel =
                         Math.log(newPercent / 100) / Math.log(1.2);
-                    tabStore.updateTab(activeService.id, activeTab.id, {
+                    appStateStore.updateTab(activeApp.id, activeTab.id, {
                         zoomLevel: newZoomLevel,
                     });
                 }
@@ -259,20 +257,20 @@
 
         if ((e.ctrlKey || e.metaKey) && e.key === "n") {
             e.preventDefault();
-            serviceStore.setAddModalOpen(true);
+            appStore.setAddModalOpen(true);
         }
 
         if ((e.ctrlKey || e.metaKey) && e.key === "Tab") {
             e.preventDefault();
-            const currentIndex = workspaceServices.findIndex(
-                (s) => s.id === activeServiceId,
+            const currentIndex = workspaceApps.findIndex(
+                (s) => s.id === activeAppId,
             );
             const nextIndex = e.shiftKey
-                ? (currentIndex - 1 + workspaceServices.length) %
-                  workspaceServices.length
-                : (currentIndex + 1) % workspaceServices.length;
-            if (workspaceServices[nextIndex]) {
-                serviceStore.setActive(workspaceServices[nextIndex].id);
+                ? (currentIndex - 1 + workspaceApps.length) %
+                  workspaceApps.length
+                : (currentIndex + 1) % workspaceApps.length;
+            if (workspaceApps[nextIndex]) {
+                appStore.setActive(workspaceApps[nextIndex].id);
             }
         }
 
@@ -297,7 +295,7 @@
         }
 
         if (e.key === "Escape") {
-            serviceStore.setAddModalOpen(false);
+            appStore.setAddModalOpen(false);
             if (isNotificationCenterOpen)
                 notificationStore.closeNotificationCenter();
         }
@@ -310,7 +308,7 @@
     }
 
     function handleStartWithTab() {
-        const newService = serviceStore.addService(
+        const newApp = appStore.addApp(
             {
                 name: "Browser",
                 url: "https://www.google.com",
@@ -323,8 +321,8 @@
             activeWorkspace?.id,
         );
 
-        if (activeWorkspace && newService) {
-            workspaceStore.addAppToWorkspace(activeWorkspace.id, newService.id);
+        if (activeWorkspace && newApp) {
+            workspaceStore.addAppToWorkspace(activeWorkspace.id, newApp.id);
         }
     }
 </script>
@@ -352,7 +350,7 @@
         class="flex flex-col h-screen w-screen overflow-hidden bg-gradient-to-r from-gray-50 via-white to-gray-100 text-gray-900 font-sans selection:bg-blue-500 selection:text-white"
     >
         <!-- Top Toolbar -->
-        <TopToolbar service={activeService} />
+        <TopToolbar app={activeApp} />
 
         <!-- Main Content Area: Sidebar + (TabBar + Content) -->
         <div class="flex-1 flex relative h-full w-full overflow-hidden">
@@ -363,7 +361,7 @@
             <div class="flex-1 flex flex-col overflow-hidden">
                 <!-- TabBar (horizontal) - always show when workspace exists -->
                 {#if activeWorkspace}
-                    <TabBar service={activeService} />
+                    <TabBar app={activeApp} />
                 {/if}
 
                 <!-- Content Area -->
@@ -450,7 +448,7 @@
                                 </div>
                             </div>
                         </div>
-                    {:else if workspaceServices.length === 0}
+                    {:else if workspaceApps.length === 0}
                         <!-- Empty profile state (profile exists but no apps) -->
                         <div
                             class="absolute inset-0 flex items-center justify-center p-8 z-20"
@@ -518,28 +516,28 @@
                         </div>
                     {/if}
 
-                    <!-- Render services with STABLE DOM order to prevent webview reloads -->
-                    {#if services.length > 0}
-                        {@const serviceMap = new Map(services.map(s => [s.id, s]))}
-                        {@const allServiceIds = Array.from(serviceMap.keys()).sort()}
+                    <!-- Render apps with STABLE DOM order to prevent webview reloads -->
+                    {#if apps.length > 0}
+                        {@const appMap = new Map(apps.map(s => [s.id, s]))}
+                        {@const allAppIds = Array.from(appMap.keys()).sort()}
                         
-                        {#each allServiceIds as serviceId (serviceId)}
-                            {@const service = serviceMap.get(serviceId)}
+                        {#each allAppIds as appId (appId)}
+                            {@const app = appMap.get(appId)}
                             {@const isInActiveWorkspace =
-                                activeWorkspace?.apps?.includes(service.id)}
-                            {@const isActiveService =
-                                activeServiceId === service.id}
+                                activeWorkspace?.apps?.includes(app.id)}
+                            {@const isActiveApp =
+                                activeAppId === app.id}
                             {@const isVisible =
-                                isInActiveWorkspace && isActiveService}
+                                isInActiveWorkspace && isActiveApp}
 
                             <div
                                 class="absolute inset-0 w-full h-full"
                                 style:z-index={isVisible ? 10 : 0}
                                 style:visibility={isVisible ? "visible" : "hidden"}
                                 style:pointer-events={isVisible ? "auto" : "none"}
-                                data-service-id={service.id}
+                                data-app-id={app.id}
                             >
-                                <ServiceView {service} isActive={isVisible} />
+                                <ServiceView app={app} isActive={isVisible} />
                             </div>
                         {/each}
                     {/if}
@@ -558,7 +556,6 @@
             {#if activeWorkspace}
                 <RightFloatingSidebar 
                     onOpenTarget={() => isTargetModalOpen = true}
-                    onOpenTodo={() => isTodoModalOpen = true}
                 />
             {/if}
         </div>
@@ -578,12 +575,6 @@
     {#if isNotificationCenterOpen}
         <NotificationPanel />
     {/if}
-    
-    <!-- Todo Window (from Quick Actions) -->
-    <TodoWindow 
-        bind:isOpen={isTodoModalOpen}
-        onClose={() => isTodoModalOpen = false}
-    />
     
     <!-- Target Window (from Quick Actions) -->
     <TargetWindow 
@@ -608,3 +599,6 @@
 
 <!-- Toast Notifications -->
 <Toast />
+
+
+

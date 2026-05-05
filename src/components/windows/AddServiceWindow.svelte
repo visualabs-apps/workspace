@@ -1,6 +1,6 @@
 <script>
     import BaseWindow from "../base/BaseWindow.svelte";
-    import { serviceStore, predefinedServices } from "../../lib/stores/services.svelte.js";
+    import { appStore, predefinedApps } from "../../lib/stores/apps.svelte.js";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { Search, Globe } from "lucide-svelte";
 
@@ -8,7 +8,7 @@
 
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
     let searchQuery = $state("");
-    let filteredServices = $derived(predefinedServices.filter((s) => s.name.toLowerCase().includes(searchQuery.toLowerCase())));
+    let filteredServices = $derived(predefinedApps.filter((s) => s.name.toLowerCase().includes(searchQuery.toLowerCase())));
 
     let showCustomForm = $state(false);
     let customName = $state("");
@@ -25,22 +25,22 @@
         onClose();
     }
 
-    function add(service) {
-        if (service.name === "Custom") {
+    function add(app) {
+        if (app.name === "Custom") {
             showCustomForm = true;
             return;
         }
 
-        const newService = serviceStore.addService(
-            service, 
+        const newApp = appStore.addApp(
+            app, 
             null, 
             null, 
-            service.name,
+            app.name,
             activeWorkspace?.id
         );
 
-        if (newService && activeWorkspace) {
-            workspaceStore.addAppToWorkspace(activeWorkspace.id, newService.id);
+        if (newApp && activeWorkspace) {
+            workspaceStore.addAppToWorkspace(activeWorkspace.id, newApp.id);
         }
         
         handleClose();
@@ -58,8 +58,8 @@
         }
         const name = customName.trim() || "My App";
         
-        const customService = predefinedServices.find(s => s.name === "Custom");
-        const newService = serviceStore.addService(
+        const customService = predefinedApps.find(s => s.name === "Custom");
+        const newApp = appStore.addApp(
             customService, 
             url, 
             name, 
@@ -67,8 +67,8 @@
             activeWorkspace?.id
         );
 
-        if (newService && activeWorkspace) {
-            workspaceStore.addAppToWorkspace(activeWorkspace.id, newService.id);
+        if (newApp && activeWorkspace) {
+            workspaceStore.addAppToWorkspace(activeWorkspace.id, newApp.id);
         }
 
         handleClose();
@@ -84,7 +84,7 @@
 
 <BaseWindow
     bind:isOpen
-    windowId="add-service-window"
+    windowId="add-app-window"
     title="Add App"
     subtitle="Choose an app to add"
     width="900px"
@@ -149,16 +149,16 @@
 
         <!-- Grid -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 overflow-y-auto" style="max-height: 450px;">
-            {#each filteredServices as service}
+            {#each filteredServices as app}
                 <button 
-                    class="flex flex-col items-center justify-center p-6 rounded-xl transition-all group border {service.name === 'Custom' && showCustomForm ? 'bg-blue-100 border-blue-300' : 'bg-gray-50 hover:bg-blue-50 border-gray-100 hover:border-blue-300 hover:shadow-md'}" 
-                    onclick={() => add(service)}
+                    class="flex flex-col items-center justify-center p-6 rounded-xl transition-all group border {app.name === 'Custom' && showCustomForm ? 'bg-blue-100 border-blue-300' : 'bg-gray-50 hover:bg-blue-50 border-gray-100 hover:border-blue-300 hover:shadow-md'}" 
+                    onclick={() => add(app)}
                 >
                     <div class="w-16 h-16 mb-4 rounded-2xl p-2 bg-white flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow border border-gray-100">
-                        <img src={service.icon} alt={service.name} class="w-full h-full object-contain" />
+                        <img src={app.icon} alt={app.name} class="w-full h-full object-contain" />
                     </div>
-                    <span class="font-medium {service.name === 'Custom' && showCustomForm ? 'text-blue-600' : 'text-gray-700 group-hover:text-blue-600'}">{service.name}</span>
-                    {#if service.name === "Custom"}
+                    <span class="font-medium {app.name === 'Custom' && showCustomForm ? 'text-blue-600' : 'text-gray-700 group-hover:text-blue-600'}">{app.name}</span>
+                    {#if app.name === "Custom"}
                         <span class="text-xs text-gray-400 mt-1">Enter your URL</span>
                     {/if}
                 </button>
@@ -166,3 +166,9 @@
         </div>
     {/snippet}
 </BaseWindow>
+
+
+
+
+
+
