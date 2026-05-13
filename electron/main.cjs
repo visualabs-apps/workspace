@@ -27,24 +27,17 @@ const { registerSettingsHandlers } = require('./handlers/settings.cjs');
 const { registerHttpHandler } = require('./handlers/http.cjs');
 const { registerCookieHandlers } = require('./handlers/cookies.cjs');
 const { registerDownloadHandlers, handleAria2Download } = require('./handlers/downloads.cjs');
+const { registerInjectorRoutes } = require('./handlers/injectorController/routes.cjs');
+const { registerChildWindowHandlers } = require('./handlers/childWindows.cjs');
 const { createWindow, getMainWindow, setIsQuitting, setTray } = require('./window/createWindow.cjs');
 const { createTray } = require('./window/createTray.cjs');
 const { handlePermissions } = require('./utils/permissions.cjs');
 const { checkForNewVersion } = require('./utils/versionCheck.cjs');
 const { registerSafeStorageHandlers } = require('./utils/safeStorage.cjs');
-const { handleDeepLink } = require('./utils/deepLink.cjs');
-
-// Protocol handler
-if (process.defaultApp) {
-    if (process.argv.length >= 2) {
-        app.setAsDefaultProtocolClient('visualbox', process.execPath, [path.resolve(process.argv[1])]);
-    }
-} else {
-    app.setAsDefaultProtocolClient('visualbox');
-}
 
 // IPC Handlers
 ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('get-app-path', () => app.getAppPath());
 
 ipcMain.on('update-badge-count', (event, count) => {
     const tray = require('./window/createTray.cjs').getTray();
@@ -86,17 +79,23 @@ ipcMain.on('show-notification', (event, { title, body }) => {
 });
 
 app.on('ready', async () => {
+    console.log('🚀 App ready, initializing...');
+    
     // Initialize database first
     initDatabase(app);
     
     // Register all IPC handlers
+    console.log('📝 Registering IPC handlers...');
     registerDatabaseHandlers();
     registerFaviconHandler();
     registerSettingsHandlers();
     registerHttpHandler();
     registerCookieHandlers();
     registerDownloadHandlers(aria2, getMainWindow);
+    registerInjectorRoutes(getMainWindow);
     registerSafeStorageHandlers();
+    registerChildWindowHandlers(isDevEnvironment, getMainWindow);
+    console.log('✅ All IPC handlers registered');
     
     // Block Ctrl+R, F5, and other shortcuts globally for all web contents (including webviews)
     app.on('web-contents-created', (event, contents) => {
@@ -197,11 +196,6 @@ app.on('certificate-error', (event, webContents, url, error, certificate, callba
     callback(true);
 });
 
-app.on('open-url', (event, url) => {
-    event.preventDefault();
-    handleDeepLink(url, getMainWindow());
-});
-
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
@@ -212,11 +206,6 @@ if (!gotTheLock) {
         if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.focus();
-        }
-
-        const url = commandLine.find((arg) => arg.startsWith('visualbox://'));
-        if (url) {
-            handleDeepLink(url, mainWindow);
         }
     });
 }

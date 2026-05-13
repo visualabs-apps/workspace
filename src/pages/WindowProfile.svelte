@@ -1,20 +1,33 @@
 <script>
-    import BaseWindow from "../base/BaseWindow.svelte";
-    import { ChevronDown, Cookie } from "lucide-svelte";
-    import { createChromeProfile, updateChromeProfile } from "../../lib/api/api.js";
-    import { toastStore } from "../../lib/managers/toast.svelte.js";
-    import CookieManagerWindow from "./CookieManagerWindow.svelte";
+    import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
+    import { User, ChevronDown, Cookie } from "lucide-svelte";
+    import { createChromeProfile, updateChromeProfile } from "../lib/api/api.js";
+    import { toastStore } from "../lib/managers/toast.svelte.js";
+    import { openPredefinedWindow } from "../lib/utils/childWindow.js";
 
-    let {
-        isOpen = $bindable(false),
-        mode = 'add',
-        editingProfile = null,
-        clients = [],
-        isLoadingClients = false,
-        onSuccess = () => {},
-        onSelectClient = () => {},
-        onColorChange = () => {}
-    } = $props();
+    const WINDOW_ID = 'profile-window';
+
+    // Receive data from parent window via IPC
+    let mode = $state('add');
+    let editingProfile = $state(null);
+    let clients = $state([]);
+    let isLoadingClients = $state(false);
+
+    // Listen for window data from parent
+    $effect(() => {
+        const handleWindowData = (data) => {
+            console.log('[WindowProfile] Received data:', data);
+            if (data.mode) mode = data.mode;
+            if (data.editingProfile) editingProfile = data.editingProfile;
+            if (data.clients) clients = data.clients;
+            if (data.isLoadingClients !== undefined) isLoadingClients = data.isLoadingClients;
+        };
+
+        // Check if window.api has the data listener
+        if (window.api?.onWindowData) {
+            window.api.onWindowData(handleWindowData);
+        }
+    });
 
     let profileName = $state("");
     let selectedClient = $state(null);
@@ -23,9 +36,6 @@
     let showClientDropdown = $state(false);
     let nameError = $state(false);
     let isSubmitting = $state(false);
-    
-    let showCookieManager = $state(false);
-    let currentPartition = $state(null);
 
     const presetColors = [
         '#6B21A8', '#4F46E5', '#2563EB', '#0EA5E9', '#06B6D4', '#14B8A6', '#10B981', '#EAB308',
@@ -34,13 +44,11 @@
     ];
 
     $effect(() => {
-        if (isOpen && mode === 'edit' && editingProfile) {
+        if (mode === 'edit' && editingProfile) {
             profileName = editingProfile.name;
             profileColor = editingProfile.color?.hex || editingProfile.color?.value || editingProfile.color || '#9d8c6b';
             userAgent = editingProfile.userAgent || "";
             selectedClient = clients.find(c => c.id === editingProfile.customerId) || null;
-        } else if (isOpen && mode === 'add') {
-            resetForm();
         }
     });
 
@@ -60,7 +68,12 @@
     function selectClient(client) {
         selectedClient = client;
         showClientDropdown = false;
-        onSelectClient(client);
+        
+        // Notify parent window of client selection
+        if (window.api?.sendToParent) {
+            window.api.sendToParent('client-selected', client);
+        }
+        
         if (!profileName && client) {
             profileName = client.name;
         }
@@ -92,8 +105,15 @@
 
             if (result.success) {
                 toastStore.success(mode === 'edit' ? 'Profile updated!' : 'Profile created!');
-                onColorChange(profileColor);
-                onSuccess(result.profile);
+                
+                // Notify parent window of success
+                if (window.api?.sendToParent) {
+                    window.api.sendToParent('profile-success', {
+                        profile: result.profile,
+                        color: profileColor
+                    });
+                }
+                
                 handleClose();
             } else {
                 toastStore.error(result.error || 'Failed to save profile');
@@ -107,41 +127,43 @@
     }
 
     function handleClose() {
-        isOpen = false;
         resetForm();
+        window.api.close();
     }
 
-    function openCookieManager() {
+    async function openCookieManager() {
         if (editingProfile) {
-            currentPartition = `persist:workspace-${editingProfile.id}`;
-            showCookieManager = true;
+            const partition = `persist:workspace-${editingProfile.id}`;
+            await openPredefinedWindow('COOKIE_MANAGER', { partition });
         }
     }
 </script>
 
-<BaseWindow
-    bind:isOpen
-    windowId="profile-window"
-    title={mode === 'edit' ? 'Edit Profile' : 'Add Profile'}
-    subtitle={mode === 'edit' ? 'Update profile settings' : 'Create a new profile'}
-    width="600px"
-    height="auto"
-    showCloseButton={true}
-    showMaximizeButton={true}
-    onClose={handleClose}
->
-    {#snippet children()}
+<div class="w-full h-screen flex flex-col bg-white">
+    <!-- Custom Title Bar -->
+    <div class="h-10 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4" style="-webkit-app-region: drag">
+        <div class="flex items-center gap-2">
+            <User size={16} class="text-blue-600" />
+            <span class="text-sm font-medium text-gray-700">Profile</span>
+        </div>
+        <div style="-webkit-app-region: no-drag">
+            <ChildWindowControls variant="light" windowId={WINDOW_ID} />
+        </div>
+    </div>
+    
+    <!-- Content -->
+    <div class="flex-1 overflow-y-auto p-6">
         <div class="space-y-4">
             <!-- Profile Name -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
+                <label class="block text-sm font-semibold text-gray-900 mb-2">
                     Profile Name <span class="text-red-500">*</span>
                 </label>
                 <input
                     type="text"
                     bind:value={profileName}
                     placeholder="Enter profile name"
-                    class="w-full px-4 py-2 border {nameError ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    class="w-full px-4 py-2 border {nameError ? 'border-red-500' : 'border-gray-300'} rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                 />
                 {#if nameError}
                     <p class="text-xs text-red-500 mt-1">Profile name is required</p>
@@ -150,7 +172,7 @@
 
             <!-- Client Selection -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
+                <label class="block text-sm font-semibold text-gray-900 mb-2">
                     Client (Optional)
                 </label>
                 <div class="relative">
@@ -190,7 +212,7 @@
 
             <!-- Color Picker -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
+                <label class="block text-sm font-semibold text-gray-900 mb-2">
                     Profile Color
                 </label>
                 <div class="flex gap-2 flex-wrap">
@@ -208,14 +230,14 @@
 
             <!-- User Agent (Optional) -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
+                <label class="block text-sm font-semibold text-gray-900 mb-2">
                     User Agent (Optional)
                 </label>
                 <input
                     type="text"
                     bind:value={userAgent}
                     placeholder="Leave empty for default"
-                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900"
                 />
             </div>
 
@@ -231,12 +253,13 @@
                 </button>
             {/if}
         </div>
-    {/snippet}
+    </div>
 
-    {#snippet footerSlot()}
+    <!-- Footer -->
+    <div class="border-t border-gray-200 px-6 py-4 bg-gray-50">
         <div class="flex justify-end gap-2">
             <button
-                onclick={handleClose}
+                onclick={() => window.api.close()}
                 class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                 disabled={isSubmitting}
             >
@@ -250,17 +273,5 @@
                 {isSubmitting ? 'Saving...' : (mode === 'edit' ? 'Update' : 'Create')}
             </button>
         </div>
-    {/snippet}
-</BaseWindow>
-
-<!-- Cookie Manager Window -->
-{#if showCookieManager}
-    <CookieManagerWindow 
-        bind:isOpen={showCookieManager} 
-        partition={currentPartition} 
-    />
-{/if}
-
-
-
-
+    </div>
+</div>

@@ -100,7 +100,7 @@ function createWorkspaceStore() {
 
             try {
                 // Get user from auth store (use mock if available for testing)
-                const user = (global._mockAuthStore || authStore)?.user;
+                const user = (globalThis._mockAuthStore || authStore)?.user;
                 if (!user?.id) {
                     console.warn('No user logged in, skipping workspace init');
                     workspaces = [];
@@ -111,7 +111,7 @@ function createWorkspaceStore() {
                 }
 
                 // Fetch profiles from backend (use mock if available for testing)
-                const response = await (global._mockGetChromeProfiles || getChromeProfiles)({ 
+                const response = await (globalThis._mockGetChromeProfiles || getChromeProfiles)({ 
                     userId: user.id,
                     limit: 100 
                 });
@@ -166,14 +166,14 @@ function createWorkspaceStore() {
         async refresh() {
             isLoading = true;
             try {
-                const user = (global._mockAuthStore || authStore)?.user;
+                const user = (globalThis._mockAuthStore || authStore)?.user;
                 if (!user?.id) {
                     workspaces = [];
                     isLoading = false;
                     return Promise.resolve(this);
                 }
 
-                const response = await (global._mockGetChromeProfiles || getChromeProfiles)({ 
+                const response = await (globalThis._mockGetChromeProfiles || getChromeProfiles)({ 
                     userId: user.id,
                     limit: 100 
                 });
@@ -273,7 +273,7 @@ function createWorkspaceStore() {
         // Delete workspace (profile)
         async deleteWorkspace(id) {
             try {
-                const response = await (global._mockDeleteChromeProfile || deleteChromeProfile)(id);
+                const response = await (globalThis._mockDeleteChromeProfile || deleteChromeProfile)(id);
                 
                 if (response && response.success) {
                     // Remove color from SQLite
@@ -337,13 +337,13 @@ function createWorkspaceStore() {
         // Test helper - inject mocks for testing
         _testInjectMocks(mocks) {
             if (mocks.getChromeProfiles) {
-                global._mockGetChromeProfiles = mocks.getChromeProfiles;
+                globalThis._mockGetChromeProfiles = mocks.getChromeProfiles;
             }
             if (mocks.deleteChromeProfile) {
-                global._mockDeleteChromeProfile = mocks.deleteChromeProfile;
+                globalThis._mockDeleteChromeProfile = mocks.deleteChromeProfile;
             }
             if (mocks.authStore) {
-                global._mockAuthStore = mocks.authStore;
+                globalThis._mockAuthStore = mocks.authStore;
             }
         },
 

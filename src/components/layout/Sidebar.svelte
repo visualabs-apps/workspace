@@ -4,7 +4,7 @@
     import { getClientsForAdmin } from "../../lib/api/api.js";
     import { toastStore } from "../../lib/managers/toast.svelte.js";
     import { Plus, Trash2, Pencil } from "lucide-svelte";
-    import ProfileWindow from "../windows/ProfileWindow.svelte";
+    import { openPredefinedWindow } from "../../lib/utils/childWindow.js";
 
     // Auth state
     let user = $derived(authStore.user);
@@ -61,18 +61,41 @@
             loadClients();
         }
     });
+    
+    // Listen for profile success from child window
+    $effect(() => {
+        if (window.api?.onParentMessage) {
+            const cleanup = window.api.onParentMessage('profile-success', (data) => {
+                console.log('[Sidebar] Profile success:', data);
+                if (data.profile) {
+                    handleProfileSuccess(data.profile, data.color);
+                }
+            });
+            
+            return cleanup;
+        }
+    });
 
     function toggleAddModal(e) {
         if (e) {
             e.stopPropagation();
             e.preventDefault();
         }
-        isAddModalOpen = !isAddModalOpen;
+        openPredefinedWindow('PROFILE', {
+            mode: 'add',
+            clients: JSON.parse(JSON.stringify(clients)),
+            isLoadingClients: isLoadingClients,
+        });
     }
     
     function openEditModal(workspace) {
         editingWorkspace = workspace;
-        isEditModalOpen = true;
+        openPredefinedWindow('PROFILE', {
+            mode: 'edit',
+            editingProfile: JSON.parse(JSON.stringify(workspace)),
+            clients: JSON.parse(JSON.stringify(clients)),
+            isLoadingClients: isLoadingClients,
+        });
         closeContextMenu();
     }
 
@@ -190,28 +213,6 @@
         </div>
     </div>
 </div>
-
-<!-- Profile Windows -->
-<ProfileWindow 
-    bind:isOpen={isAddModalOpen}
-    mode="add"
-    {clients}
-    {isLoadingClients}
-    onSuccess={handleProfileSuccess}
-    onSelectClient={() => {}}
-    onColorChange={handleColorChange}
-/>
-
-<ProfileWindow 
-    bind:isOpen={isEditModalOpen}
-    mode="edit"
-    editingProfile={editingWorkspace}
-    {clients}
-    {isLoadingClients}
-    onSuccess={handleProfileSuccess}
-    onSelectClient={() => {}}
-    onColorChange={handleColorChange}
-/>
 
 <!-- Workspace Context Menu -->
 {#if workspaceContextMenu.show}

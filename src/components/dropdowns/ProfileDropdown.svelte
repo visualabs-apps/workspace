@@ -2,7 +2,7 @@
     import { ChevronDown, Edit, Trash2, Cookie } from "lucide-svelte";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import Dropdown from "./Dropdown.svelte";
-    import CookieManagerWindow from "../windows/CookieManagerWindow.svelte";
+    import { openPredefinedWindow } from "../../lib/utils/childWindow.js";
 
     let { onClose = () => {}, onEditProfile = () => {}, onDeleteProfile = () => {} } = $props();
 
@@ -42,10 +42,7 @@
 
     function handleManageCookies() {
         showDropdown = false;
-        if (activeWorkspace?.id) {
-            currentPartition = `persist:workspace-${activeWorkspace.id}`;
-            showCookieManager = true;
-        }
+        openPredefinedWindow('COOKIE_MANAGER');
     }
 </script>
 
@@ -113,9 +110,6 @@
         </div>
     {/snippet}
 </Dropdown>
-
-<!-- Cookie Manager Window -->
-<CookieManagerWindow bind:isOpen={showCookieManager} partition={currentPartition} />
 
 
 

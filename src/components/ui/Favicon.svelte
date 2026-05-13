@@ -49,22 +49,23 @@
     }
 </script>
 
-{#if isLoading}
-    <div 
-        class="inline-block bg-gray-200 rounded animate-pulse {className}"
-        style="width: {size}px; height: {size}px;"
-    ></div>
-{:else}
-    <img
-        src={faviconUrl}
-        alt={alt}
-        width={size}
-        height={size}
-        class="inline-block {className}"
-        onerror={handleError}
-        loading="lazy"
-    />
-{/if}
+<div class="inline-block {className}" style="width: {size}px; height: {size}px;">
+    {#if isLoading}
+        <div 
+            class="w-full h-full bg-gray-200 rounded animate-pulse"
+        ></div>
+    {:else}
+        <img
+            src={faviconUrl}
+            alt={alt}
+            width={size}
+            height={size}
+            class="w-full h-full object-contain"
+            onerror={handleError}
+            loading="lazy"
+        />
+    {/if}
+</div>
 
 
 

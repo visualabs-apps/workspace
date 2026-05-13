@@ -1,10 +1,13 @@
 <script>
-    import BaseWindow from "../base/BaseWindow.svelte";
-    import { appStore, predefinedApps } from "../../lib/stores/apps.svelte.js";
-    import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
+    import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
+    import { Plus } from "lucide-svelte";
+    import { appStore, predefinedApps } from "../lib/stores/apps.svelte.js";
+    import { workspaceStore } from "../lib/stores/workspaces.svelte.js";
     import { Search, Globe } from "lucide-svelte";
 
-    let { isOpen = $bindable(false), onClose = () => {} } = $props();
+    const WINDOW_ID = 'add-service-window';
+
+    
 
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
     let searchQuery = $state("");
@@ -16,13 +19,12 @@
     let customUrlError = $state("");
 
     function handleClose() {
-        isOpen = false;
         showCustomForm = false;
         customName = "";
         customUrl = "https://";
         customUrlError = "";
         searchQuery = "";
-        onClose();
+        window.api?.window?.close();
     }
 
     function add(app) {
@@ -82,18 +84,20 @@
     }
 </script>
 
-<BaseWindow
-    bind:isOpen
-    windowId="add-app-window"
-    title="Add App"
-    subtitle="Choose an app to add"
-    width="900px"
-    height="700px"
-    showCloseButton={true}
-    showMaximizeButton={true}
-    onClose={handleClose}
->
-    {#snippet children()}
+<div class="w-full h-screen flex flex-col bg-white">
+    <!-- Custom Title Bar -->
+    <div class="h-10 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4" style="-webkit-app-region: drag">
+        <div class="flex items-center gap-2">
+            <Plus size={16} class="text-blue-600" />
+            <span class="text-sm font-medium text-gray-700">Add Service</span>
+        </div>
+        <div style="-webkit-app-region: no-drag">
+            <ChildWindowControls variant="light" windowId={WINDOW_ID} />
+        </div>
+    </div>
+    
+    <!-- Content -->
+    <div class="flex-1 overflow-y-auto p-6">
         <!-- Search -->
         <div class="mb-4">
             <div class="relative">
@@ -164,11 +168,5 @@
                 </button>
             {/each}
         </div>
-    {/snippet}
-</BaseWindow>
-
-
-
-
-
-
+    </div>
+</div>

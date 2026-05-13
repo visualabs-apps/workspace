@@ -1,11 +1,10 @@
 <script>
-    import BaseWindow from "../base/BaseWindow.svelte";
+    import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
     import { Target, TrendingUp, TrendingDown, Minus, RefreshCw, Filter, X } from "lucide-svelte";
-    import { targetStore } from "../../lib/stores/targets.svelte.js";
-    import { toastStore } from "../../lib/managers/toast.svelte.js";
-    import { onMount } from "svelte";
+    import { targetStore } from "../lib/stores/targets.svelte.js";
+    import { toastStore } from "../lib/managers/toast.svelte.js";
 
-    let { isOpen = $bindable(false), onClose = () => {} } = $props();
+    const WINDOW_ID = 'target-window';
 
     let items = $derived(targetStore.items);
     let isLoading = $derived(targetStore.isLoading);
@@ -29,9 +28,7 @@
 
     // Load targets when window opens
     $effect(() => {
-        if (isOpen) {
-            targetStore.loadTargets();
-        }
+        targetStore.loadTargets();
     });
 
     async function handleRefresh() {
@@ -101,19 +98,21 @@
     }
 </script>
 
-<BaseWindow
-    bind:isOpen
-    windowId="target-window"
-    title="Target Dashboard"
-    subtitle="Monitor KPI dan Target"
-    width="900px"
-    height="700px"
-    minWidth="700px"
-    minHeight="500px"
-    showMaximizeButton={true}
-    {onClose}
->
-    <div class="flex flex-col h-full bg-white">
+<div class="w-full h-screen flex flex-col bg-white">
+    <!-- Custom Title Bar -->
+    <div class="h-10 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4" style="-webkit-app-region: drag">
+        <div class="flex items-center gap-2">
+            <Target size={16} class="text-blue-600" />
+            <span class="text-sm font-medium text-gray-700">Target Manager</span>
+        </div>
+        <div style="-webkit-app-region: no-drag">
+            <ChildWindowControls variant="light" windowId={WINDOW_ID} />
+        </div>
+    </div>
+    
+    <!-- Content -->
+    <div class="flex-1 overflow-hidden">
+<div class="flex flex-col h-full bg-white">
         <!-- Header Actions -->
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
             <div class="flex items-center gap-2">
@@ -257,7 +256,7 @@
                                 <div>
                                     <p class="text-xs text-gray-500 mb-1">Trend</p>
                                     <div class="flex items-center gap-1">
-                                        <svelte:component this={TrendIcon} size={20} class={getTrendColor(item.trend)} />
+                                        <TrendIcon size={20} class={getTrendColor(item.trend)} />
                                     </div>
                                 </div>
                             </div>
@@ -290,8 +289,5 @@
             {/if}
         </div>
     </div>
-</BaseWindow>
-
-
-
-
+    </div>
+</div>

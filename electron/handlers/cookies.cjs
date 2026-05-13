@@ -23,6 +23,20 @@ function registerCookieHandlers() {
         try {
             console.log('🍪 Setting cookie to partition:', partition, cookie.name);
             
+            // Validate required fields
+            if (!cookie.name || typeof cookie.name !== 'string') {
+                throw new Error('Cookie must have a valid name');
+            }
+            
+            if (cookie.value === undefined || cookie.value === null) {
+                console.warn('⚠️ Cookie has no value, using empty string:', cookie.name);
+                cookie.value = '';
+            }
+            
+            if (!cookie.domain || typeof cookie.domain !== 'string') {
+                throw new Error('Cookie must have a valid domain');
+            }
+            
             const targetSession = partition 
                 ? session.fromPartition(partition)
                 : session.defaultSession;
@@ -34,26 +48,37 @@ function registerCookieHandlers() {
                 return protocol + domain;
             };
             
-            await targetSession.cookies.set({
+            // Prepare cookie data with defaults
+            const cookieData = {
                 url: getCookieUrl(cookie),
                 name: cookie.name,
-                value: cookie.value,
+                value: String(cookie.value || ''), // Ensure value is string
                 domain: cookie.domain,
                 path: cookie.path || '/',
-                expirationDate: cookie.expirationDate,
                 secure: cookie.secure || false,
                 httpOnly: cookie.httpOnly || false,
                 sameSite: cookie.sameSite || 'unspecified'
-            });
+            };
+            
+            // Add expiration if provided and valid
+            if (cookie.expirationDate && !cookie.session) {
+                // Convert to seconds if needed
+                const expiration = cookie.expirationDate > 10000000000 
+                    ? cookie.expirationDate / 1000 
+                    : cookie.expirationDate;
+                cookieData.expirationDate = expiration;
+            }
+            
+            await targetSession.cookies.set(cookieData);
             
             // Flush cookie store
             await targetSession.cookies.flushStore();
-            console.log('🍪 Cookie set successfully');
+            console.log('🍪 Cookie set successfully:', cookie.name);
             
             return { success: true };
         } catch (error) {
-            console.error('set-cookie-to-partition error:', error);
-            throw error;
+            console.error('❌ set-cookie-to-partition error:', error.message);
+            return { success: false, error: error.message };
         }
     });
 

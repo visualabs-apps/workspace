@@ -13,8 +13,49 @@
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
     import Favicon from "../ui/Favicon.svelte";
+    import { onMount } from "svelte";
 
     let { app = null } = $props();
+    
+    // Search engine configurations
+    const searchEngines = {
+        google: { name: "Google", url: "https://www.google.com", icon: "https://www.google.com/favicon.ico", color: "#4285f4" },
+        bing: { name: "Bing", url: "https://www.bing.com", icon: "https://www.bing.com/favicon.ico", color: "#008373" },
+        duckduckgo: { name: "DuckDuckGo", url: "https://duckduckgo.com", icon: "https://duckduckgo.com/favicon.ico", color: "#de5833" },
+        yahoo: { name: "Yahoo", url: "https://search.yahoo.com", icon: "https://www.yahoo.com/favicon.ico", color: "#5f01d1" }
+    };
+    
+    let defaultSearchEngine = $state("google");
+    
+    // Load default search engine setting
+    onMount(async () => {
+        try {
+            const result = await window.api.settings.getDefaultSearchEngine();
+            if (result.success && result.engine) {
+                defaultSearchEngine = result.engine;
+            }
+        } catch (error) {
+            console.error('Failed to load search engine setting:', error);
+        }
+        
+        // Listen for settings updates
+        const handleSettingsUpdate = async () => {
+            try {
+                const result = await window.api.settings.getDefaultSearchEngine();
+                if (result.success && result.engine) {
+                    defaultSearchEngine = result.engine;
+                }
+            } catch (error) {
+                console.error('Failed to reload search engine setting:', error);
+            }
+        };
+        
+        window.addEventListener('settings-updated', handleSettingsUpdate);
+        
+        return () => {
+            window.removeEventListener('settings-updated', handleSettingsUpdate);
+        };
+    });
 
     // Get all apps from current workspace as tabs
     let workspaceApps = $derived(
@@ -36,7 +77,7 @@
         }))
     );
 
-    let activeTabId = $derived(appStore.activeServiceId);
+    let activeTabId = $derived(appStore.activeAppId);
 
     // Drag and drop state
     let draggedTabId = $state(null);
@@ -234,13 +275,16 @@
     }
 
     function handleAddTab() {
+        // Get search engine config based on user setting
+        const searchEngine = searchEngines[defaultSearchEngine] || searchEngines.google;
+        
         // Create a new app/app in sidebar (1 app = 1 tab)
         const newApp = appStore.addApp(
             {
-                name: "Browser",
-                url: "https://www.google.com",
-                icon: "https://www.google.com/favicon.ico",
-                color: "#4285f4",
+                name: searchEngine.name,
+                url: searchEngine.url,
+                icon: searchEngine.icon,
+                color: searchEngine.color,
             },
             null,
             null,
@@ -445,7 +489,7 @@
                                 <Favicon 
                                     url={tab.url || tab.favicon}
                                     size={16}
-                                    class="object-contain {isActive ? 'ring-1 ring-blue-200 rounded-sm' : ''}"
+                                    class=""
                                     alt={tab.title}
                                 />
                             {:else}

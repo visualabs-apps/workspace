@@ -19,6 +19,7 @@
     let domReadyState = $state(false);
     let showZoomIndicator = $state(false);
     let zoomIndicatorTimeout = null;
+    let preloadPath = $state('');
     
     // Track if webview should be unloaded (removed from DOM)
     let shouldUnload = $derived(app.isUnloaded === true && !isActive);
@@ -250,6 +251,14 @@
                 partition: app.partition
             });
         };
+        
+        const handleConsoleMessage = (e) => {
+            const level = e.level === 0 ? 'log' : e.level === 1 ? 'warn' : e.level === 2 ? 'error' : 'info';
+            
+            if (window.api?.sendConsoleLog) {
+                window.api.sendConsoleLog({ level, message: e.message });
+            }
+        };
 
         webviewElement.addEventListener("dom-ready", handleDomReady);
         webviewElement.addEventListener("did-start-loading", handleDidStartLoading);
@@ -261,6 +270,7 @@
         webviewElement.addEventListener("new-window", handleNewWindow);
         webviewElement.addEventListener("did-reload", handleDidReload);
         webviewElement.addEventListener("context-menu", handleContextMenu);
+        webviewElement.addEventListener("console-message", handleConsoleMessage);
 
         return () => {
             webviewElement.removeEventListener("dom-ready", handleDomReady);
@@ -273,25 +283,29 @@
             webviewElement.removeEventListener("new-window", handleNewWindow);
             webviewElement.removeEventListener("did-reload", handleDidReload);
             webviewElement.removeEventListener("context-menu", handleContextMenu);
+            webviewElement.removeEventListener("console-message", handleConsoleMessage);
+            webviewElement.removeEventListener("context-menu", handleContextMenu);
         };
     }
 
     // Webview Registry Pattern Implementation
-    onMount(() => {
-        // Get or create webview from registry
+    onMount(async () => {
+        const appPath = await window.api.getAppPath();
+        preloadPath = appPath + '/electron/webview-preload.cjs';
+        
         let webviewElement = webviewRegistry.get(app.id);
         
         if (!webviewElement) {
-            // Create new webview
             webviewElement = document.createElement('webview');
             webviewElement.src = app.url;
             webviewElement.partition = app.partition;
             webviewElement.allowpopups = true;
+            webviewElement.preload = preloadPath;
             webviewElement.useragent = app.userAgent || 
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0";
             webviewElement.style.width = '100%';
             webviewElement.style.height = '100%';
-            webviewElement.setAttribute('data-webview', 'true'); // Add identifier for dropdown detection
+            webviewElement.setAttribute('data-webview', 'true');
             
             // Store in registry
             webviewRegistry.set(app.id, webviewElement);
@@ -303,7 +317,6 @@
             loadingState = true;
             domReadyState = false;
         } else {
-            // Webview already exists and has listeners
             domReadyState = true;
             loadingState = false;
         }

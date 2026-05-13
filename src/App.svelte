@@ -3,13 +3,12 @@
     import RightFloatingSidebar from "./components/layout/RightFloatingSidebar.svelte";
     import TopToolbar from "./components/layout/TopToolbar.svelte";
     import ServiceView from "./components/features/ServiceView.svelte";
-    import AddServiceWindow from "./components/windows/AddServiceWindow.svelte";
-    import TargetWindow from "./components/windows/TargetWindow.svelte";
     import LoginPage from "./components/features/LoginPage.svelte";
     import NotificationPanel from "./components/panels/NotificationPanel.svelte";
     import TabBar from "./components/layout/TabBar.svelte";
     import Toast from "./components/ui/Toast.svelte";
     import OfflineWarning from "./components/ui/OfflineWarning.svelte";
+    import Taskbar from "./components/layout/Taskbar.svelte";
     import { appStore } from "./lib/stores/apps.svelte.js";
     import { authStore } from "./lib/stores/auth.svelte.js";
     import { workspaceStore } from "./lib/stores/workspaces.svelte.js";
@@ -21,6 +20,9 @@
     import { appStateStore } from "./lib/stores/appState.svelte.js";
     import { toastStore } from "./lib/managers/toast.svelte.js";
     import { panelStore } from "./lib/stores/panels.svelte.js";
+    import { taskbarStore } from "./lib/stores/taskbar.svelte.js";
+    import { scriptInputStore } from "./lib/stores/scriptInputStore.svelte.js";
+    import { openPredefinedWindow } from "./lib/utils/childWindow.js";
     import { onMount } from "svelte";
     import { Loader2, Plus, Rocket } from "lucide-svelte";
 
@@ -37,6 +39,16 @@
     
     // Quick actions state
     let isTargetModalOpen = $state(false);
+    
+    // Search engine configurations
+    const searchEngines = {
+        google: { name: "Google", url: "https://www.google.com", icon: "https://www.google.com/favicon.ico", color: "#4285f4" },
+        bing: { name: "Bing", url: "https://www.bing.com", icon: "https://www.bing.com/favicon.ico", color: "#008373" },
+        duckduckgo: { name: "DuckDuckGo", url: "https://duckduckgo.com", icon: "https://duckduckgo.com/favicon.ico", color: "#de5833" },
+        yahoo: { name: "Yahoo", url: "https://search.yahoo.com", icon: "https://www.yahoo.com/favicon.ico", color: "#5f01d1" }
+    };
+    
+    let defaultSearchEngine = $state("google");
 
     // Random loading messages
     const loadingMessages = [
@@ -49,6 +61,43 @@
         "Menyinkronkan data",
         "Mempersiapkan lingkungan kerja"
     ];
+    
+    // Listen for window minimize/restore events
+    $effect(() => {
+        if (window.api?.onWindowMinimized) {
+            const cleanup1 = window.api.onWindowMinimized((data) => {
+                console.log('[App] Window minimized:', data);
+                taskbarStore.addWindow(data.windowId, data.windowType);
+            });
+            
+            const cleanup2 = window.api.onWindowRestored((data) => {
+                console.log('[App] Window restored:', data);
+                taskbarStore.removeWindow(data.windowId);
+            });
+            
+            return () => {
+                cleanup1?.();
+                cleanup2?.();
+            };
+        }
+    });
+    
+    // Close all windows and clear taskbar when logged out
+    $effect(() => {
+        if (!isLoggedIn) {
+            console.log('[App] User logged out, closing all windows');
+            
+            // Close all child windows
+            if (window.api?.childWindow?.closeAll) {
+                window.api.childWindow.closeAll().catch(err => {
+                    console.error('[App] Failed to close all windows:', err);
+                });
+            }
+            
+            // Clear taskbar
+            taskbarStore.clearAll();
+        }
+    });
     
     let currentLoadingMessage = $state(loadingMessages[Math.floor(Math.random() * loadingMessages.length)]);
 
@@ -76,6 +125,33 @@
 
         await authStore.init();
         
+        // Expose scriptInputStore to window for VBox API
+        window.scriptInputStore = scriptInputStore;
+        
+        // Load default search engine setting
+        try {
+            const result = await window.api.settings.getDefaultSearchEngine();
+            if (result.success && result.engine) {
+                defaultSearchEngine = result.engine;
+            }
+        } catch (error) {
+            console.error('Failed to load search engine setting:', error);
+        }
+        
+        // Listen for settings updates
+        const handleSettingsUpdate = async () => {
+            try {
+                const result = await window.api.settings.getDefaultSearchEngine();
+                if (result.success && result.engine) {
+                    defaultSearchEngine = result.engine;
+                }
+            } catch (error) {
+                console.error('Failed to reload search engine setting:', error);
+            }
+        };
+        
+        window.addEventListener('settings-updated', handleSettingsUpdate);
+        
         // Change loading message every 3 seconds
         const loadingInterval = setInterval(() => {
             if (isLoadingWorkspaces) {
@@ -101,6 +177,7 @@
         
         return () => {
             clearInterval(loadingInterval);
+            window.removeEventListener('settings-updated', handleSettingsUpdate);
             if (typeof removeShowToastListener === 'function') removeShowToastListener();
         };
     });
@@ -131,6 +208,17 @@
             previousWorkspace = activeWorkspace;
         }
     });
+    
+    $effect(() => {
+        if (scriptInputStore.isOpen) {
+            const serializableData = {
+                title: scriptInputStore.title,
+                fields: JSON.parse(JSON.stringify(scriptInputStore.fields))
+            };
+            
+            openPredefinedWindow('SCRIPT_INPUT', serializableData);
+        }
+    });
 
     let previousActiveApp = null;
     $effect(() => {
@@ -153,6 +241,16 @@
                 console.error("❌ Authentication error:", error);
             });
         }
+        
+        const cleanup = window.api?.onParentMessage?.('script-input-response', (response) => {
+            if (scriptInputStore.resolveCallback) {
+                scriptInputStore.resolveCallback(response);
+                scriptInputStore.resolveCallback = null;
+            }
+            scriptInputStore.isOpen = false;
+        });
+        
+        return cleanup;
     });
 
     $effect(() => {
@@ -308,12 +406,15 @@
     }
 
     function handleStartWithTab() {
+        // Get search engine config based on user setting
+        const searchEngine = searchEngines[defaultSearchEngine] || searchEngines.google;
+        
         const newApp = appStore.addApp(
             {
-                name: "Browser",
-                url: "https://www.google.com",
-                icon: "https://www.google.com/favicon.ico",
-                color: "#4285f4",
+                name: searchEngine.name,
+                url: searchEngine.url,
+                icon: searchEngine.icon,
+                color: searchEngine.color,
             },
             null,
             null,
@@ -555,32 +656,16 @@
             <!-- Right Floating Sidebar -->
             {#if activeWorkspace}
                 <RightFloatingSidebar 
-                    onOpenTarget={() => isTargetModalOpen = true}
+                    onOpenTarget={() => openPredefinedWindow('TARGET')}
                 />
             {/if}
         </div>
     </div>
 
-    <!-- Modals -->
-    {#if isAddModalOpen || isAddAppPopupOpen}
-        <AddServiceWindow
-            bind:isOpen={isAddModalOpen}
-            onClose={() => {
-                isAddAppPopupOpen = false;
-            }}
-        />
-    {/if}
-
     <!-- Notification Panel -->
     {#if isNotificationCenterOpen}
         <NotificationPanel />
     {/if}
-    
-    <!-- Target Window (from Quick Actions) -->
-    <TargetWindow 
-        bind:isOpen={isTargetModalOpen}
-        onClose={() => isTargetModalOpen = false}
-    />
 {/if}
 
 <!-- Offline Warning Modal (Always visible, even before login) -->
@@ -596,9 +681,6 @@
     }
 </style>
 
-
-<!-- Toast Notifications -->
 <Toast />
 
-
-
+<Taskbar />

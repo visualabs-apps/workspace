@@ -1,10 +1,10 @@
 <script>
+    import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
     import { Settings, User, Bell, Lock, Palette, Layers, Search } from "lucide-svelte";
-    import BaseWindow from "../base/BaseWindow.svelte";
-    import { toastStore } from "../../lib/managers/toast.svelte.js";
-    import { tabLifetimeManager } from "../../lib/managers/tabLifetime.svelte.js";
+    import { toastStore } from "../lib/managers/toast.svelte.js";
+    import { tabLifetimeManager } from "../lib/managers/tabLifetime.svelte.js";
 
-    let { isOpen = $bindable(false), onClose = () => {} } = $props();
+    const WINDOW_ID = 'settings-window';
 
     let activeTab = $state("general");
     
@@ -33,37 +33,58 @@
     ];
 
     async function handleSave() {
+        console.log('[WindowSettings] handleSave called');
+        console.log('[WindowSettings] Current settings:', {
+            launchOnStartup,
+            minimizeToTray,
+            showNotifications,
+            tabLifetime,
+            defaultSearchEngine
+        });
+        
         try {
             // Save general settings
-            await window.api.settings.setLaunchOnStartup(launchOnStartup);
-            await window.api.settings.setMinimizeToTray(minimizeToTray);
-            await window.api.settings.setShowNotifications(showNotifications);
+            console.log('[WindowSettings] Saving launch on startup...');
+            const launchResult = await window.api.settings.setLaunchOnStartup(launchOnStartup);
+            console.log('[WindowSettings] Launch result:', launchResult);
+            
+            console.log('[WindowSettings] Saving minimize to tray...');
+            const trayResult = await window.api.settings.setMinimizeToTray(minimizeToTray);
+            console.log('[WindowSettings] Tray result:', trayResult);
+            
+            console.log('[WindowSettings] Saving show notifications...');
+            const notifResult = await window.api.settings.setShowNotifications(showNotifications);
+            console.log('[WindowSettings] Notif result:', notifResult);
             
             // Save tab lifetime setting
-            await window.api.settings.setTabLifetime(tabLifetime);
+            console.log('[WindowSettings] Saving tab lifetime...');
+            const lifetimeResult = await window.api.settings.setTabLifetime(tabLifetime);
+            console.log('[WindowSettings] Lifetime result:', lifetimeResult);
             
             // Update tab lifetime manager with new setting
             tabLifetimeManager.setLifetime(tabLifetime);
             
             // Save default search engine
-            await window.api.settings.setDefaultSearchEngine(defaultSearchEngine);
+            console.log('[WindowSettings] Saving search engine...');
+            const searchResult = await window.api.settings.setDefaultSearchEngine(defaultSearchEngine);
+            console.log('[WindowSettings] Search result:', searchResult);
             
             // Dispatch event to notify other components about settings update
             window.dispatchEvent(new CustomEvent('settings-updated'));
             
-            toastStore.success('Settings saved successfully');
-            onClose();
+            console.log('[WindowSettings] ✅ All settings saved successfully');
+            
+            // Close window
+            console.log('[WindowSettings] Closing window...');
+            window.api.close();
         } catch (error) {
-            console.error('Failed to save settings:', error);
-            toastStore.error('Failed to save settings');
+            console.error('[WindowSettings] ❌ Failed to save settings:', error);
         }
     }
     
     // Load settings on mount
     $effect(() => {
-        if (isOpen) {
-            loadSettings();
-        }
+        loadSettings();
     });
     
     async function loadSettings() {
@@ -121,31 +142,33 @@
     }
 </script>
 
-<BaseWindow
-    bind:isOpen
-    windowId="settings-window"
-    title="Settings"
-    subtitle="Manage your preferences"
-    width="800px"
-    height="600px"
-    showCloseButton={true}
-    showMinimizeButton={false}
-    showMaximizeButton={true}
-    onClose={onClose}
->
-    {#snippet children()}
-        <div class="flex gap-6 h-full">
+<div class="w-full h-screen flex flex-col bg-white">
+    <!-- Custom Title Bar -->
+    <div class="h-10 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4" style="-webkit-app-region: drag">
+        <div class="flex items-center gap-2">
+            <Settings size={16} class="text-blue-600" />
+            <span class="text-sm font-medium text-gray-700">Settings</span>
+        </div>
+        <div style="-webkit-app-region: no-drag">
+            <ChildWindowControls variant="light" windowId={WINDOW_ID} />
+        </div>
+    </div>
+    
+    <!-- Content -->
+    <div class="flex-1 overflow-hidden flex flex-col">
+        <div class="flex gap-6 h-full flex-1 overflow-hidden p-6">
             <!-- Sidebar -->
             <div class="w-52 shrink-0 border-r border-gray-200 pr-4">
                 <nav class="space-y-1">
                     {#each tabs as tab}
+                        {@const Icon = tab.icon}
                         <button
                             onclick={() => activeTab = tab.id}
                             class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors {activeTab === tab.id 
                                 ? 'bg-blue-50 text-blue-600 font-medium' 
                                 : 'text-gray-700 hover:bg-gray-100'}"
                         >
-                            <tab.icon size={18} />
+                            <Icon size={18} />
                             {tab.label}
                         </button>
                     {/each}
@@ -209,9 +232,9 @@
                         
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-900 mb-2">
+                                <div class="block text-sm font-medium text-gray-900 mb-2">
                                     Tab Lifetime (Memory Management)
-                                </label>
+                                </div>
                                 <p class="text-xs text-gray-500 mb-3">
                                     Tabs yang tidak aktif akan di-unload dari memori setelah waktu yang ditentukan untuk menghemat RAM. 
                                     Saat tab dibuka kembali, halaman akan dimuat ulang.
@@ -293,9 +316,9 @@
                         
                         <div class="space-y-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-900 mb-3">
+                                <div class="block text-sm font-medium text-gray-900 mb-3">
                                     Default Search Engine
-                                </label>
+                                </div>
                                 
                                 <div class="space-y-2">
                                     {#each searchEngines as engine}
@@ -356,26 +379,26 @@
                 {/if}
             </div>
         </div>
-    {/snippet}
 
-    {#snippet footerSlot()}
-        <div class="flex justify-end gap-2">
-            <button
-                onclick={onClose}
-                class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-                Cancel
-            </button>
-            <button
-                onclick={handleSave}
-                class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-            >
-                Save Changes
-            </button>
+        <!-- Footer -->
+        <div class="border-t border-gray-200 px-6 py-4 bg-gray-50">
+            <div class="flex justify-end gap-2">
+                <button
+                    onclick={() => {
+                        console.log('[WindowSettings] Cancel clicked, closing window...');
+                        window.api.close();
+                    }}
+                    class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                    Cancel
+                </button>
+                <button
+                    onclick={handleSave}
+                    class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                    Save Changes
+                </button>
+            </div>
         </div>
-    {/snippet}
-</BaseWindow>
-
-
-
-
+    </div>
+</div>

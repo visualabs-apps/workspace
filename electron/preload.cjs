@@ -113,6 +113,41 @@ const api = {
     minimize: () => ipcRenderer.send('window-minimize'),
     maximize: () => ipcRenderer.send('window-maximize'),
     close: () => ipcRenderer.send('window-close'),
+    
+    // Child Windows (BrowserWindow)
+    childWindow: {
+        open: (options) => ipcRenderer.invoke('open-child-window', options),
+        close: (windowId) => ipcRenderer.invoke('close-child-window', windowId),
+        closeAll: () => ipcRenderer.invoke('close-all-child-windows'),
+        sendData: (windowId, data) => ipcRenderer.invoke('send-to-child-window', windowId, data),
+        minimize: (windowId) => ipcRenderer.invoke('minimize-child-window', windowId),
+        restore: (windowId) => ipcRenderer.invoke('restore-child-window', windowId),
+    },
+    
+    // Window data communication
+    onWindowData: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('window-data', handler);
+        return () => ipcRenderer.removeListener('window-data', handler);
+    },
+    sendToParent: (channel, data) => ipcRenderer.send('send-to-parent', channel, data),
+    onParentMessage: (channel, callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on(channel, handler);
+        return () => ipcRenderer.removeListener(channel, handler);
+    },
+    
+    // Taskbar events
+    onWindowMinimized: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('window-minimized', handler);
+        return () => ipcRenderer.removeListener('window-minimized', handler);
+    },
+    onWindowRestored: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('window-restored', handler);
+        return () => ipcRenderer.removeListener('window-restored', handler);
+    },
 
     // External URL opener (for deep link auth)
     openExternal: (url) => ipcRenderer.send('open-external', url),
@@ -152,6 +187,73 @@ const api = {
         ipcRenderer.on('show-toast', handler);
         return () => ipcRenderer.removeListener('show-toast', handler);
     },
+    
+    // Script input window
+    onScriptInputOpen: (callback) => {
+        const handler = (event, config) => {
+            console.log('[Preload] Script input open event:', config);
+            callback(config);
+        };
+        ipcRenderer.on('open-script-input', handler);
+        return () => ipcRenderer.removeListener('open-script-input', handler);
+    },
+    sendScriptInputResponse: (data) => {
+        console.log('[Preload] Sending input response:', data);
+        ipcRenderer.send('script-input-response', data);
+    },
+    
+    // Webview console logs
+    onWebviewConsoleLog: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('webview-console-log', handler);
+        return () => ipcRenderer.removeListener('webview-console-log', handler);
+    },
+    
+    // Execute script in active webview
+    executeScript: (code) => ipcRenderer.invoke('execute-script', code),
+    
+    // Generate PowerPoint
+    generatePowerPoint: (pptData) => ipcRenderer.invoke('generate-powerpoint', pptData),
+    
+    // Script Injector API
+    scripts: {
+        list: () => ipcRenderer.invoke('scripts-list'),
+        save: (scriptData) => ipcRenderer.invoke('scripts-save', scriptData),
+        load: (scriptId) => ipcRenderer.invoke('scripts-load', scriptId),
+        delete: (scriptId) => ipcRenderer.invoke('scripts-delete', scriptId),
+        execute: (scriptId) => ipcRenderer.invoke('scripts-execute', scriptId),
+        getDirectory: () => ipcRenderer.invoke('scripts-get-directory'),
+        addToDownloads: (fileInfo) => ipcRenderer.invoke('script-add-to-downloads', fileInfo),
+        
+        // Script input window
+        openInput: (config) => ipcRenderer.invoke('script-open-input', config),
+    },
+    
+    // Listen for script console logs
+    onScriptConsole: (callback) => {
+        const listener = (event, data) => callback(data);
+        ipcRenderer.on('script-console-log', listener);
+        return () => ipcRenderer.removeListener('script-console-log', listener);
+    },
+    
+    // Send console log from renderer to main process
+    sendConsoleLog: (data) => {
+        ipcRenderer.send('webview-console-log', { level: data.level, args: [data.message] });
+    },
+    
+    // PowerPoint generation
+    powerpoint: {
+        generate: (pptData) => ipcRenderer.invoke('generate-powerpoint', pptData),
+        
+        // Template processing
+        processTemplate: (templateName, variables, outputFilename) => 
+            ipcRenderer.invoke('ppt-process-template', { templateName, variables, outputFilename }),
+        listTemplates: () => ipcRenderer.invoke('ppt-list-templates'),
+        getTemplatesDir: () => ipcRenderer.invoke('ppt-get-templates-dir'),
+    },
+    
+    // Get app path for preload script
+    getAppPath: () => ipcRenderer.invoke('get-app-path'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

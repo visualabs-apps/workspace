@@ -26,15 +26,13 @@
     import { authStore } from "../../lib/stores/auth.svelte.js";
     import { getClientsForAdmin } from "../../lib/api/api.js";
     import { panelStore } from "../../lib/stores/panels.svelte.js";
+    import { openPredefinedWindow } from "../../lib/utils/childWindow.js";
     import WindowControls from "./WindowControls.svelte";
     import AutocompleteDropdown from "../dropdowns/AutocompleteDropdown.svelte";
     import HistoryPanel from "../panels/HistoryPanel.svelte";
-    import TargetWindow from "../windows/TargetWindow.svelte";
     import BookmarkPanel from "../panels/BookmarkPanel.svelte";
     import DownloadManagerPanel from "../panels/DownloadManagerPanel.svelte";
     import ProfileDropdown from "../dropdowns/ProfileDropdown.svelte";
-    import ProfileWindow from "../windows/ProfileWindow.svelte";
-    import SettingsWindow from "../windows/SettingsWindow.svelte";
     import Dropdown from "../dropdowns/Dropdown.svelte";
     import { onMount } from "svelte";
 
@@ -44,8 +42,10 @@
     let isUrlFocused = $state(false);
     let isTargetModalOpen = $state(false);
     let isSettingsModalOpen = $state(false);
+    let isInjectScriptModalOpen = $state(false);
     let showAutocomplete = $state(false);
     let showBrowserMenu = $state(false);
+    let useBrowserWindow = $state(true); // Toggle between BrowserWindow and Svelte overlay
     let isBookmarked = $state(false);
     let isEditProfileModalOpen = $state(false);
     let editingProfile = $state(null);
@@ -262,14 +262,24 @@
     }
 
     function navigateToUrl(input) {
+        // Check for internal URLs (chrome://, about:, vbox://)
+        const isInternalUrl = 
+            input.startsWith("chrome://") ||
+            input.startsWith("about:") ||
+            input.startsWith("vbox://");
+        
         // Check if it's a URL (contains . or starts with http/https)
         const isUrl =
+            isInternalUrl ||
             input.includes(".") ||
             input.startsWith("http://") ||
             input.startsWith("https://");
 
         let url = input;
-        if (isUrl) {
+        if (isInternalUrl) {
+            // Keep internal URLs as-is
+            url = input;
+        } else if (isUrl) {
             if (!url.startsWith("http://") && !url.startsWith("https://")) {
                 url = "https://" + url;
             }
@@ -284,7 +294,13 @@
         if (app && activeTabId) {
             // Eagerly update tab url to prevent visual snap-back
             appStateStore.updateTab(app.id, activeTabId, { url });
-            navigationStore.navigate(url);
+            
+            // For internal URLs, just update the app URL (no webview navigation needed)
+            if (isInternalUrl) {
+                appStore.updateApp(app.id, { url });
+            } else {
+                navigationStore.navigate(url);
+            }
         }
         // Case 2: We are inside an empty app (no tabs) - add new tab
         else if (app) {
@@ -342,7 +358,7 @@
         showAutocomplete = false;
     }
 
-    function handleBrowserMenuClick(action) {
+    async function handleBrowserMenuClick(action) {
         showBrowserMenu = false;
         
         switch (action) {
@@ -350,7 +366,11 @@
                 toastStore.info('To-Do List feature coming soon!');
                 break;
             case 'target':
-                isTargetModalOpen = true;
+                if (useBrowserWindow) {
+                    openPredefinedWindow('TARGET');
+                } else {
+                    openPredefinedWindow('TARGET');
+                }
                 break;
             case 'history':
                 panelStore.openHistory();
@@ -368,7 +388,18 @@
                 toastStore.info(userInfo);
                 break;
             case 'settings':
-                isSettingsModalOpen = true;
+                if (useBrowserWindow) {
+                    openPredefinedWindow('SETTINGS');
+                } else {
+                    openPredefinedWindow('SETTINGS');
+                }
+                break;
+            case 'inject-script':
+                if (useBrowserWindow) {
+                    openPredefinedWindow('INJECT_SCRIPT');
+                } else {
+                    openPredefinedWindow('INJECT_SCRIPT');
+                }
                 break;
             case 'help':
                 // TODO: Open help
@@ -388,7 +419,12 @@
 
     function handleEditProfile(workspace) {
         editingProfile = workspace;
-        isEditProfileModalOpen = true;
+        openPredefinedWindow('PROFILE', {
+            mode: 'edit',
+            editingProfile: JSON.parse(JSON.stringify(workspace)),
+            clients: JSON.parse(JSON.stringify(clients)),
+            isLoadingClients: isLoadingClients,
+        });
     }
 
     function handleDeleteProfile(workspace) {
@@ -633,6 +669,13 @@
                 Pengaturan
             </button>
             <button
+                onclick={() => handleBrowserMenuClick('inject-script')}
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                Script Injector Manager
+            </button>
+            <button
                 onclick={() => handleBrowserMenuClick('help')}
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
             >
@@ -657,42 +700,17 @@
     <WindowControls variant="light" />
 </div>
 
-<!-- Target Window -->
-<TargetWindow 
-    bind:isOpen={isTargetModalOpen}
-    onClose={() => isTargetModalOpen = false}
-/>
-
-<!-- Settings Window -->
-<SettingsWindow 
-    bind:isOpen={isSettingsModalOpen}
-    onClose={() => isSettingsModalOpen = false}
-/>
-
 <!-- History Panel -->
 <HistoryPanel 
     bind:isOpen={panelStore.isHistoryPanelOpen}
     onClose={() => panelStore.closeHistory()}
 />
 
-
 <!-- Bookmark Panel -->
 <BookmarkPanel bind:isOpen={panelStore.isBookmarkPanelOpen} />
 
 <!-- Download Manager Panel -->
 <DownloadManagerPanel bind:isOpen={panelStore.isDownloadPanelOpen} />
-
-<!-- Edit Profile Window -->
-<ProfileWindow
-    bind:isOpen={isEditProfileModalOpen}
-    mode="edit"
-    editingProfile={editingProfile}
-    clients={clients}
-    isLoadingClients={isLoadingClients}
-    onSuccess={handleProfileUpdateSuccess}
-    onSelectClient={() => {}}
-    onColorChange={() => {}}
-/>
 
 
 

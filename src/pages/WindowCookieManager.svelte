@@ -1,9 +1,11 @@
 <script>
-    import BaseWindow from "../base/BaseWindow.svelte";
+    import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
     import { Cookie, Trash2, ChevronDown, ChevronRight, Plus, Save, RefreshCw, Search } from "lucide-svelte";
-    import { toastStore } from "../../lib/managers/toast.svelte.js";
+    import { toastStore } from "../lib/managers/toast.svelte.js";
 
-    let { isOpen = $bindable(false), partition = null } = $props();
+    const WINDOW_ID = 'cookie-manager-window';
+
+    
 
     let cookies = $state([]);
     let isLoading = $state(false);
@@ -156,26 +158,59 @@
 
     async function importCookie() {
         try {
-            const newCookie = JSON.parse(importJson);
+            const parsedData = JSON.parse(importJson);
             
-            // Validate required fields
-            if (!newCookie.name || !newCookie.value || !newCookie.domain) {
-                toastStore.error('Cookie must have name, value, and domain');
-                return;
+            // Check if it's an array of cookies or single cookie
+            const cookiesToImport = Array.isArray(parsedData) ? parsedData : [parsedData];
+            
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (const newCookie of cookiesToImport) {
+                // Validate required fields
+                if (!newCookie.name || !newCookie.domain) {
+                    console.warn('⚠️ Skipping invalid cookie:', newCookie.name || 'unnamed');
+                    failCount++;
+                    continue;
+                }
+                
+                // Ensure value exists (can be empty string)
+                if (newCookie.value === undefined || newCookie.value === null) {
+                    newCookie.value = '';
+                }
+                
+                try {
+                    const result = await window.api.db.setCookieToPartition(partition, newCookie);
+                    if (result && result.success) {
+                        successCount++;
+                    } else {
+                        console.error('Failed to import cookie:', newCookie.name, result?.error);
+                        failCount++;
+                    }
+                } catch (error) {
+                    console.error('Error importing cookie:', newCookie.name, error);
+                    failCount++;
+                }
             }
-
-            const result = await window.api.db.setCookieToPartition(partition, newCookie);
-            if (result && result.success) {
-                toastStore.success('Cookie imported');
+            
+            // Show result
+            if (successCount > 0) {
+                toastStore.success(`${successCount} cookie(s) imported successfully`);
                 showImportModal = false;
                 importJson = "";
                 await loadCookies();
-            } else {
-                toastStore.error('Failed to import cookie');
+            }
+            
+            if (failCount > 0) {
+                toastStore.warning(`${failCount} cookie(s) failed to import`);
+            }
+            
+            if (successCount === 0 && failCount === 0) {
+                toastStore.error('No valid cookies found');
             }
         } catch (error) {
             console.error('Import cookie error:', error);
-            toastStore.error('Invalid JSON or import failed');
+            toastStore.error('Invalid JSON format');
         }
     }
 
@@ -190,18 +225,20 @@
     }
 </script>
 
-<BaseWindow
-    bind:isOpen
-    windowId="cookie-manager-window"
-    title="Cookie Manager"
-    subtitle="{cookies.length} cookies in {domains.length} domains"
-    width="900px"
-    height="700px"
-    showCloseButton={true}
-    showMaximizeButton={true}
-    onClose={handleClose}
->
-    {#snippet children()}
+<div class="w-full h-screen flex flex-col bg-white">
+    <!-- Custom Title Bar -->
+    <div class="h-10 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4" style="-webkit-app-region: drag">
+        <div class="flex items-center gap-2">
+            <Cookie size={16} class="text-blue-600" />
+            <span class="text-sm font-medium text-gray-700">Cookie Manager</span>
+        </div>
+        <div style="-webkit-app-region: no-drag">
+            <ChildWindowControls variant="light" windowId={WINDOW_ID} />
+        </div>
+    </div>
+    
+    <!-- Content -->
+    <div class="flex-1 overflow-y-auto p-6">
         <div class="flex flex-col h-full">
             <!-- Search Bar -->
             <div class="mb-3">
@@ -211,7 +248,7 @@
                         type="text"
                         bind:value={searchQuery}
                         placeholder="Search cookies by name, domain, or value..."
-                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                     />
                 </div>
             </div>
@@ -326,7 +363,7 @@
                                                             <div class="p-3 bg-white rounded-lg border border-gray-200">
                                                                 <textarea
                                                                     bind:value={editingJson}
-                                                                    class="w-full h-48 p-2 text-xs font-mono bg-gray-50 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                                    class="w-full h-48 p-2 text-xs font-mono bg-gray-50 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                                                                     placeholder="Edit cookie JSON..."
                                                                 ></textarea>
                                                                 <div class="flex items-center gap-2 mt-2">
@@ -383,7 +420,7 @@
                     <div class="p-6">
                         <textarea
                             bind:value={importJson}
-                            class="w-full h-64 p-3 text-sm font-mono bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            class="w-full h-64 p-3 text-sm font-mono bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                             placeholder={`{\n  "name": "cookie_name",\n  "value": "cookie_value",\n  "domain": ".example.com",\n  "path": "/",\n  "secure": true,\n  "httpOnly": false\n}`}
                         ></textarea>
                     </div>
@@ -404,20 +441,17 @@
                 </div>
             </div>
         {/if}
-    {/snippet}
+    </div>
 
-    {#snippet footerSlot()}
+    <!-- Footer -->
+    <div class="border-t border-gray-200 px-6 py-4 bg-gray-50">
         <div class="flex justify-end items-center">
             <button
-                onclick={handleClose}
+                onclick={() => window.api.close()}
                 class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
             >
                 Close
             </button>
         </div>
-    {/snippet}
-</BaseWindow>
-
-
-
-
+    </div>
+</div>

@@ -64,23 +64,26 @@ function createWindow(isDevEnvironment, aria2) {
         }
     });
 
-    // Window controls
-    ipcMain.on('window-minimize', () => {
-        if (mainWindow) mainWindow.minimize();
+    // Window controls - use event.sender to get the correct window
+    ipcMain.on('window-minimize', (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (window) window.minimize();
     });
 
-    ipcMain.on('window-maximize', () => {
-        if (mainWindow) {
-            if (mainWindow.isMaximized()) {
-                mainWindow.unmaximize();
+    ipcMain.on('window-maximize', (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (window) {
+            if (window.isMaximized()) {
+                window.unmaximize();
             } else {
-                mainWindow.maximize();
+                window.maximize();
             }
         }
     });
 
-    ipcMain.on('window-close', () => {
-        if (mainWindow) mainWindow.close();
+    ipcMain.on('window-close', (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (window) window.close();
     });
 
     ipcMain.on('open-external', (event, url) => {

@@ -1,0 +1,19 @@
+{
+  "watch": [
+    "electron/**/*.cjs",
+    "electron/**/*.js",
+    "electron/**/*.json"
+  ],
+  "ignore": [
+    "electron/build/**",
+    "node_modules/**",
+    "dist-electron/**"
+  ],
+  "exec": "cross-env DEV_ENV=true electron .",
+  "ext": "cjs,js,json",
+  "delay": "1000",
+  "verbose": true,
+  "env": {
+    "DEV_ENV": "true"
+  }
+}
