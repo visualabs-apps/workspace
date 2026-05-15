@@ -119,6 +119,21 @@ function createAuthStore() {
 
             try {
                 await apiLogout();
+                
+                // Clear all local data for multi-user safety
+                if (window.api?.clearAllLocalData) {
+                    await window.api.clearAllLocalData();
+                }
+                if (window.api?.clearSessionPartitions) {
+                    await window.api.clearSessionPartitions();
+                }
+                
+                // Clear localStorage
+                localStorage.clear();
+                
+                console.log('✅ All local data cleared on logout');
+            } catch (err) {
+                console.error('Logout cleanup error:', err);
             } finally {
                 user = null;
                 isLoggedIn = false;

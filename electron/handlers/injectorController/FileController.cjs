@@ -9,7 +9,17 @@ class FileController {
             console.log('💾 Saving file:', filename);
             
             const downloadsPath = app.getPath('downloads');
-            const filePath = path.join(downloadsPath, filename);
+            let filePath = path.join(downloadsPath, filename);
+            
+            // Handle file collision — append timestamp if file exists
+            if (fs.existsSync(filePath)) {
+                const ext = path.extname(filename);
+                const baseName = path.basename(filename, ext);
+                const timestamp = Date.now();
+                const newFilename = `${baseName}_${timestamp}${ext}`;
+                filePath = path.join(downloadsPath, newFilename);
+                console.log('💾 File exists, using:', newFilename);
+            }
             
             // Write file
             fs.writeFileSync(filePath, content, 'utf-8');
@@ -17,11 +27,12 @@ class FileController {
             console.log('✅ File saved:', filePath);
             
             const stats = fs.statSync(filePath);
+            const finalFilename = path.basename(filePath);
             
             return {
                 success: true,
                 path: filePath,
-                filename: filename,
+                filename: finalFilename,
                 size: stats.size
             };
         } catch (error) {

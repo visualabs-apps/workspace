@@ -69,6 +69,7 @@ const api = {
         getCookiesFromPartition: (partition) => ipcRenderer.invoke('get-cookies-from-partition', partition),
         setCookieToPartition: (partition, cookie) => ipcRenderer.invoke('set-cookie-to-partition', partition, cookie),
         deleteCookieFromPartition: (partition, name, domain, path) => ipcRenderer.invoke('delete-cookie-from-partition', partition, name, domain, path),
+        decryptCookieExport: (encryptedData, password) => ipcRenderer.invoke('decrypt-cookie-export', encryptedData, password),
     },
 
     // Download dialog helpers
@@ -254,6 +255,41 @@ const api = {
     
     // Get app path for preload script
     getAppPath: () => ipcRenderer.invoke('get-app-path'),
+
+    // Reload the entire app (main window)
+    reloadApp: () => ipcRenderer.invoke('reload-app'),
+
+    // Clear all local data on logout (multi-user safety)
+    clearAllLocalData: () => ipcRenderer.invoke('clear-all-local-data'),
+    clearSessionPartitions: () => ipcRenderer.invoke('clear-session-partitions'),
+    cleanupOrphanDownloads: () => ipcRenderer.invoke('cleanup-orphan-downloads'),
+
+    // MCP-level Tab/Profile management (renderer → main → webview)
+    mcp: {
+        listProfiles: () => ipcRenderer.invoke('webview-list-profiles'),
+        listTabs: () => ipcRenderer.invoke('webview-list-tabs'),
+        switchTab: (tabId) => ipcRenderer.invoke('webview-switch-tab', tabId),
+        getPageInfo: (tabId) => ipcRenderer.invoke('webview-get-page-info', tabId || null),
+        navigateAndWait: (params) => ipcRenderer.invoke('mcp-navigate-and-wait', params),
+    },
+
+    // Listen for API logs from main process (forwarded to DevTools Console)
+    onApiLog: (callback) => {
+        const listener = (event, data) => callback(data);
+        ipcRenderer.on('api-log', listener);
+        return () => ipcRenderer.removeListener('api-log', listener);
+    },
 }
 
 contextBridge.exposeInMainWorld('api', api)
+
+// Auto-forward API logs from main process to DevTools Console
+ipcRenderer.on('api-log', (event, data) => {
+    const { level, method, url, status, duration, error } = data;
+    const msg = `[HTTP] ${method?.toUpperCase()} ${url} → ${status} (${duration}ms)`;
+    if (level === 'error') {
+        console.error(msg, error || '');
+    } else {
+        console.log(msg);
+    }
+});

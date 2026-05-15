@@ -381,6 +381,12 @@
             case 'downloads':
                 panelStore.openDownloads();
                 break;
+            case 'reload-app':
+                if (window.api?.reloadApp) {
+                    toastStore.info('Memuat ulang aplikasi...');
+                    await window.api.reloadApp();
+                }
+                break;
             case 'my-profile':
                 // Show user info in toast
                 const user = authStore.user;
@@ -649,6 +655,13 @@
                 <DownloadIcon size={16} />
                 Unduhan
                 <span class="ml-auto text-xs text-gray-400">Ctrl+J</span>
+            </button>
+            <button
+                onclick={() => handleBrowserMenuClick('reload-app')}
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+            >
+                <RotateCw size={16} />
+                Segarkan Aplikasi
             </button>
             
             <hr class="my-2 border-gray-100" />

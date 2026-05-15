@@ -68,7 +68,17 @@ class ScreenshotController {
             }
             
             const downloadsPath = app.getPath('downloads');
-            const outputPath = path.join(downloadsPath, options.filename);
+            let outputPath = path.join(downloadsPath, options.filename);
+            
+            // Handle file collision — append timestamp if file exists
+            if (fs.existsSync(outputPath)) {
+                const ext = path.extname(options.filename);
+                const baseName = path.basename(options.filename, ext);
+                const timestamp = Date.now();
+                const newFilename = `${baseName}_${timestamp}${ext}`;
+                outputPath = path.join(downloadsPath, newFilename);
+                console.log('📸 File exists, using:', newFilename);
+            }
             
             const base64Data = result.dataURL.replace(/^data:image\/png;base64,/, '');
             const buffer = Buffer.from(base64Data, 'base64');
@@ -76,13 +86,14 @@ class ScreenshotController {
             fs.writeFileSync(outputPath, buffer);
             
             const stats = fs.statSync(outputPath);
+            const finalFilename = path.basename(outputPath);
             
             console.log('✅ Screenshot saved:', outputPath);
             
             return {
                 success: true,
                 path: outputPath,
-                filename: options.filename,
+                filename: finalFilename,
                 size: stats.size
             };
             

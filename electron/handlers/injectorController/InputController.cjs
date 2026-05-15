@@ -58,8 +58,14 @@ class InputController {
         }
     }
 
+    /**
+     * Handle script input response from renderer.
+     * Note: This is intentionally a no-op handler. The actual response flow
+     * is handled through the script-open-input → executeJavaScript → promise chain.
+     * This handler exists only for debugging/logging purposes.
+     */
     static handleResponse(event, data) {
-        console.log('📨 Script input response received:', data);
+        console.log('📨 Script input response received (debug):', data);
     }
 }
 

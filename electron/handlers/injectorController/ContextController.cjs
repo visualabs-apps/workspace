@@ -17,14 +17,29 @@ class ContextController {
                 return { success: false, error: 'Main window not found' };
             }
             
-            // Get workspace info from main window
+            // Get workspace info from main window (uses appStore.activeAppId for correct webview)
             const result = await mainWindow.webContents.executeJavaScript(`
                 (function() {
                     try {
-                        // Find active webview
-                        const activeWebview = document.querySelector('webview:focus') || 
-                                             document.querySelector('webview.active') ||
-                                             document.querySelector('webview');
+                        // Get active app ID for precise webview selection
+                        let activeAppId = null;
+                        if (typeof window.appStore !== 'undefined') {
+                            activeAppId = window.appStore.activeAppId;
+                        }
+                        
+                        // Try to find webview by active app ID first
+                        let activeWebview = null;
+                        
+                        if (activeAppId) {
+                            activeWebview = document.querySelector('webview[data-app-id="' + activeAppId + '"]');
+                        }
+                        
+                        // Fallback to focus/active/first webview
+                        if (!activeWebview) {
+                            activeWebview = document.querySelector('webview:focus') || 
+                                                 document.querySelector('webview.active') ||
+                                                 document.querySelector('webview');
+                        }
                         
                         if (!activeWebview) {
                             return { success: false, error: 'No active webview found' };

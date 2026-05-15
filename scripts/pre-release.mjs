@@ -103,13 +103,7 @@ if (newVersion !== currentVersion) {
     console.log('   ✅ package.json updated');
 }
 
-// ─── Step 5: Write notes to temp file for release-updater.js to pick up ─────
-
-const tempNotesPath = path.resolve(__dirname, '.release-notes.tmp');
-fs.writeFileSync(tempNotesPath, JSON.stringify({ version: newVersion, notes }, null, 2));
-console.log('\n📋 Release notes saved.');
-
-// ─── Step 6: Run the actual build ────────────────────────────────────────────
+// ─── Step 5: Run the actual build ────────────────────────────────────────────
 
 console.log('\n🏗️  Starting Electron production build...\n');
 try {
@@ -118,20 +112,6 @@ try {
     console.error('\n❌ Build failed! Aborting release.');
     process.exit(1);
 }
-
-// ─── Step 7: Run the updater script ─────────────────────────────────────────
-
-console.log('\n📦 Updating release files...\n');
-try {
-    execSync('node scripts/release-updater.js', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
-} catch (e) {
-    console.error('\n❌ Release updater failed!');
-    process.exit(1);
-}
-
-// ─── Cleanup ─────────────────────────────────────────────────────────────────
-
-if (fs.existsSync(tempNotesPath)) fs.unlinkSync(tempNotesPath);
 
 console.log('\n🎉 Release complete!');
 console.log(`   Version: ${newVersion}`);

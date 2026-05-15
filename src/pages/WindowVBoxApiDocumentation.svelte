@@ -53,16 +53,45 @@ vbox.toast('Success!', 'success');`
                 {
                     name: 'vbox.getActiveProfile()',
                     description: 'Get active workspace/profile information (async)',
-                    returns: 'Promise<{ success: boolean, id?: string, name?: string, url?: string, error?: string }>',
-                    note: 'Works in both main window and webview context. Use this to verify which profile/tab is active before running scripts.',
+                    returns: 'Promise<{ success, id?, name?, url?, error? }>',
+                    note: 'Works in both main window and webview context.',
                     example: `const profile = await vbox.getActiveProfile();
 if (profile.success) {
     console.log('Active Profile:', profile.name);
     console.log('Profile ID:', profile.id);
-    console.log('Current URL:', profile.url);
-} else {
-    console.error('Error:', profile.error);
 }`
+                }
+            ]
+        },
+        {
+            title: '🧭 Navigation',
+            apis: [
+                {
+                    name: 'vbox.navigate(url)',
+                    description: 'Navigate to a URL. ⚠️ This destroys the current JS context — code after this call will NOT execute. For sequential flows, use MCP-level APIs.',
+                    params: [{ name: 'url', type: 'string' }],
+                    returns: 'Promise<{ success, url? }>',
+                    example: `// Navigate to a new page
+await vbox.navigate('https://example.com');
+// ⚠️ Code here will NOT run — context is destroyed`
+                },
+                {
+                    name: 'vbox.goBack()',
+                    description: 'Go back in browser history',
+                    returns: 'Promise<{ success }>',
+                    example: `await vbox.goBack();`
+                },
+                {
+                    name: 'vbox.goForward()',
+                    description: 'Go forward in browser history',
+                    returns: 'Promise<{ success }>',
+                    example: `await vbox.goForward();`
+                },
+                {
+                    name: 'vbox.reload()',
+                    description: 'Reload current page',
+                    returns: 'Promise<{ success }>',
+                    example: `await vbox.reload();`
                 }
             ]
         },
@@ -79,7 +108,7 @@ vbox.click('#login-btn');`
                 },
                 {
                     name: 'vbox.type(selector, text, options)',
-                    description: 'Type text into element with optional delay',
+                    description: 'Type text into element with optional delay (framework-compatible: React, Vue, Svelte)',
                     params: [
                         { name: 'selector', type: 'string' },
                         { name: 'text', type: 'string' },
@@ -87,6 +116,58 @@ vbox.click('#login-btn');`
                     ],
                     example: `vbox.type('#email', 'user@example.com');
 await vbox.type('#search', 'query', { delay: 100 });`
+                },
+                {
+                    name: 'vbox.press(key, options)',
+                    description: 'Dispatch keyboard event. Supports Enter, Tab, Escape, ArrowDown, letter keys, etc.',
+                    params: [
+                        { name: 'key', type: 'string' },
+                        { name: 'options', type: '{ selector?, shift?, ctrl?, alt?, meta? }' }
+                    ],
+                    returns: 'boolean',
+                    example: `// Press Enter on active element
+vbox.press('Enter');
+
+// Press Escape
+vbox.press('Escape');
+
+// Press Tab
+vbox.press('Tab');
+
+// Press Ctrl+A on specific element
+vbox.press('a', { selector: '#input', ctrl: true });`
+                },
+                {
+                    name: 'vbox.hover(selector)',
+                    description: 'Simulate mouse hover on element (dispatches pointerenter, mouseover, mousemove)',
+                    params: [{ name: 'selector', type: 'string' }],
+                    returns: 'boolean',
+                    example: `vbox.hover('.dropdown-trigger');
+await vbox.waitForElement('.dropdown-menu');`
+                },
+                {
+                    name: 'vbox.select(selector, value)',
+                    description: 'Select an option in a <select> dropdown by value or text',
+                    params: [
+                        { name: 'selector', type: 'string' },
+                        { name: 'value', type: 'string' }
+                    ],
+                    returns: 'boolean',
+                    example: `// Select by value
+vbox.select('#country', 'ID');
+
+// Select by visible text
+vbox.select('#country', 'Indonesia');`
+                },
+                {
+                    name: 'vbox.drag(sourceSelector, targetSelector)',
+                    description: 'Drag element from source to target using HTML5 Drag & Drop events',
+                    params: [
+                        { name: 'sourceSelector', type: 'string' },
+                        { name: 'targetSelector', type: 'string' }
+                    ],
+                    returns: 'boolean',
+                    example: `vbox.drag('.draggable-item', '.drop-zone');`
                 },
                 {
                     name: 'vbox.getText(selector)',
@@ -142,12 +223,69 @@ console.log('Scrolled', scrolls, 'times');`
             ]
         },
         {
+            title: '🍪 Cookies',
+            apis: [
+                {
+                    name: 'vbox.getCookies(filter?)',
+                    description: 'Get cookies from current webview session (IPC-based)',
+                    params: [{ name: 'filter', type: '{ url?, name?, domain?, path? } (optional)' }],
+                    returns: 'Promise<{ success, cookies? }>',
+                    example: `// Get all cookies
+const result = await vbox.getCookies();
+console.log('Cookies:', result.cookies);
+
+// Get cookies for specific domain
+const result = await vbox.getCookies({ domain: '.example.com' });`
+                },
+                {
+                    name: 'vbox.setCookie(cookie)',
+                    description: 'Set a cookie in current webview session (IPC-based)',
+                    params: [{ name: 'cookie', type: '{ name, value, domain, path?, secure?, httpOnly?, sameSite?, expirationDate? }' }],
+                    returns: 'Promise<{ success }>',
+                    example: `await vbox.setCookie({
+    name: 'session_id',
+    value: 'abc123',
+    domain: '.example.com',
+    path: '/',
+    secure: true,
+    sameSite: 'lax'
+});`
+                }
+            ]
+        },
+        {
+            title: '💬 Dialog Handling',
+            apis: [
+                {
+                    name: 'vbox.handleDialog(options)',
+                    description: 'Register auto-response for browser dialogs (alert, confirm, prompt). Must be called BEFORE the dialog appears.',
+                    params: [{ name: 'options', type: '{ accept?: boolean, text?: string }' }],
+                    returns: 'Promise<{ success }>',
+                    note: 'For prompt dialogs, provide text. For confirm/alert, accept controls the response.',
+                    example: `// Auto-accept all dialogs
+await vbox.handleDialog({ accept: true });
+
+// Auto-dismiss and provide text for prompts
+await vbox.handleDialog({ accept: true, text: 'my response' });
+
+// Auto-dismiss confirm with "Cancel"
+await vbox.handleDialog({ accept: false });`
+                },
+                {
+                    name: 'vbox.clearDialogHandler()',
+                    description: 'Remove dialog handler and restore default browser dialog behavior',
+                    returns: 'Promise<{ success }>',
+                    example: `await vbox.clearDialogHandler();`
+                }
+            ]
+        },
+        {
             title: '📊 Data Extraction',
             apis: [
                 {
                     name: 'vbox.scrapeLinks(options)',
                     description: 'Scrape all links from page with optional filter',
-                    params: [{ name: 'options', type: '{ selector?: string, filter?: (url, el) => boolean }' }],
+                    params: [{ name: 'options', type: '{ selector?, filter? }' }],
                     returns: 'Array<{ index, url, href, text }>',
                     example: `const links = vbox.scrapeLinks();
 const productLinks = vbox.scrapeLinks({
@@ -158,7 +296,7 @@ const productLinks = vbox.scrapeLinks({
                 {
                     name: 'vbox.scrapeImages(options)',
                     description: 'Scrape all images from page with size filter',
-                    params: [{ name: 'options', type: '{ selector?: string, minWidth?: number, minHeight?: number }' }],
+                    params: [{ name: 'options', type: '{ selector?, minWidth?, minHeight? }' }],
                     returns: 'Array<{ index, url, src, alt, width, height }>',
                     example: `const images = vbox.scrapeImages({ minWidth: 200 });
 console.log('Found', images.length, 'images');`
@@ -179,10 +317,22 @@ console.log(data);`
                     name: 'vbox.extractTable(selector)',
                     description: 'Extract table data (headers and rows)',
                     params: [{ name: 'selector', type: 'string' }],
-                    returns: '{ headers: string[], rows: string[][] }',
+                    returns: '{ headers: string[], rows: object[] }',
                     example: `const table = vbox.extractTable('table.data');
 console.log('Headers:', table.headers);
 ppt.addTable([table.headers, ...table.rows]);`
+                },
+                {
+                    name: 'vbox.getIFrameContent(selector)',
+                    description: 'Get content from an iframe (same-origin only)',
+                    params: [{ name: 'selector', type: 'string' }],
+                    returns: '{ success, html?, url?, title? }',
+                    note: 'Cross-origin iframes will return success: false with an error message.',
+                    example: `const iframe = vbox.getIFrameContent('iframe#report');
+if (iframe.success) {
+    console.log('Iframe title:', iframe.title);
+    console.log('Iframe HTML length:', iframe.html.length);
+}`
                 }
             ]
         },
@@ -216,8 +366,7 @@ setTimeout(() => observer.disconnect(), 10000);`
                         { name: 'options', type: "{ timeout?, type?: 'any' | 'children' | 'attributes' | 'text' }" }
                     ],
                     returns: 'Promise<{ changed: true, mutations }>',
-                    example: `// Wait for dashboard to update
-await vbox.waitForChange('.dashboard', { 
+                    example: `await vbox.waitForChange('.dashboard', { 
     type: 'text',
     timeout: 10000 
 });
@@ -232,12 +381,29 @@ console.log('Dashboard updated!');`
                         { name: 'options', type: '{ timeout?, checkInterval? }' }
                     ],
                     returns: 'Promise<boolean>',
-                    example: `// Wait until element has specific text
-await vbox.waitUntil('.status', (el) => {
+                    example: `await vbox.waitUntil('.status', (el) => {
     return el.textContent.includes('Complete');
 }, { timeout: 30000 });
 
 console.log('Status is complete!');`
+                }
+            ]
+        },
+        {
+            title: '🌐 Network',
+            apis: [
+                {
+                    name: 'vbox.waitForNetworkIdle(options)',
+                    description: 'Wait for network activity to settle (no requests for idleTime ms)',
+                    params: [{ name: 'options', type: '{ timeout?: number, idleTime?: number }' }],
+                    returns: 'Promise<{ success, idleTime? }>',
+                    note: 'Uses Performance API to monitor resource requests. Default idleTime: 1000ms, timeout: 10000ms.',
+                    example: `// Wait for all API calls to finish
+await vbox.waitForNetworkIdle({ timeout: 15000, idleTime: 2000 });
+console.log('Network is idle, page fully loaded');
+
+// Then extract data
+const data = vbox.extractData({ title: 'h1', price: '.price' });`
                 }
             ]
         },
@@ -257,6 +423,59 @@ if (result.success) {
     console.log('Saved to:', result.path);
     vbox.toast('Screenshot saved!', 'success');
 }`
+                }
+            ]
+        },
+        {
+            title: '🗂️ Tab & Profile Management (MCP-Ready)',
+            apis: [
+                {
+                    name: 'vbox.listProfiles()',
+                    description: 'List all workspace profiles with their active status',
+                    returns: 'Promise<{ success, profiles: Array<{ id, name, url, active }> }>',
+                    note: 'MCP-ready: AI agents can use this to discover available profiles.',
+                    example: `const result = await vbox.listProfiles();
+if (result.success) {
+    result.profiles.forEach(p => {
+        console.log(p.name, p.active ? '(active)' : '', p.url);
+    });
+}`
+                },
+                {
+                    name: 'vbox.listTabs()',
+                    description: 'List all open tabs (webviews) with URLs and active status',
+                    returns: 'Promise<{ success, tabs: Array<{ id, url, title, active }> }>',
+                    note: 'MCP-ready: AI agents can use this to discover and target specific tabs.',
+                    example: `const result = await vbox.listTabs();
+if (result.success) {
+    result.tabs.forEach(tab => {
+        console.log(tab.id, tab.title, tab.url, tab.active ? '(active)' : '');
+    });
+}`
+                },
+                {
+                    name: 'vbox.switchTab(tabId)',
+                    description: 'Switch focus to a specific tab by its ID',
+                    params: [{ name: 'tabId', type: 'string' }],
+                    returns: 'Promise<{ success }>',
+                    note: 'Use listTabs() to get tab IDs first.',
+                    example: `const tabs = await vbox.listTabs();
+const targetTab = tabs.tabs.find(t => t.url.includes('example.com'));
+if (targetTab) {
+    await vbox.switchTab(targetTab.id);
+}`
+                },
+                {
+                    name: 'vbox.getTabInfo(tabId?)',
+                    description: 'Get page info for a specific tab (or current active tab if no tabId)',
+                    params: [{ name: 'tabId', type: 'string (optional)' }],
+                    returns: 'Promise<{ success, id?, url?, title?, canGoBack?, canGoForward? }>',
+                    example: `// Get active tab info
+const info = await vbox.getTabInfo();
+console.log('Active tab:', info.title, info.url);
+
+// Get specific tab info
+const info = await vbox.getTabInfo('tab-123');`
                 }
             ]
         },
@@ -324,19 +543,13 @@ await ppt.download('report.pptx');`
                     description: 'Add image to current slide from file path',
                     params: [
                         { name: 'imagePath', type: 'string' },
-                        { name: 'options', type: '{ x?: number, y?: number, w?: number, h?: number }' }
+                        { name: 'options', type: '{ x?, y?, w?, h? }' }
                     ],
                     returns: 'PPTBuilder',
                     note: 'Position in inches. Default: x=1, y=1.5, w=8, h=4',
-                    example: `// Capture screenshot and add to PPT
-const screenshot = await vbox.screenshot('.dashboard', 'dash.png');
+                    example: `const screenshot = await vbox.screenshot('.dashboard', 'dash.png');
 ppt.addSlide('Dashboard');
-ppt.addImage(screenshot.path, {
-    x: 0.5,
-    y: 1.5,
-    w: 9,
-    h: 5
-});`
+ppt.addImage(screenshot.path, { x: 0.5, y: 1.5, w: 9, h: 5 });`
                 },
                 {
                     name: 'vbox.ppt.useTemplate(templateName, variables, outputFilename)',
@@ -370,6 +583,34 @@ if (result.success) {
 console.log('Available templates:', result.templates);`
                 }
             ]
+        },
+        {
+            title: '📁 File & Downloads',
+            apis: [
+                {
+                    name: 'vbox.saveFile(content, filename, type)',
+                    description: 'Save content to a file in Downloads folder',
+                    params: [
+                        { name: 'content', type: 'string' },
+                        { name: 'filename', type: 'string' },
+                        { name: 'type', type: "string (default: 'text/html')" }
+                    ],
+                    returns: 'Promise<{ success, path?, filename? }>',
+                    example: `const html = '<h1>Report</h1><p>Data here</p>';
+const result = await vbox.saveFile(html, 'report.html', 'text/html');
+console.log('Saved to:', result.path);`
+                },
+                {
+                    name: 'vbox.shouldDownload(filepath, filename)',
+                    description: 'Add file to download manager',
+                    params: [
+                        { name: 'filepath', type: 'string' },
+                        { name: 'filename', type: 'string' }
+                    ],
+                    returns: 'Promise<{ success }>',
+                    example: `await vbox.shouldDownload('/path/to/file.pdf', 'report.pdf');`
+                }
+            ]
         }
     ];
 </script>
@@ -388,14 +629,14 @@ console.log('Available templates:', result.templates);`
     
     <!-- Content -->
     <div class="flex-1 overflow-hidden">
-{#snippet headerSlot()}
+    {#snippet headerSlot()}
         <div class="flex items-center gap-3 flex-1">
             <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
                 <BookOpen size={16} class="text-white" />
             </div>
             <div class="flex-1 min-w-0">
                 <h3 class="font-semibold text-sm truncate text-gray-900">VBox API Documentation</h3>
-                <p class="text-xs text-gray-500 truncate">Swagger-style API reference</p>
+                <p class="text-xs text-gray-500 truncate">Complete API reference for VBox Inject Scripts</p>
             </div>
         </div>
     {/snippet}
@@ -409,6 +650,13 @@ console.log('Available templates:', result.templates);`
                     VBox Inject Scripts adalah fitur untuk menjalankan JavaScript kustom di halaman web. 
                     Script menggunakan VBox API yang hanya tersedia di VisualBox untuk keamanan.
                 </p>
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                    <p class="text-sm text-blue-800">
+                        <strong>MCP-Ready:</strong> Semua API dirancang agar bisa digunakan oleh AI Agent melalui 
+                        Model Context Protocol (MCP). Tab & Profile management APIs memungkinkan AI mengelola 
+                        browser secara penuh.
+                    </p>
+                </div>
                 <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                     <p class="text-sm text-yellow-800">
                         <strong>Keamanan:</strong> Script hanya bisa dijalankan di VisualBox. 
@@ -422,7 +670,24 @@ console.log('Available templates:', result.templates);`
                 <h2 class="text-lg font-semibold text-gray-900 mb-3">Quick Start</h2>
                 <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto"><code>// vbox is already available, no need to check!
 console.log('Hello from VBox!');
-vbox.toast('Script running', 'info');</code></pre>
+vbox.toast('Script running', 'info');
+
+// Navigate to a page
+await vbox.navigate('https://example.com');
+
+// Wait for network to settle
+await vbox.waitForNetworkIdle();
+
+// Extract data
+const title = vbox.getText('h1');
+const links = vbox.scrapeLinks();
+
+// Handle dialogs automatically
+await vbox.handleDialog({ accept: true });
+
+// List all tabs
+const tabs = await vbox.listTabs();
+console.log('Open tabs:', tabs);</code></pre>
             </section>
 
             <!-- API Sections -->
@@ -488,6 +753,57 @@ vbox.toast('Script running', 'info');</code></pre>
                     {/each}
                 </section>
             {/each}
+
+            <!-- MCP Integration Guide -->
+            <section>
+                <h2 class="text-lg font-semibold text-gray-900 mb-3">🤖 MCP Integration Guide</h2>
+                <p class="text-sm text-gray-600 mb-3">
+                    VBox Script Injector dirancang untuk mendukung Model Context Protocol (MCP). 
+                    Berikut adalah panduan untuk mengintegrasikan dengan AI Agent:
+                </p>
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-800 mb-2">1. Discover Environment</h4>
+                        <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>// Get all profiles and tabs
+const profiles = await vbox.listProfiles();
+const tabs = await vbox.listTabs();</code></pre>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-800 mb-2">2. Target Specific Tab</h4>
+                        <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>// Switch to a specific tab
+await vbox.switchTab('tab-id-here');
+
+// Or get info about active tab
+const info = await vbox.getTabInfo();</code></pre>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-800 mb-2">3. Handle Dialogs & Navigate</h4>
+                        <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>// Auto-handle any dialog
+await vbox.handleDialog({ accept: true });
+
+// Navigate (note: destroys current context)
+await vbox.navigate('https://target-site.com');</code></pre>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-semibold text-gray-800 mb-2">4. Extract & Interact</h4>
+                        <pre class="bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto"><code>// Wait for page to fully load
+await vbox.waitForNetworkIdle({ idleTime: 2000 });
+
+// Interact with page
+vbox.type('#search', 'query');
+vbox.press('Enter');
+
+// Wait for results
+await vbox.waitForElement('.results');
+
+// Extract data
+const data = vbox.extractData({
+    title: 'h1.result-title',
+    price: '.price-tag'
+});</code></pre>
+                    </div>
+                </div>
+            </section>
         </div>
     {/snippet}
     </div>

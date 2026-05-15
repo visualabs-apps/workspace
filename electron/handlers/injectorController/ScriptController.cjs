@@ -16,6 +16,52 @@ function generateScriptId() {
     return `script_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
+/**
+ * Sanitize script ID to prevent path traversal attacks
+ * @param {string} scriptId 
+ * @returns {string} sanitized ID
+ */
+function sanitizeScriptId(scriptId) {
+    if (typeof scriptId !== 'string') return '';
+    // Remove any path traversal characters
+    return scriptId.replace(/[\/\\\.]/g, '').replace(/\.\./g, '');
+}
+
+/**
+ * Validate script data before saving
+ * @param {object} scriptData 
+ * @returns {{ valid: boolean, error?: string }}
+ */
+function validateScriptData(scriptData) {
+    if (!scriptData || typeof scriptData !== 'object') {
+        return { valid: false, error: 'Invalid script data' };
+    }
+    
+    // Validate name
+    if (scriptData.name && typeof scriptData.name === 'string' && scriptData.name.length > 255) {
+        return { valid: false, error: 'Script name too long (max 255 characters)' };
+    }
+    
+    // Validate code size (max 5MB)
+    const MAX_CODE_SIZE = 5 * 1024 * 1024;
+    if (scriptData.code && typeof scriptData.code === 'string' && scriptData.code.length > MAX_CODE_SIZE) {
+        return { valid: false, error: 'Script code too large (max 5MB)' };
+    }
+    
+    // Validate script ID format if provided
+    if (scriptData.id) {
+        if (typeof scriptData.id !== 'string') {
+            return { valid: false, error: 'Invalid script ID' };
+        }
+        // Must match expected format: script_TIMESTAMP_RANDOM
+        if (!/^script_\d+_[a-z0-9]+$/.test(scriptData.id)) {
+            return { valid: false, error: 'Invalid script ID format' };
+        }
+    }
+    
+    return { valid: true };
+}
+
 class ScriptController {
     static async list(event) {
         console.log('📋 scripts-list called');
@@ -26,10 +72,15 @@ class ScriptController {
             
             for (const file of files) {
                 if (file.endsWith('.json')) {
-                    const filePath = path.join(SCRIPTS_DIR, file);
-                    const content = await fs.readFile(filePath, 'utf-8');
-                    const script = JSON.parse(content);
-                    scripts.push(script);
+                    try {
+                        const filePath = path.join(SCRIPTS_DIR, file);
+                        const content = await fs.readFile(filePath, 'utf-8');
+                        const script = JSON.parse(content);
+                        scripts.push(script);
+                    } catch (parseError) {
+                        console.error(`Failed to parse script file ${file}:`, parseError);
+                        // Skip malformed files instead of failing the entire list
+                    }
                 }
             }
             
@@ -42,13 +93,19 @@ class ScriptController {
 
     static async save(event, scriptData) {
         try {
+            // Validate input
+            const validation = validateScriptData(scriptData);
+            if (!validation.valid) {
+                return { success: false, error: validation.error };
+            }
+            
             await ensureScriptsDir();
             const scriptId = scriptData.id || generateScriptId();
             const script = {
                 id: scriptId,
-                name: scriptData.name,
+                name: scriptData.name || 'Untitled Script',
                 description: scriptData.description || '',
-                code: scriptData.code,
+                code: scriptData.code || '',
                 urlPattern: scriptData.urlPattern || '*',
                 autoRun: scriptData.autoRun || false,
                 createdAt: scriptData.createdAt || new Date().toISOString(),
@@ -70,7 +127,16 @@ class ScriptController {
 
     static async load(event, scriptId) {
         try {
-            const metaPath = path.join(SCRIPTS_DIR, `${scriptId}.json`);
+            if (!scriptId || typeof scriptId !== 'string') {
+                return { success: false, error: 'Invalid script ID' };
+            }
+            
+            const sanitizedId = sanitizeScriptId(scriptId);
+            if (!sanitizedId) {
+                return { success: false, error: 'Invalid script ID' };
+            }
+            
+            const metaPath = path.join(SCRIPTS_DIR, `${sanitizedId}.json`);
             const content = await fs.readFile(metaPath, 'utf-8');
             const script = JSON.parse(content);
             
@@ -83,8 +149,17 @@ class ScriptController {
 
     static async delete(event, scriptId) {
         try {
-            const metaPath = path.join(SCRIPTS_DIR, `${scriptId}.json`);
-            const codePath = path.join(SCRIPTS_DIR, `${scriptId}.js`);
+            if (!scriptId || typeof scriptId !== 'string') {
+                return { success: false, error: 'Invalid script ID' };
+            }
+            
+            const sanitizedId = sanitizeScriptId(scriptId);
+            if (!sanitizedId) {
+                return { success: false, error: 'Invalid script ID' };
+            }
+            
+            const metaPath = path.join(SCRIPTS_DIR, `${sanitizedId}.json`);
+            const codePath = path.join(SCRIPTS_DIR, `${sanitizedId}.js`);
             
             await fs.unlink(metaPath);
             await fs.unlink(codePath).catch(() => {});

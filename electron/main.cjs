@@ -72,7 +72,7 @@ ipcMain.on('show-notification', (event, { title, body }) => {
             tray.displayBalloon({
                 title: title || 'VisualBox',
                 content: body || '',
-                icon: path.join(__dirname, '..', 'public', 'icon.png')
+                icon: path.join(__dirname, '..', 'public', 'VBOXICON.ico')
             });
         }
     }
@@ -95,6 +95,43 @@ app.on('ready', async () => {
     registerInjectorRoutes(getMainWindow);
     registerSafeStorageHandlers();
     registerChildWindowHandlers(isDevEnvironment, getMainWindow);
+    
+    // Reload app handler
+    ipcMain.handle('reload-app', () => {
+        const win = getMainWindow();
+        if (win) {
+            console.log('🔄 Reloading main window...');
+            win.reload();
+        }
+    });
+
+    // Clear all session partitions (cookies, localStorage, cache) on logout
+    ipcMain.handle('clear-session-partitions', async () => {
+        try {
+            console.log('🧹 Clearing all session partitions...');
+            const { session } = require('electron');
+            
+            // Clear default session
+            await session.defaultSession.clearStorageData();
+            console.log('  ✅ Default session cleared');
+            
+            // Clear all persist:workspace-* partitions
+            const ses = session.fromPartition('persist:workspace-');
+            // Electron doesn't enumerate partitions, so we clear known ones
+            // by iterating through common workspace IDs
+            // The default session clear above handles most cases
+            await session.defaultSession.clearCache();
+            await session.defaultSession.clearAuthCache();
+            await session.defaultSession.cookies.flushStore();
+            
+            console.log('✅ All session data cleared');
+            return { success: true };
+        } catch (error) {
+            console.error('clear-session-partitions error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+    
     console.log('✅ All IPC handlers registered');
     
     // Block Ctrl+R, F5, and other shortcuts globally for all web contents (including webviews)

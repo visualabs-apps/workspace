@@ -125,6 +125,11 @@
 
         await authStore.init();
         
+        // Cleanup orphaned downloads (no profile_id) on app start
+        if (window.api?.cleanupOrphanDownloads) {
+            window.api.cleanupOrphanDownloads();
+        }
+        
         // Expose scriptInputStore to window for VBox API
         window.scriptInputStore = scriptInputStore;
         

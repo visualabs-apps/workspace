@@ -116,6 +116,34 @@ contextBridge.exposeInMainWorld('vboxContext', {
     }
 });
 
+// Expose Navigation API to webview
+contextBridge.exposeInMainWorld('vboxNavigation', {
+    navigate: (url) => ipcRenderer.invoke('webview-navigate', url),
+    goBack: () => ipcRenderer.invoke('webview-go-back'),
+    goForward: () => ipcRenderer.invoke('webview-go-forward'),
+    reload: () => ipcRenderer.invoke('webview-reload')
+});
+
+// Expose Cookie API to webview (session-based, not partition-based)
+contextBridge.exposeInMainWorld('vboxCookies', {
+    get: (filter) => ipcRenderer.invoke('webview-get-cookies', filter || {}),
+    set: (cookie) => ipcRenderer.invoke('webview-set-cookie', cookie)
+});
+
+// Expose Dialog API to webview
+contextBridge.exposeInMainWorld('vboxDialog', {
+    handle: (options) => ipcRenderer.invoke('webview-handle-dialog', options || {}),
+    clear: () => ipcRenderer.invoke('webview-clear-dialog-handler')
+});
+
+// Expose Tab/Profile Management API to webview
+contextBridge.exposeInMainWorld('vboxTabs', {
+    listProfiles: () => ipcRenderer.invoke('webview-list-profiles'),
+    listTabs: () => ipcRenderer.invoke('webview-list-tabs'),
+    switchTab: (tabId) => ipcRenderer.invoke('webview-switch-tab', tabId),
+    getPageInfo: (tabId) => ipcRenderer.invoke('webview-get-page-info', tabId || null)
+});
+
 console.log('[VBox Webview Preload] APIs exposed successfully');
 console.log('[VBox Webview Preload] window.vboxPowerPoint:', typeof window.vboxPowerPoint);
 console.log('[VBox Webview Preload] window.vboxDownloads:', typeof window.vboxDownloads);
@@ -175,6 +203,33 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
         return;
     }
     
+    // Helper: Use native input value setter for framework compatibility (React, Vue, Svelte)
+    function getNativeValueSetter(element) {
+        try {
+            if (element.tagName === 'TEXTAREA') {
+                return Object.getOwnPropertyDescriptor(
+                    window.HTMLTextAreaElement.prototype, 'value'
+                ).set;
+            }
+            return Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value'
+            ).set;
+        } catch(e) {
+            return null;
+        }
+    }
+    
+    function setValueWithEvents(element, value) {
+        const nativeSetter = getNativeValueSetter(element);
+        if (nativeSetter) {
+            nativeSetter.call(element, value);
+        } else {
+            element.value = value;
+        }
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    
     window.__VBOX_API__ = {
         // App identifier
         APP_NAME: 'VisualBox',
@@ -208,8 +263,9 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
             return true;
         },
         
-        // Type text into element
-        type: function(selector, text, options = {}) {
+        // Type text into element (framework-compatible: React, Vue, Svelte)
+        type: function(selector, text, options) {
+            if (options === undefined) options = {};
             const element = document.querySelector(selector);
             if (!element) {
                 throw new Error('Element not found: ' + selector);
@@ -218,17 +274,17 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
             const { delay = 0, clear = false } = options;
             
             if (clear) {
-                element.value = '';
+                setValueWithEvents(element, '');
             }
             
             if (delay > 0) {
-                // Type with delay
                 let index = 0;
+                const current = clear ? '' : element.value;
                 return new Promise((resolve) => {
                     const interval = setInterval(() => {
                         if (index < text.length) {
-                            element.value += text[index];
-                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                            current += text[index];
+                            setValueWithEvents(element, current);
                             index++;
                         } else {
                             clearInterval(interval);
@@ -237,15 +293,15 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                     }, delay);
                 });
             } else {
-                // Type instantly
-                element.value = clear ? text : element.value + text;
-                element.dispatchEvent(new Event('input', { bubbles: true }));
+                const newValue = clear ? text : element.value + text;
+                setValueWithEvents(element, newValue);
                 return true;
             }
         },
         
         // Scroll to element
-        scrollTo: function(selector, options = {}) {
+        scrollTo: function(selector, options) {
+            if (options === undefined) options = {};
             const element = document.querySelector(selector);
             if (!element) {
                 throw new Error('Element not found: ' + selector);
@@ -256,20 +312,35 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
             return true;
         },
         
-        // Screenshot element (returns base64)
-        screenshot: async function(selector) {
-            const element = selector ? document.querySelector(selector) : document.body;
-            if (!element) {
-                throw new Error('Element not found: ' + selector);
+        // Screenshot element (IPC-based — works without html2canvas)
+        _screenshotIsIPC: true,
+        screenshot: async function(selector, filename) {
+            try {
+                const element = selector ? document.querySelector(selector) : document.body;
+                if (!element) {
+                    throw new Error('Element not found: ' + selector);
+                }
+                
+                const rect = element.getBoundingClientRect();
+                
+                if (typeof window.vboxScreenshot !== 'undefined') {
+                    const result = await window.vboxScreenshot.capture({
+                        selector: selector,
+                        filename: filename || ('screenshot-' + Date.now() + '.png'),
+                        rect: {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height
+                        }
+                    });
+                    return result;
+                }
+                
+                return { success: false, error: 'Screenshot API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
             }
-            
-            // Use html2canvas if available
-            if (typeof html2canvas === 'undefined') {
-                throw new Error('html2canvas not loaded. Screenshot feature requires html2canvas library.');
-            }
-            
-            const canvas = await html2canvas(element);
-            return canvas.toDataURL('image/png');
         },
         
         // Get/Set attributes
@@ -309,7 +380,8 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
         },
         
         // Scraping functions
-        scrapeLinks: function(options = {}) {
+        scrapeLinks: function(options) {
+            if (options === undefined) options = {};
             const {
                 selector = 'a[href]',
                 filter = null,
@@ -352,7 +424,9 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
             return links;
         },
         
-        scrapeImages: function(options = {}) {
+        // Scrape images (handles unloaded images gracefully)
+        scrapeImages: function(options) {
+            if (options === undefined) options = {};
             const { selector = 'img[src]', minWidth = 0, minHeight = 0 } = options;
             const images = [];
             const elements = document.querySelectorAll(selector);
@@ -361,7 +435,10 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                 const src = el.getAttribute('src');
                 if (!src) return;
                 
-                if (el.naturalWidth < minWidth || el.naturalHeight < minHeight) return;
+                // Only filter by size if image has loaded (naturalWidth > 0)
+                if (el.complete && el.naturalWidth > 0) {
+                    if (el.naturalWidth < minWidth || el.naturalHeight < minHeight) return;
+                }
                 
                 let absoluteUrl;
                 try {
@@ -375,8 +452,9 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                     url: absoluteUrl,
                     src,
                     alt: el.getAttribute('alt') || '',
-                    width: el.naturalWidth,
-                    height: el.naturalHeight
+                    width: el.naturalWidth || 0,
+                    height: el.naturalHeight || 0,
+                    loaded: el.complete && el.naturalWidth > 0
                 });
             });
             
@@ -394,21 +472,22 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
             return data;
         },
         
+        // Extract table data (consistent object format)
         extractTable: function(tableSelector) {
             const table = document.querySelector(tableSelector);
             if (!table) return null;
             
-            const rows = [];
             const headerCells = table.querySelectorAll('thead th, thead td');
             const headers = Array.from(headerCells).map(cell => cell.textContent.trim());
             
+            const rows = [];
             const bodyRows = table.querySelectorAll('tbody tr');
             bodyRows.forEach(row => {
                 const cells = row.querySelectorAll('td, th');
                 const rowData = {};
                 
                 cells.forEach((cell, index) => {
-                    const header = headers[index] || `column_${index}`;
+                    const header = headers[index] || ('column_' + index);
                     rowData[header] = cell.textContent.trim();
                 });
                 
@@ -419,7 +498,8 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
         },
         
         // Wait for element
-        waitForElement: function(selector, timeout = 5000) {
+        waitForElement: function(selector, timeout) {
+            if (timeout === undefined) timeout = 5000;
             return new Promise((resolve, reject) => {
                 const element = document.querySelector(selector);
                 if (element) {
@@ -427,10 +507,10 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                     return;
                 }
                 
-                const observer = new MutationObserver((mutations, obs) => {
-                    const element = document.querySelector(selector);
-                    if (element) {
-                        obs.disconnect();
+                const observer = new MutationObserver(() => {
+                    const el = document.querySelector(selector);
+                    if (el) {
+                        observer.disconnect();
                         resolve(true);
                     }
                 });
@@ -447,15 +527,16 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
             });
         },
         
-        // Auto scroll
-        autoScroll: function(options = {}) {
+        // Auto scroll (fixed: recursive setTimeout instead of nested setInterval+setTimeout)
+        autoScroll: function(options) {
+            if (options === undefined) options = {};
             const { delay = 1000, maxScrolls = 10, onScroll = null } = options;
             
             return new Promise((resolve) => {
                 let scrollCount = 0;
                 let lastHeight = document.body.scrollHeight;
                 
-                const scrollInterval = setInterval(() => {
+                function doScroll() {
                     window.scrollTo(0, document.body.scrollHeight);
                     scrollCount++;
                     
@@ -465,13 +546,15 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                         const newHeight = document.body.scrollHeight;
                         
                         if (newHeight === lastHeight || scrollCount >= maxScrolls) {
-                            clearInterval(scrollInterval);
                             resolve(scrollCount);
+                        } else {
+                            lastHeight = newHeight;
+                            doScroll();
                         }
-                        
-                        lastHeight = newHeight;
                     }, delay);
-                }, delay);
+                }
+                
+                doScroll();
             });
         },
         
@@ -481,7 +564,8 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
         },
         
         // Toast notification
-        toast: function(message, type = 'info') {
+        toast: function(message, type) {
+            if (type === undefined) type = 'info';
             console.log('[VBox Toast]', type.toUpperCase(), ':', message);
         },
         
@@ -504,7 +588,8 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                         return this;
                     },
                     
-                    addText: function(text, options = {}) {
+                    addText: function(text, options) {
+                        if (options === undefined) options = {};
                         const lastSlide = this.slides[this.slides.length - 1];
                         if (lastSlide) {
                             if (!lastSlide.content) lastSlide.content = [];
@@ -513,16 +598,18 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                         return this;
                     },
                     
-                    addImage: function(base64Data, options = {}) {
+                    addImage: function(imagePath, options) {
+                        if (options === undefined) options = {};
                         const lastSlide = this.slides[this.slides.length - 1];
                         if (lastSlide) {
                             if (!lastSlide.content) lastSlide.content = [];
-                            lastSlide.content.push({ type: 'image', data: base64Data, options });
+                            lastSlide.content.push({ type: 'image', path: imagePath, options });
                         }
                         return this;
                     },
                     
-                    addTable: function(rows, options = {}) {
+                    addTable: function(rows, options) {
+                        if (options === undefined) options = {};
                         const lastSlide = this.slides[this.slides.length - 1];
                         if (lastSlide) {
                             if (!lastSlide.content) lastSlide.content = [];
@@ -531,7 +618,8 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                         return this;
                     },
                     
-                    addChart: function(type, data, options = {}) {
+                    addChart: function(type, data, options) {
+                        if (options === undefined) options = {};
                         const lastSlide = this.slides[this.slides.length - 1];
                         if (lastSlide) {
                             if (!lastSlide.content) lastSlide.content = [];
@@ -540,19 +628,32 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
                         return this;
                     },
                     
-                    download: function(filename) {
+                    download: async function(filename) {
                         console.log('[VBox PPT] Generating:', filename);
-                        window.postMessage({
-                            type: 'VBOX_GENERATE_PPT',
-                            data: {
-                                title: this.title,
-                                author: this.author,
-                                slides: this.slides,
-                                template: this.template,
-                                filename: filename || 'vbox-report.pptx'
+                        
+                        try {
+                            if (typeof window.vboxPowerPoint !== 'undefined') {
+                                const result = await window.vboxPowerPoint.generate({
+                                    title: this.title,
+                                    author: this.author,
+                                    slides: this.slides,
+                                    template: this.template,
+                                    filename: filename || 'vbox-report.pptx'
+                                });
+                                
+                                if (result && result.success && result.path) {
+                                    const downloadResult = await window.__VBOX_API__.shouldDownload(result.path, result.filename);
+                                    console.log('[VBox PPT] Download manager result:', downloadResult);
+                                }
+                                
+                                return result;
                             }
-                        }, '*');
-                        return this;
+                            
+                            return { success: false, error: 'PowerPoint API not available' };
+                        } catch (error) {
+                            console.error('[VBox PPT] Error:', error);
+                            return { success: false, error: error.message };
+                        }
                     }
                 };
             }
@@ -561,6 +662,502 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
         sendToVBox: function(data) {
             console.log('[VBox] Data:', data);
             return data;
+        },
+        
+        // Add file to download manager
+        shouldDownload: async function(filepath, filename) {
+            try {
+                if (!filename) {
+                    filename = filepath.split(/[\\/]/).pop();
+                }
+                
+                if (typeof window.vboxDownloads !== 'undefined') {
+                    const result = await window.vboxDownloads.addToDownloads({ filepath, filename });
+                    return result;
+                }
+                
+                return { success: false, error: 'Download manager API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        // Save file to Downloads folder
+        saveFile: async function(content, filename, type) {
+            if (type === undefined) type = 'text/html';
+            try {
+                if (typeof window.vboxFile !== 'undefined') {
+                    const result = await window.vboxFile.save(content, filename, type);
+                    
+                    if (result.success) {
+                        await window.__VBOX_API__.shouldDownload(result.path, result.filename);
+                    }
+                    
+                    return result;
+                }
+                
+                return { success: false, error: 'File save API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        // Open input window to collect user input
+        openInput: async function(config) {
+            try {
+                if (typeof window.vboxInput !== 'undefined') {
+                    return await window.vboxInput.open(config);
+                } else if (typeof window.scriptInputStore !== 'undefined') {
+                    return await window.scriptInputStore.open(config);
+                }
+                
+                return null;
+            } catch (error) {
+                console.error('[VBox] openInput error:', error);
+                return null;
+            }
+        },
+        
+        // Get active workspace/profile info
+        getActiveProfile: async function() {
+            try {
+                if (typeof window.vboxContext !== 'undefined') {
+                    return await window.vboxContext.getWorkspaceInfo();
+                }
+                
+                if (typeof window.workspaceStore !== 'undefined' && window.workspaceStore.activeWorkspace) {
+                    const workspace = window.workspaceStore.activeWorkspace;
+                    return {
+                        success: true,
+                        id: workspace.id,
+                        name: workspace.name,
+                        url: window.location.href,
+                        title: document.title
+                    };
+                }
+                
+                return { success: false, error: 'Profile info not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        // ─── Navigation APIs ─────────────────────────────────────────
+        
+        /**
+         * Navigate to a URL. Note: this destroys the current JS context,
+         * so any code after this call will NOT execute.
+         * For sequential navigation, use MCP-level APIs.
+         */
+        navigate: async function(url) {
+            try {
+                if (typeof window.vboxNavigation !== 'undefined') {
+                    return await window.vboxNavigation.navigate(url);
+                }
+                return { success: false, error: 'Navigation API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        /**
+         * Go back in browser history
+         */
+        goBack: async function() {
+            try {
+                if (typeof window.vboxNavigation !== 'undefined') {
+                    return await window.vboxNavigation.goBack();
+                }
+                return { success: false, error: 'Navigation API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        /**
+         * Go forward in browser history
+         */
+        goForward: async function() {
+            try {
+                if (typeof window.vboxNavigation !== 'undefined') {
+                    return await window.vboxNavigation.goForward();
+                }
+                return { success: false, error: 'Navigation API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        /**
+         * Reload current page
+         */
+        reload: async function() {
+            try {
+                if (typeof window.vboxNavigation !== 'undefined') {
+                    return await window.vboxNavigation.reload();
+                }
+                return { success: false, error: 'Navigation API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        // ─── Keyboard APIs ───────────────────────────────────────────
+        
+        /**
+         * Dispatch keyboard event (Enter, Tab, Escape, ArrowDown, etc.)
+         * @param {string} key - Key name (e.g. 'Enter', 'Tab', 'Escape', 'a')
+         * @param {object} options - { selector?, shift?, ctrl?, alt?, meta? }
+         */
+        press: function(key, options) {
+            if (options === undefined) options = {};
+            const target = options.selector
+                ? document.querySelector(options.selector)
+                : document.activeElement || document.body;
+            
+            if (!target && options.selector) {
+                throw new Error('Element not found: ' + options.selector);
+            }
+            
+            const eventInit = {
+                key: key,
+                code: key.length === 1 ? 'Key' + key.toUpperCase() : key,
+                bubbles: true,
+                cancelable: true,
+                shiftKey: options.shift || false,
+                ctrlKey: options.ctrl || false,
+                altKey: options.alt || false,
+                metaKey: options.meta || false
+            };
+            
+            // Dispatch keydown, keypress (if printable), keyup
+            target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
+            
+            if (key.length === 1) {
+                target.dispatchEvent(new KeyboardEvent('keypress', eventInit));
+            }
+            
+            target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+            
+            return true;
+        },
+        
+        // ─── Mouse APIs ──────────────────────────────────────────────
+        
+        /**
+         * Simulate mouse hover on element
+         */
+        hover: function(selector) {
+            const element = document.querySelector(selector);
+            if (!element) throw new Error('Element not found: ' + selector);
+            
+            const rect = element.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            
+            const eventInit = {
+                bubbles: true,
+                cancelable: true,
+                clientX: x,
+                clientY: y,
+                view: window
+            };
+            
+            element.dispatchEvent(new MouseEvent('pointerenter', eventInit));
+            element.dispatchEvent(new MouseEvent('mouseover', eventInit));
+            element.dispatchEvent(new MouseEvent('mouseenter', Object.assign({}, eventInit, { bubbles: false })));
+            element.dispatchEvent(new MouseEvent('mousemove', eventInit));
+            
+            return true;
+        },
+        
+        /**
+         * Drag element from source to target
+         */
+        drag: function(sourceSelector, targetSelector) {
+            const source = document.querySelector(sourceSelector);
+            const target = document.querySelector(targetSelector);
+            if (!source) throw new Error('Source not found: ' + sourceSelector);
+            if (!target) throw new Error('Target not found: ' + targetSelector);
+            
+            const sourceRect = source.getBoundingClientRect();
+            const targetRect = target.getBoundingClientRect();
+            
+            const dataTransfer = new DataTransfer();
+            
+            const dragStartEvent = new DragEvent('dragstart', {
+                bubbles: true,
+                dataTransfer: dataTransfer,
+                clientX: sourceRect.left + sourceRect.width / 2,
+                clientY: sourceRect.top + sourceRect.height / 2
+            });
+            source.dispatchEvent(dragStartEvent);
+            
+            const dragOverEvent = new DragEvent('dragover', {
+                bubbles: true,
+                dataTransfer: dataTransfer,
+                clientX: targetRect.left + targetRect.width / 2,
+                clientY: targetRect.top + targetRect.height / 2
+            });
+            target.dispatchEvent(dragOverEvent);
+            
+            const dropEvent = new DragEvent('drop', {
+                bubbles: true,
+                dataTransfer: dataTransfer,
+                clientX: targetRect.left + targetRect.width / 2,
+                clientY: targetRect.top + targetRect.height / 2
+            });
+            target.dispatchEvent(dropEvent);
+            
+            const dragEndEvent = new DragEvent('dragend', {
+                bubbles: true,
+                dataTransfer: dataTransfer
+            });
+            source.dispatchEvent(dragEndEvent);
+            
+            return true;
+        },
+        
+        // ─── Form APIs ────────────────────────────────────────────────
+        
+        /**
+         * Select an option in a <select> element
+         */
+        select: function(selector, value) {
+            const element = document.querySelector(selector);
+            if (!element) throw new Error('Element not found: ' + selector);
+            if (element.tagName !== 'SELECT') throw new Error('Element is not a <select>: ' + selector);
+            
+            // Find matching option
+            const options = element.options;
+            let found = false;
+            
+            for (let i = 0; i < options.length; i++) {
+                if (options[i].value === value || options[i].textContent.trim() === value) {
+                    element.selectedIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                throw new Error('Option not found: ' + value);
+            }
+            
+            // Use native setter for framework compatibility
+            const nativeSetter = Object.getOwnPropertyDescriptor(
+                HTMLSelectElement.prototype, 'value'
+            ).set;
+            if (nativeSetter) {
+                nativeSetter.call(element, value);
+            }
+            
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            return true;
+        },
+        
+        // ─── Cookie APIs ─────────────────────────────────────────────
+        
+        /**
+         * Get cookies from current webview session
+         */
+        getCookies: async function(filter) {
+            try {
+                if (typeof window.vboxCookies !== 'undefined') {
+                    return await window.vboxCookies.get(filter || {});
+                }
+                return { success: false, error: 'Cookie API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        /**
+         * Set a cookie in current webview session
+         */
+        setCookie: async function(cookie) {
+            try {
+                if (typeof window.vboxCookies !== 'undefined') {
+                    return await window.vboxCookies.set(cookie);
+                }
+                return { success: false, error: 'Cookie API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        // ─── Dialog APIs ─────────────────────────────────────────────
+        
+        /**
+         * Register auto-response for browser dialogs (alert, confirm, prompt)
+         * Must be called BEFORE the dialog appears
+         */
+        handleDialog: async function(options) {
+            try {
+                if (typeof window.vboxDialog !== 'undefined') {
+                    return await window.vboxDialog.handle(options || {});
+                }
+                return { success: false, error: 'Dialog API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        /**
+         * Remove dialog handler (restore default behavior)
+         */
+        clearDialogHandler: async function() {
+            try {
+                if (typeof window.vboxDialog !== 'undefined') {
+                    return await window.vboxDialog.clear();
+                }
+                return { success: false, error: 'Dialog API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        // ─── Network APIs ────────────────────────────────────────────
+        
+        /**
+         * Wait for network to be idle (no requests for `idleTime` ms)
+         */
+        waitForNetworkIdle: function(options) {
+            if (options === undefined) options = {};
+            const { timeout = 10000, idleTime = 1000 } = options;
+            
+            return new Promise((resolve) => {
+                let lastRequestTime = Date.now();
+                let resolved = false;
+                
+                const cleanup = () => {
+                    if (resolved) return;
+                    resolved = true;
+                    try { observer.disconnect(); } catch {}
+                    clearInterval(checkInterval);
+                    clearTimeout(timeoutTimer);
+                };
+                
+                // Monitor resource timing entries
+                let previousEntryCount = performance.getEntriesByType('resource').length;
+                
+                const observer = new PerformanceObserver((list) => {
+                    list.getEntries().forEach(() => {
+                        lastRequestTime = Date.now();
+                    });
+                });
+                
+                try {
+                    observer.observe({ entryTypes: ['resource'] });
+                } catch (e) {
+                    // PerformanceObserver may not support 'resource' in all contexts
+                }
+                
+                const checkInterval = setInterval(() => {
+                    const currentEntries = performance.getEntriesByType('resource').length;
+                    if (currentEntries > previousEntryCount) {
+                        lastRequestTime = Date.now();
+                        previousEntryCount = currentEntries;
+                    }
+                    
+                    if (Date.now() - lastRequestTime >= idleTime) {
+                        cleanup();
+                        resolve({ success: true, idleTime: idleTime });
+                    }
+                }, 200);
+                
+                const timeoutTimer = setTimeout(() => {
+                    cleanup();
+                    resolve({ success: false, error: 'Network idle timeout' });
+                }, timeout);
+            });
+        },
+        
+        // ─── iframe APIs ─────────────────────────────────────────────
+        
+        /**
+         * Get content from an iframe
+         */
+        getIFrameContent: function(selector) {
+            const iframe = document.querySelector(selector);
+            if (!iframe) throw new Error('Iframe not found: ' + selector);
+            
+            try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                return {
+                    success: true,
+                    html: doc.documentElement.outerHTML,
+                    url: iframe.src || iframe.contentWindow.location.href,
+                    title: doc.title || ''
+                };
+            } catch (error) {
+                // Cross-origin iframe
+                return {
+                    success: false,
+                    error: 'Cannot access cross-origin iframe: ' + error.message,
+                    url: iframe.src
+                };
+            }
+        },
+        
+        // ─── Tab/Profile Management APIs (MCP-ready) ────────────────
+        
+        /**
+         * List all workspace profiles
+         */
+        listProfiles: async function() {
+            try {
+                if (typeof window.vboxTabs !== 'undefined') {
+                    return await window.vboxTabs.listProfiles();
+                }
+                return { success: false, error: 'Tab management API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        /**
+         * List all open tabs
+         */
+        listTabs: async function() {
+            try {
+                if (typeof window.vboxTabs !== 'undefined') {
+                    return await window.vboxTabs.listTabs();
+                }
+                return { success: false, error: 'Tab management API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        /**
+         * Switch to a specific tab by ID
+         */
+        switchTab: async function(tabId) {
+            try {
+                if (typeof window.vboxTabs !== 'undefined') {
+                    return await window.vboxTabs.switchTab(tabId);
+                }
+                return { success: false, error: 'Tab management API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        },
+        
+        /**
+         * Get page info for a specific tab (or current active tab)
+         */
+        getTabInfo: async function(tabId) {
+            try {
+                if (typeof window.vboxTabs !== 'undefined') {
+                    return await window.vboxTabs.getPageInfo(tabId || null);
+                }
+                return { success: false, error: 'Tab management API not available' };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
         }
     };
     

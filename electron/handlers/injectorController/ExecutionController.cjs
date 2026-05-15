@@ -3,10 +3,23 @@ const fsSync = require('fs');
 const path = require('path');
 const { SCRIPTS_DIR } = require('./ScriptController.cjs');
 
-const VBOX_API_INLINE = fsSync.readFileSync(
-    path.join(__dirname, '../vbox-api-inline.js'), 
-    'utf-8'
-);
+// Lazy-load VBox API inline code with error handling
+let VBOX_API_INLINE = null;
+
+function getVboxApiInline() {
+    if (VBOX_API_INLINE === null) {
+        try {
+            VBOX_API_INLINE = fsSync.readFileSync(
+                path.join(__dirname, '../vbox-api-inline.js'), 
+                'utf-8'
+            );
+        } catch (error) {
+            console.error('❌ Failed to read vbox-api-inline.js:', error.message);
+            VBOX_API_INLINE = ''; // Fallback to empty — scripts will run without API
+        }
+    }
+    return VBOX_API_INLINE;
+}
 
 class ExecutionController {
     static async execute(event, scriptId, getMainWindow) {
@@ -24,7 +37,7 @@ class ExecutionController {
             console.log('🚀 Executing script in webview...');
             console.log('📝 Script length:', scriptCode.length, 'characters');
             
-            const vboxAPICode = VBOX_API_INLINE;
+            const vboxAPICode = getVboxApiInline();
             const userScriptCode = scriptCode;
             
             const executionResult = await mainWindow.webContents.executeJavaScript(`
@@ -88,7 +101,7 @@ class ExecutionController {
                             '    const vbox = window.__VBOX_API__;' +
                             '    console.log("[VBox] API available, executing user script...");' +
                             '    const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;' +
-                            '    const userFunction = new AsyncFunction("vbox", ' + JSON.stringify(userScriptCode) + ');' +
+                            '    const userFunction = new AsyncFunction("vbox", userScriptCode);' +
                             '    const result = await userFunction(vbox);' +
                             '    console.log("[VBox] User script executed successfully");' +
                             '    try {' +

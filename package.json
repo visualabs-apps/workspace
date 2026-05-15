@@ -17,12 +17,13 @@
     "restart": "npm run kill:electron && npm run dev",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
-    "build": "vite build",
-    "build:production": "dotenv -e .env.production -- vite build",
+    "build": "dotenv -e .env.production -- vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis",
+    "build:frontend": "vite build",
+    "build:frontend:production": "dotenv -e .env.production -- vite build",
     "preview": "vite preview",
-    "dist": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:production && electron-builder",
-    "dist:win": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:production && electron-builder --win",
-    "dist:nsis": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:production && electron-builder --win nsis",
+    "dist": "npm run build",
+    "dist:win": "npm run build",
+    "dist:nsis": "npm run build",
     "release": "node scripts/pre-release.mjs",
     "test": "vitest run",
     "test:ui": "vitest --ui",
@@ -33,12 +34,14 @@
   "build": {
     "appId": "com.visualbox.app",
     "productName": "VisualBox",
+    "icon": "public/VBOXICON.ico",
     "directories": {
       "output": "dist-electron",
-      "buildResources": "build"
+      "buildResources": "public"
     },
     "files": [
       "electron/**/*",
+      "bin/**/*",
       "package.json",
       "node_modules/**/*"
     ],

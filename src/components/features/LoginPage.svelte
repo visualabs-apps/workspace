@@ -264,9 +264,9 @@
     <!-- Right Side - Illustration -->
     <div class="w-1/2 h-full relative overflow-hidden">
         <div class="w-full h-full rounded-tl-[6rem] overflow-hidden relative">
-            <img 
-                src="/login_img.png" 
-                alt="Login illustration" 
+            <img
+                src={`${import.meta.env.BASE_URL}login_img.png`}
+                alt="Login illustration"
                 class="w-full h-full object-cover"
             />
             <!-- Smooth opacity overlay for bottom left -->

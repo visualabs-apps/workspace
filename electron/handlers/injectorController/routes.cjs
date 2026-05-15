@@ -8,6 +8,7 @@ const { DownloadController } = require('./DownloadController.cjs');
 const { ConsoleController } = require('./ConsoleController.cjs');
 const { FileController } = require('./FileController.cjs');
 const { ContextController } = require('./ContextController.cjs');
+const { WebviewController } = require('./WebviewController.cjs');
 
 /**
  * @param {Function} getMainWindow - Function to get main window instance
@@ -15,7 +16,7 @@ const { ContextController } = require('./ContextController.cjs');
 function registerInjectorRoutes(getMainWindow) {
     console.log('🔧 Registering Script Injector routes...');
     
-    // CRUD for scripts
+    // ─── Script CRUD ─────────────────────────────────────────────
     
     ipcMain.handle('scripts-list', ScriptController.list);
     ipcMain.handle('scripts-save', ScriptController.save);
@@ -23,13 +24,13 @@ function registerInjectorRoutes(getMainWindow) {
     ipcMain.handle('scripts-delete', ScriptController.delete);
     ipcMain.handle('scripts-get-directory', ScriptController.getDirectory);
     
-    // Execute scripts in webview
+    // ─── Script Execution ────────────────────────────────────────
     
     ipcMain.handle('scripts-execute', (event, scriptId) => {
         return ExecutionController.execute(event, scriptId, getMainWindow);
     });
     
-    // Dynamic input window for collecting user data
+    // ─── Dynamic Input ───────────────────────────────────────────
     
     ipcMain.handle('script-open-input', (event, config) => {
         return InputController.open(event, config, getMainWindow);
@@ -37,50 +38,115 @@ function registerInjectorRoutes(getMainWindow) {
     
     ipcMain.on('script-input-response', InputController.handleResponse);
     
-    // Capture element screenshots
+    // ─── Screenshots ─────────────────────────────────────────────
     
     ipcMain.handle('webview-screenshot', (event, options) => {
         return ScreenshotController.capture(event, options, getMainWindow);
     });
     
-    // Template-based and from-scratch PowerPoint generation
+    // ─── PowerPoint ──────────────────────────────────────────────
     
     ipcMain.handle('generate-powerpoint', PowerPointController.generate);
     ipcMain.handle('ppt-process-template', PowerPointController.processTemplate);
     ipcMain.handle('ppt-list-templates', PowerPointController.listTemplates);
     ipcMain.handle('ppt-get-templates-dir', PowerPointController.getTemplatesDir);
     
-    // Add generated files to download manager
+    // ─── Downloads ───────────────────────────────────────────────
     
     ipcMain.handle('script-add-to-downloads', (event, fileInfo) => {
         return DownloadController.addToDownloads(event, fileInfo, getMainWindow);
     });
     
-    // Save file to Downloads folder
+    // ─── File Save ───────────────────────────────────────────────
     
     ipcMain.handle('save-file', FileController.saveFile);
     
-    // Forward webview console logs to main window
+    // ─── Console Forwarding ──────────────────────────────────────
     
     ipcMain.on('webview-console-log', (event, data) => {
         ConsoleController.handleLog(event, data, getMainWindow);
     });
     
-    // Get workspace/profile context
+    // ─── Workspace Context ───────────────────────────────────────
     
     ipcMain.handle('get-workspace-context', (event) => {
         return ContextController.getWorkspaceContext(event, getMainWindow);
     });
     
+    // ─── Navigation (webview → main process) ─────────────────────
+    
+    ipcMain.handle('webview-navigate', (event, url) => {
+        return WebviewController.navigate(event, url);
+    });
+    
+    ipcMain.handle('webview-go-back', (event) => {
+        return WebviewController.goBack(event);
+    });
+    
+    ipcMain.handle('webview-go-forward', (event) => {
+        return WebviewController.goForward(event);
+    });
+    
+    ipcMain.handle('webview-reload', (event) => {
+        return WebviewController.reload(event);
+    });
+    
+    // ─── Cookies (webview session) ───────────────────────────────
+    
+    ipcMain.handle('webview-get-cookies', (event, filter) => {
+        return WebviewController.getCookies(event, filter);
+    });
+    
+    ipcMain.handle('webview-set-cookie', (event, cookie) => {
+        return WebviewController.setCookie(event, cookie);
+    });
+    
+    // ─── Dialog Handling ─────────────────────────────────────────
+    
+    ipcMain.handle('webview-handle-dialog', (event, options) => {
+        return WebviewController.handleDialog(event, options);
+    });
+    
+    ipcMain.handle('webview-clear-dialog-handler', (event) => {
+        return WebviewController.clearDialogHandler(event);
+    });
+    
+    // ─── Profile / Tab Management (MCP-ready) ────────────────────
+    
+    ipcMain.handle('webview-list-profiles', (event) => {
+        return WebviewController.listProfiles(event, getMainWindow);
+    });
+    
+    ipcMain.handle('webview-list-tabs', (event) => {
+        return WebviewController.listTabs(event, getMainWindow);
+    });
+    
+    ipcMain.handle('webview-switch-tab', (event, tabId) => {
+        return WebviewController.switchTab(event, tabId, getMainWindow);
+    });
+    
+    ipcMain.handle('webview-get-page-info', (event, tabId) => {
+        return WebviewController.getPageInfo(event, tabId, getMainWindow);
+    });
+    
+    // ─── MCP-level Navigation (main window → specific webview) ───
+    
+    ipcMain.handle('mcp-navigate-and-wait', (event, params) => {
+        return WebviewController.navigateAndWait(event, params, getMainWindow);
+    });
+    
     console.log('✅ Script Injector routes registered');
     console.log('📋 Available routes:');
-    console.log('   - scripts-list, scripts-save, scripts-load, scripts-delete');
-    console.log('   - scripts-execute, scripts-get-directory');
-    console.log('   - script-open-input, script-input-response');
-    console.log('   - webview-screenshot');
-    console.log('   - generate-powerpoint, ppt-process-template, ppt-list-templates, ppt-get-templates-dir');
-    console.log('   - script-add-to-downloads, save-file');
-    console.log('   - webview-console-log, get-workspace-context');
+    console.log('   Script CRUD: scripts-list, scripts-save, scripts-load, scripts-delete, scripts-get-directory');
+    console.log('   Execution: scripts-execute, script-open-input, script-input-response');
+    console.log('   Media: webview-screenshot, generate-powerpoint, ppt-*');
+    console.log('   Files: save-file, script-add-to-downloads');
+    console.log('   Console: webview-console-log, get-workspace-context');
+    console.log('   Navigation: webview-navigate, webview-go-back, webview-go-forward, webview-reload');
+    console.log('   Cookies: webview-get-cookies, webview-set-cookie');
+    console.log('   Dialogs: webview-handle-dialog, webview-clear-dialog-handler');
+    console.log('   Tabs: webview-list-profiles, webview-list-tabs, webview-switch-tab, webview-get-page-info');
+    console.log('   MCP: mcp-navigate-and-wait');
 }
 
 

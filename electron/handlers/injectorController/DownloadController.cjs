@@ -1,4 +1,5 @@
 const fsSync = require('fs');
+const { v4: uuidv4 } = require('uuid');
 
 class DownloadController {
     static async addToDownloads(event, fileInfo, getMainWindow) {
@@ -17,27 +18,52 @@ class DownloadController {
             const stats = fsSync.statSync(fileInfo.filepath);
             const fileSize = stats.size;
             
-            const { v4: uuidv4 } = require('uuid');
             const downloadId = uuidv4();
             
-            db.prepare(`
-                INSERT INTO downloads (
-                    id, filename, url, save_path, total_bytes, received_bytes,
-                    state, start_time, end_time, created_at, file_exists
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-                downloadId,
-                fileInfo.filename,
-                fileInfo.url || 'vbox://script-injector',
-                fileInfo.filepath,
-                fileSize,
-                fileSize,
-                'complete',
-                now,
-                now,
-                now,
-                1
-            );
+            // Try to get profile_id from fileInfo or workspace context
+            const profileId = fileInfo.profile_id || fileInfo.workspaceId || null;
+            
+            if (profileId) {
+                db.prepare(`
+                    INSERT INTO downloads (
+                        id, profile_id, filename, url, save_path, total_bytes, received_bytes,
+                        state, start_time, end_time, created_at, file_exists
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                    downloadId,
+                    profileId,
+                    fileInfo.filename,
+                    fileInfo.url || 'vbox://script-injector',
+                    fileInfo.filepath,
+                    fileSize,
+                    fileSize,
+                    'complete',
+                    now,
+                    now,
+                    now,
+                    1
+                );
+            } else {
+                // Insert without profile_id (backward compatible)
+                db.prepare(`
+                    INSERT INTO downloads (
+                        id, filename, url, save_path, total_bytes, received_bytes,
+                        state, start_time, end_time, created_at, file_exists
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `).run(
+                    downloadId,
+                    fileInfo.filename,
+                    fileInfo.url || 'vbox://script-injector',
+                    fileInfo.filepath,
+                    fileSize,
+                    fileSize,
+                    'complete',
+                    now,
+                    now,
+                    now,
+                    1
+                );
+            }
             
             console.log('✅ File added to download manager');
             

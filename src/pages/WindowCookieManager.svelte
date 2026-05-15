@@ -5,7 +5,21 @@
 
     const WINDOW_ID = 'cookie-manager-window';
 
-    
+    let partition = $state('');
+    let isOpen = $state(false);
+
+    // Receive data from parent window via IPC
+    $effect(() => {
+        const handleWindowData = (data) => {
+            console.log('[CookieManager] Received data:', data);
+            if (data.partition) partition = data.partition;
+            isOpen = true;
+        };
+
+        if (window.api?.onWindowData) {
+            window.api.onWindowData(handleWindowData);
+        }
+    });
 
     let cookies = $state([]);
     let isLoading = $state(false);
@@ -16,6 +30,9 @@
     let editingJson = $state("");
     let showImportModal = $state(false);
     let importJson = $state("");
+    let isEncryptedImport = $state(false);
+    let importPassword = $state("");
+    let isImporting = $state(false);
 
     // Filter cookies by search
     let filteredCookies = $derived(() => {
@@ -156,12 +173,46 @@
         }
     }
 
+    // Detect if JSON is Cookie-Editor encrypted format
+    function detectEncryptedFormat(parsed) {
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            && parsed.url && parsed.version && parsed.data && typeof parsed.data === 'string';
+    }
+
     async function importCookie() {
+        if (isImporting) return;
+        isImporting = true;
+        
         try {
             const parsedData = JSON.parse(importJson);
+            let cookiesToImport;
             
-            // Check if it's an array of cookies or single cookie
-            const cookiesToImport = Array.isArray(parsedData) ? parsedData : [parsedData];
+            // Check if it's Cookie-Editor encrypted format: {url, version, data}
+            if (detectEncryptedFormat(parsedData)) {
+                if (!importPassword.trim()) {
+                    toastStore.error('Password is required to decrypt this cookie export');
+                    isImporting = false;
+                    return;
+                }
+                
+                try {
+                    const result = await window.api.db.decryptCookieExport(parsedData.data, importPassword);
+                    if (!result.success) {
+                        toastStore.error(result.error || 'Decryption failed');
+                        isImporting = false;
+                        return;
+                    }
+                    cookiesToImport = Array.isArray(result.cookies) ? result.cookies : [result.cookies];
+                } catch (error) {
+                    console.error('Decryption error:', error);
+                    toastStore.error('Failed to decrypt: wrong password or corrupted data');
+                    isImporting = false;
+                    return;
+                }
+            } else {
+                // Plain cookie array or single cookie
+                cookiesToImport = Array.isArray(parsedData) ? parsedData : [parsedData];
+            }
             
             let successCount = 0;
             let failCount = 0;
@@ -198,6 +249,8 @@
                 toastStore.success(`${successCount} cookie(s) imported successfully`);
                 showImportModal = false;
                 importJson = "";
+                importPassword = "";
+                isEncryptedImport = false;
                 await loadCookies();
             }
             
@@ -211,6 +264,8 @@
         } catch (error) {
             console.error('Import cookie error:', error);
             toastStore.error('Invalid JSON format');
+        } finally {
+            isImporting = false;
         }
     }
 
@@ -415,27 +470,54 @@
                 <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4" onclick={(e) => e.stopPropagation()}>
                     <div class="px-6 py-4 border-b border-gray-200">
                         <h3 class="text-lg font-semibold text-gray-900">Import Cookie</h3>
-                        <p class="text-sm text-gray-500 mt-1">Paste cookie JSON below</p>
+                        <p class="text-sm text-gray-500 mt-1">
+                            {#if isEncryptedImport}
+                                🔒 Cookie-Editor encrypted format detected — enter password to decrypt
+                            {:else}
+                                Paste cookie JSON below (plain array or Cookie-Editor format)
+                            {/if}
+                        </p>
                     </div>
-                    <div class="p-6">
+                    <div class="p-6 space-y-4">
                         <textarea
                             bind:value={importJson}
-                            class="w-full h-64 p-3 text-sm font-mono bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-                            placeholder={`{\n  "name": "cookie_name",\n  "value": "cookie_value",\n  "domain": ".example.com",\n  "path": "/",\n  "secure": true,\n  "httpOnly": false\n}`}
+                            oninput={() => {
+                                try {
+                                    const parsed = JSON.parse(importJson);
+                                    isEncryptedImport = detectEncryptedFormat(parsed);
+                                } catch {
+                                    isEncryptedImport = false;
+                                }
+                            }}
+                            class="w-full h-48 p-3 text-sm font-mono bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                            placeholder={`Paste cookie JSON here...\n\nSupported formats:\n• Array: [{name, value, domain, ...}, ...]\n• Cookie-Editor encrypted: {url, version, data}\n• Single cookie: {name, value, domain, ...}`}
                         ></textarea>
+                        {#if isEncryptedImport}
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Decryption Password</label>
+                                <input
+                                    type="password"
+                                    bind:value={importPassword}
+                                    class="w-full p-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                                    placeholder="Enter password used when exporting cookies"
+                                    onkeydown={(e) => { if (e.key === 'Enter') importCookie(); }}
+                                />
+                            </div>
+                        {/if}
                     </div>
                     <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
                         <button
-                            onclick={() => { showImportModal = false; importJson = ""; }}
+                            onclick={() => { showImportModal = false; importJson = ""; importPassword = ""; isEncryptedImport = false; }}
                             class="px-4 py-2 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
                         >
                             Cancel
                         </button>
                         <button
                             onclick={importCookie}
-                            class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                            disabled={isImporting || (isEncryptedImport && !importPassword.trim())}
+                            class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Import
+                            {isImporting ? 'Importing...' : isEncryptedImport ? 'Decrypt & Import' : 'Import'}
                         </button>
                     </div>
                 </div>

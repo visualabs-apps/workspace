@@ -69,9 +69,12 @@
         selectedClient = client;
         showClientDropdown = false;
         
-        // Notify parent window of client selection
-        if (window.api?.sendToParent) {
-            window.api.sendToParent('client-selected', client);
+        // Notify parent window of client selection (send only serializable data)
+        if (window.api?.sendToParent && client) {
+            const { id, name, email } = client;
+            window.api.sendToParent('client-selected', { id, name, email: email || '' });
+        } else if (window.api?.sendToParent) {
+            window.api.sendToParent('client-selected', null);
         }
         
         if (!profileName && client) {
@@ -98,8 +101,8 @@
             } else {
                 result = await createChromeProfile({
                     name: profileName.trim(),
-                    customerId: selectedClient?.id || null,
-                    userAgent: userAgent.trim() || null
+                    ...(selectedClient?.id ? { customerId: selectedClient.id } : {}),
+                    userAgent: userAgent.trim() || undefined
                 });
             }
 
@@ -109,7 +112,7 @@
                 // Notify parent window of success
                 if (window.api?.sendToParent) {
                     window.api.sendToParent('profile-success', {
-                        profile: result.profile,
+                        profile: result.data,
                         color: profileColor
                     });
                 }

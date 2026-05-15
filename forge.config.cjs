@@ -2,7 +2,7 @@ module.exports = {
   packagerConfig: {
     name: 'VisualBox',
     executableName: 'visualbox',
-    icon: './public/icon', // Path to icon (without extension, will use .ico on Windows)
+    icon: './public/VBOXICON', // Path to icon (without extension, will use .ico on Windows)
     asar: true,
   },
   rebuildConfig: {},
@@ -21,10 +21,8 @@ module.exports = {
         allowToChangeInstallationDirectory: true,
         
         // UI customization
-        installerIcon: './public/icon.ico',
-        uninstallerIcon: './public/icon.ico',
-        installerHeader: './public/installer-header.bmp', // Optional: 150x57 BMP
-        installerSidebar: './public/installer-sidebar.bmp', // Optional: 164x314 BMP
+        installerIcon: './public/VBOXICON.ico',
+        uninstallerIcon: './public/VBOXICON.ico',
         
         // Shortcuts
         createDesktopShortcut: true,

@@ -239,18 +239,19 @@ function registerDatabaseHandlers() {
             let downloads;
             
             if (profileId === null || profileId === 'all') {
-                // Get all downloads
+                // Get all downloads (exclude orphans without profile_id)
                 stmt = db.prepare(`
                     SELECT * FROM downloads
+                    WHERE profile_id IS NOT NULL
                     ORDER BY start_time DESC
                     LIMIT 1000
                 `);
                 downloads = stmt.all();
             } else {
-                // Get downloads for specific profile
+                // Get downloads for specific profile only
                 stmt = db.prepare(`
                     SELECT * FROM downloads
-                    WHERE profile_id = ? OR profile_id IS NULL
+                    WHERE profile_id = ?
                     ORDER BY start_time DESC
                     LIMIT 1000
                 `);
@@ -292,6 +293,49 @@ function registerDatabaseHandlers() {
             return { success: true };
         } catch (error) {
             console.error('db-clear-downloads error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Clear ALL local data on logout (multi-user safety)
+    ipcMain.handle('clear-all-local-data', async () => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            
+            console.log('🧹 Clearing all local data for user logout...');
+            
+            const tables = ['downloads', 'tabs', 'bookmarks', 'profile_colors', 'app_settings'];
+            for (const table of tables) {
+                try {
+                    db.exec(`DELETE FROM ${table}`);
+                    console.log(`  ✅ Cleared table: ${table}`);
+                } catch (e) {
+                    console.log(`  ⚠️ Skipped table: ${table} (${e.message})`);
+                }
+            }
+            
+            console.log('✅ All local data cleared');
+            return { success: true };
+        } catch (error) {
+            console.error('clear-all-local-data error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Cleanup orphaned downloads (no profile_id) - called on app start
+    ipcMain.handle('cleanup-orphan-downloads', async () => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            
+            const stmt = db.prepare('DELETE FROM downloads WHERE profile_id IS NULL');
+            const result = stmt.run();
+            
+            if (result.changes > 0) {
+                console.log(`🧹 Cleaned up ${result.changes} orphaned downloads`);
+            }
+            return { success: true, removed: result.changes };
+        } catch (error) {
+            console.error('cleanup-orphan-downloads error:', error);
             return { success: false, error: error.message };
         }
     });

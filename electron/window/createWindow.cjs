@@ -21,6 +21,7 @@ function createWindow(isDevEnvironment, aria2) {
     mainWindow = new BrowserWindow({
         width: 1300,
         height: 600,
+        icon: path.join(__dirname, '..', '..', 'public', 'VBOXICON.ico'),
         webPreferences: {
             preload: path.join(__dirname, '..', 'preload.cjs'),
             webviewTag: true,
@@ -419,7 +420,7 @@ function createWindow(isDevEnvironment, aria2) {
                             tray.displayBalloon({
                                 title: 'VisualBox',
                                 content: 'VisualBox is still running in the background. Click the tray icon to open.',
-                                icon: path.join(__dirname, '..', '..', 'public', 'icon.ico')
+                                icon: path.join(__dirname, '..', '..', 'public', 'VBOXICON.ico')
                             });
                         } catch (e) {
                             // Ignore balloon errors
