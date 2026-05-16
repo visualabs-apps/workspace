@@ -33,6 +33,76 @@
     let isEncryptedImport = $state(false);
     let importPassword = $state("");
     let isImporting = $state(false);
+    let isDragOver = $state(false);
+
+    function handleDragOver(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        isDragOver = true;
+    }
+
+    function handleDragLeave(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        isDragOver = false;
+    }
+
+    function handleDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        isDragOver = false;
+
+        const files = e.dataTransfer?.files;
+        if (!files || files.length === 0) return;
+
+        const file = files[0];
+        if (!file.name.endsWith('.json') && file.type !== 'application/json') {
+            toastStore.error('Please drop a .json file');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const content = event.target.result;
+            importJson = content;
+
+            // Auto-detect format
+            try {
+                const parsed = JSON.parse(content);
+                isEncryptedImport = detectEncryptedFormat(parsed);
+            } catch {
+                isEncryptedImport = false;
+            }
+
+            toastStore.success(`File loaded: ${file.name}`);
+        };
+        reader.onerror = () => {
+            toastStore.error('Failed to read file');
+        };
+        reader.readAsText(file);
+    }
+
+    function handleFileSelect(e) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const content = event.target.result;
+            importJson = content;
+
+            try {
+                const parsed = JSON.parse(content);
+                isEncryptedImport = detectEncryptedFormat(parsed);
+            } catch {
+                isEncryptedImport = false;
+            }
+
+            toastStore.success(`File loaded: ${file.name}`);
+        };
+        reader.readAsText(file);
+        e.target.value = ''; // Reset so same file can be selected again
+    }
 
     // Filter cookies by search
     let filteredCookies = $derived(() => {
@@ -479,19 +549,44 @@
                         </p>
                     </div>
                     <div class="p-6 space-y-4">
-                        <textarea
-                            bind:value={importJson}
-                            oninput={() => {
-                                try {
-                                    const parsed = JSON.parse(importJson);
-                                    isEncryptedImport = detectEncryptedFormat(parsed);
-                                } catch {
-                                    isEncryptedImport = false;
-                                }
-                            }}
-                            class="w-full h-48 p-3 text-sm font-mono bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-                            placeholder={`Paste cookie JSON here...\n\nSupported formats:\n• Array: [{name, value, domain, ...}, ...]\n• Cookie-Editor encrypted: {url, version, data}\n• Single cookie: {name, value, domain, ...}`}
-                        ></textarea>
+                        <!-- Drop Zone -->
+                        <div
+                            class="relative rounded-lg border-2 border-dashed transition-colors {isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}"
+                            ondragover={handleDragOver}
+                            ondragleave={handleDragLeave}
+                            ondrop={handleDrop}
+                        >
+                            {#if isDragOver}
+                                <div class="absolute inset-0 flex items-center justify-center bg-blue-50/80 rounded-lg z-10">
+                                    <div class="text-center">
+                                        <svg class="mx-auto h-10 w-10 text-blue-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                        </svg>
+                                        <p class="text-sm font-medium text-blue-700">Drop JSON file here</p>
+                                    </div>
+                                </div>
+                            {/if}
+                            <textarea
+                                bind:value={importJson}
+                                oninput={() => {
+                                    try {
+                                        const parsed = JSON.parse(importJson);
+                                        isEncryptedImport = detectEncryptedFormat(parsed);
+                                    } catch {
+                                        isEncryptedImport = false;
+                                    }
+                                }}
+                                class="w-full h-48 p-3 text-sm font-mono bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-900 resize-none"
+                                placeholder="Paste cookie JSON or drag & drop a .json file here..."
+                            ></textarea>
+                            <!-- File input overlay -->
+                            <div class="absolute bottom-2 right-2 flex gap-2">
+                                <label class="px-2.5 py-1 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer text-gray-600 shadow-sm">
+                                    📁 Browse file
+                                    <input type="file" accept=".json,application/json" onchange={handleFileSelect} class="hidden" />
+                                </label>
+                            </div>
+                        </div>
                         {#if isEncryptedImport}
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Decryption Password</label>

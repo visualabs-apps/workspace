@@ -1,9 +1,11 @@
 <script>
     import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
-    import { Code, Play, Save, Trash2, FileCode, FolderOpen, Download, BookOpen, Copy, Check, Terminal, Wand2, X, ClipboardCopy } from "lucide-svelte";
+    import { Code, Play, Save, Trash2, FileCode, FolderOpen, Download, BookOpen, Copy, Check, Terminal, Wand2, X } from "lucide-svelte";
     import { toastStore } from "../lib/managers/toast.svelte.js";
     import { workspaceStore } from "../lib/stores/workspaces.svelte.js";
     import CodeEditor from "../components/ui/CodeEditor.svelte";
+    import ScriptConsolePanel from "../components/panels/ScriptConsolePanel.svelte";
+    import VBoxApiDocsPanel from "../components/panels/VBoxApiDocsPanel.svelte";
     import { onMount } from "svelte";
 
     const WINDOW_ID = 'inject-script-window';
@@ -22,40 +24,6 @@
     let scriptsDirectory = $state("");
     let copiedSection = $state(null);
     let codeEditor = $state(null);
-    
-    // Console state
-    let consoleLogs = $state([]);
-    let copiedLogId = $state(null);
-    
-    // Copy single log line
-    async function copyLogLine(log) {
-        try {
-            await navigator.clipboard.writeText(`[${log.timestamp}] ${log.level}: ${log.message}`);
-            copiedLogId = log.id;
-            setTimeout(() => {
-                copiedLogId = null;
-            }, 2000);
-        } catch (error) {
-            console.error('Failed to copy log:', error);
-        }
-    }
-    
-    // Copy all logs
-    async function copyAllLogs() {
-        try {
-            const allLogsText = consoleLogs
-                .map(log => `[${log.timestamp}] ${log.level}: ${log.message}`)
-                .join('\n');
-            await navigator.clipboard.writeText(allLogsText);
-            toastStore.success('All logs copied to clipboard');
-        } catch (error) {
-            console.error('Failed to copy all logs:', error);
-            toastStore.error('Failed to copy logs');
-        }
-    }
-    
-    // Documentation state
-    let copiedApi = $state(null);
 
     // Get active workspace
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
@@ -75,29 +43,8 @@
     });
 
     function setupConsoleListener() {
-        window.__VBOX_ADD_CONSOLE_LOG__ = (level, message) => {
-            consoleLogs = [...consoleLogs, {
-                id: Date.now() + Math.random(),
-                level,
-                message,
-                timestamp: new Date().toLocaleTimeString()
-            }];
-        };
-        
-        if (window.api?.onScriptConsole) {
-            const removeListener = window.api.onScriptConsole((data) => {
-                const { level, message } = data;
-                consoleLogs = [...consoleLogs, {
-                    id: Date.now() + Math.random(),
-                    level: level || 'log',
-                    message: message,
-                    timestamp: new Date().toLocaleTimeString()
-                }];
-            });
-            
-            return removeListener;
-        }
-        
+        // Console listener is now handled by ScriptConsolePanel component
+        // via window.__VBOX_ADD_CONSOLE_LOG__ global
         return () => {};
     }
     
@@ -273,12 +220,7 @@
         isExecuting = true;
         
         // Add log that script is starting
-        consoleLogs = [...consoleLogs, {
-            id: Date.now() + Math.random(),
-            level: 'info',
-            message: 'Executing script...',
-            timestamp: new Date().toLocaleTimeString()
-        }];
+        if (window.__VBOX_ADD_CONSOLE_LOG__) window.__VBOX_ADD_CONSOLE_LOG__('info', 'Executing script...');
         
         // Switch to console tab
         activeTab = 'console';
@@ -290,57 +232,32 @@
                 toastStore.success("Script berhasil dijalankan");
                 
                 // Add success log
-                consoleLogs = [...consoleLogs, {
-                    id: Date.now() + Math.random(),
-                    level: 'log',
-                    message: 'Script executed successfully',
-                    timestamp: new Date().toLocaleTimeString()
-                }];
+                if (window.__VBOX_ADD_CONSOLE_LOG__) window.__VBOX_ADD_CONSOLE_LOG__('log', 'Script executed successfully');
                 
                 if (result.result !== undefined) {
                     // Add result to console
-                    consoleLogs = [...consoleLogs, {
-                        id: Date.now() + Math.random(),
-                        level: 'log',
-                        message: `Result: ${JSON.stringify(result.result, null, 2)}`,
-                        timestamp: new Date().toLocaleTimeString()
-                    }];
+                    if (window.__VBOX_ADD_CONSOLE_LOG__) window.__VBOX_ADD_CONSOLE_LOG__('log', 'Result: ' + JSON.stringify(result.result, null, 2));
                     console.log("Script result:", result.result);
                 }
                 
                 // Add console logs from script if available
                 if (result.consoleLogs && Array.isArray(result.consoleLogs)) {
                     result.consoleLogs.forEach(log => {
-                        consoleLogs = [...consoleLogs, {
-                            id: Date.now() + Math.random(),
-                            level: log.level || 'log',
-                            message: log.message,
-                            timestamp: new Date().toLocaleTimeString()
-                        }];
+                        if (window.__VBOX_ADD_CONSOLE_LOG__) window.__VBOX_ADD_CONSOLE_LOG__(log.level || 'log', log.message);
                     });
                 }
             } else {
                 toastStore.error(`Gagal menjalankan script: ${result.error}`);
                 
                 // Add error log
-                consoleLogs = [...consoleLogs, {
-                    id: Date.now() + Math.random(),
-                    level: 'error',
-                    message: `Error: ${result.error}`,
-                    timestamp: new Date().toLocaleTimeString()
-                }];
+                if (window.__VBOX_ADD_CONSOLE_LOG__) window.__VBOX_ADD_CONSOLE_LOG__('error', 'Error: ' + result.error);
             }
         } catch (error) {
             console.error("Failed to execute script:", error);
             toastStore.error("Gagal menjalankan script");
             
             // Add error log
-            consoleLogs = [...consoleLogs, {
-                id: Date.now() + Math.random(),
-                level: 'error',
-                message: `Exception: ${error.message}`,
-                timestamp: new Date().toLocaleTimeString()
-            }];
+            if (window.__VBOX_ADD_CONSOLE_LOG__) window.__VBOX_ADD_CONSOLE_LOG__('error', 'Exception: ' + error.message);
         } finally {
             isExecuting = false;
         }
@@ -508,9 +425,6 @@ return { success: true, links: links.length, images: images.length };`;
                     <div class="flex items-center gap-2">
                         <Terminal size={14} />
                         Console
-                        {#if consoleLogs.length > 0}
-                            <span class="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-600 rounded-full">{consoleLogs.length}</span>
-                        {/if}
                     </div>
                 </button>
                 <button
@@ -633,127 +547,11 @@ vbox.toast('Script running', 'info');"
             </div>
         </div>
             {:else if activeTab === 'console'}
-                <!-- Console Tab -->
-                <div class="flex flex-col h-full p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-sm font-semibold text-gray-900">Script Console</h3>
-                        <div class="flex items-center gap-2">
-                            <button
-                                onclick={copyAllLogs}
-                                disabled={consoleLogs.length === 0}
-                                class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors flex items-center gap-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                title="Copy all logs"
-                            >
-                                <ClipboardCopy size={14} />
-                                Copy All
-                            </button>
-                            <button
-                                onclick={() => consoleLogs = []}
-                                class="px-3 py-1.5 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center gap-2 font-medium"
-                            >
-                                <Trash2 size={14} />
-                                Clear
-                            </button>
-                        </div>
-                    </div>
-                    <div class="flex-1 overflow-y-auto bg-gray-900 rounded-lg p-4 font-mono text-sm">
-                        {#if consoleLogs.length === 0}
-                            <div class="text-gray-500 text-center py-8">No console output yet</div>
-                        {:else}
-                            {#each consoleLogs as log}
-                                <div class="mb-2 flex items-start gap-2 group hover:bg-gray-800 px-2 py-1 rounded transition-colors">
-                                    <div class="flex-1 {log.level === 'error' ? 'text-red-400' : log.level === 'warn' ? 'text-yellow-400' : 'text-green-400'}">
-                                        <span class="text-gray-500">[{log.timestamp}]</span>
-                                        <span class="text-gray-400 ml-2">{log.level}:</span>
-                                        <span class="ml-2">{log.message}</span>
-                                    </div>
-                                    <button
-                                        onclick={() => copyLogLine(log)}
-                                        class="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-700 rounded transition-all text-gray-400 hover:text-white"
-                                        title="Copy this line"
-                                    >
-                                        {#if copiedLogId === log.id}
-                                            <Check size={14} class="text-green-400" />
-                                        {:else}
-                                            <Copy size={14} />
-                                        {/if}
-                                    </button>
-                                </div>
-                            {/each}
-                        {/if}
-                    </div>
-                </div>
+                <!-- Console Tab — uses shared ScriptConsolePanel -->
+                <ScriptConsolePanel showHeader={true} />
             {:else if activeTab === 'docs'}
-                <!-- API Documentation Tab -->
-                <div class="flex flex-col h-full p-6 overflow-y-auto">
-                    <h3 class="text-lg font-semibold text-gray-900 mb-4">VBox API Documentation</h3>
-                    <div class="space-y-6">
-                        <!-- Navigation API -->
-                        <div class="border border-gray-200 rounded-lg p-4">
-                            <h4 class="font-semibold text-gray-900 mb-2">Navigation</h4>
-                            <div class="space-y-3 text-sm">
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.navigate(url)</code>
-                                    <p class="text-gray-600 mt-1">Navigate to a URL</p>
-                                </div>
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.back()</code>
-                                    <p class="text-gray-600 mt-1">Go back in history</p>
-                                </div>
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.forward()</code>
-                                    <p class="text-gray-600 mt-1">Go forward in history</p>
-                                </div>
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.reload()</code>
-                                    <p class="text-gray-600 mt-1">Reload current page</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- DOM Interaction -->
-                        <div class="border border-gray-200 rounded-lg p-4">
-                            <h4 class="font-semibold text-gray-900 mb-2">DOM Interaction</h4>
-                            <div class="space-y-3 text-sm">
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.click(selector)</code>
-                                    <p class="text-gray-600 mt-1">Click an element</p>
-                                </div>
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.type(selector, text)</code>
-                                    <p class="text-gray-600 mt-1">Type text into an input</p>
-                                </div>
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.getText(selector)</code>
-                                    <p class="text-gray-600 mt-1">Get text content of an element</p>
-                                </div>
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.waitFor(selector, timeout)</code>
-                                    <p class="text-gray-600 mt-1">Wait for an element to appear</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Utility -->
-                        <div class="border border-gray-200 rounded-lg p-4">
-                            <h4 class="font-semibold text-gray-900 mb-2">Utility</h4>
-                            <div class="space-y-3 text-sm">
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.sleep(ms)</code>
-                                    <p class="text-gray-600 mt-1">Wait for specified milliseconds</p>
-                                </div>
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.toast(message, type)</code>
-                                    <p class="text-gray-600 mt-1">Show toast notification (success, error, info, warning)</p>
-                                </div>
-                                <div>
-                                    <code class="bg-gray-100 px-2 py-1 rounded">vbox.screenshot()</code>
-                                    <p class="text-gray-600 mt-1">Take a screenshot</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <!-- API Documentation Tab — uses shared VBoxApiDocsPanel -->
+                <VBoxApiDocsPanel />
             {/if}
         </div>
 
