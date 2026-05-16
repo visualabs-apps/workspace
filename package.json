@@ -34,7 +34,7 @@
   "build": {
     "appId": "com.visualbox.app",
     "productName": "VisualBox",
-    "icon": "public/VBOXICON.ico",
+    "icon": "public/VBOXICON.png",
     "directories": {
       "output": "dist-electron",
       "buildResources": "public"

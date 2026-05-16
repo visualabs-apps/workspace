@@ -80,10 +80,6 @@ const api = {
 
     // App Settings
     settings: {
-        setLaunchOnStartup: (enabled) => ipcRenderer.invoke('settings-launch-on-startup', enabled),
-        getLaunchOnStartup: () => ipcRenderer.invoke('settings-get-launch-on-startup'),
-        setMinimizeToTray: (enabled) => ipcRenderer.invoke('settings-minimize-to-tray', enabled),
-        getMinimizeToTray: () => ipcRenderer.invoke('settings-get-minimize-to-tray'),
         setShowNotifications: (enabled) => ipcRenderer.invoke('settings-show-notifications', enabled),
         getShowNotifications: () => ipcRenderer.invoke('settings-get-show-notifications'),
         setTabLifetime: (minutes) => ipcRenderer.invoke('settings-tab-lifetime', minutes),

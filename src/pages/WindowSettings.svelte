@@ -11,8 +11,6 @@
     // Settings state
     let tabLifetime = $state("30"); // minutes or "forever" for unlimited
     let defaultSearchEngine = $state("google");
-    let launchOnStartup = $state(false);
-    let minimizeToTray = $state(false);
     let showNotifications = $state(true);
     
     const tabs = [
@@ -35,8 +33,6 @@
     async function handleSave() {
         console.log('[WindowSettings] handleSave called');
         console.log('[WindowSettings] Current settings:', {
-            launchOnStartup,
-            minimizeToTray,
             showNotifications,
             tabLifetime,
             defaultSearchEngine
@@ -44,14 +40,6 @@
         
         try {
             // Save general settings
-            console.log('[WindowSettings] Saving launch on startup...');
-            const launchResult = await window.api.settings.setLaunchOnStartup(launchOnStartup);
-            console.log('[WindowSettings] Launch result:', launchResult);
-            
-            console.log('[WindowSettings] Saving minimize to tray...');
-            const trayResult = await window.api.settings.setMinimizeToTray(minimizeToTray);
-            console.log('[WindowSettings] Tray result:', trayResult);
-            
             console.log('[WindowSettings] Saving show notifications...');
             const notifResult = await window.api.settings.setShowNotifications(showNotifications);
             console.log('[WindowSettings] Notif result:', notifResult);
@@ -90,16 +78,6 @@
     async function loadSettings() {
         try {
             // Load general settings from electron
-            const launchResult = await window.api.settings.getLaunchOnStartup();
-            if (launchResult.success) {
-                launchOnStartup = launchResult.enabled;
-            }
-            
-            const trayResult = await window.api.settings.getMinimizeToTray();
-            if (trayResult.success) {
-                minimizeToTray = trayResult.enabled;
-            }
-            
             const notifResult = await window.api.settings.getShowNotifications();
             if (notifResult.success) {
                 showNotifications = notifResult.enabled;
@@ -185,30 +163,6 @@
                         </div>
                         
                         <div class="space-y-4">
-                            <label class="flex items-start gap-3 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
-                                    bind:checked={launchOnStartup}
-                                />
-                                <div>
-                                    <div class="text-sm font-medium text-gray-900">Launch on startup</div>
-                                    <div class="text-xs text-gray-500">Automatically start the application when you log in</div>
-                                </div>
-                            </label>
-                            
-                            <label class="flex items-start gap-3 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
-                                    bind:checked={minimizeToTray}
-                                />
-                                <div>
-                                    <div class="text-sm font-medium text-gray-900">Minimize to tray</div>
-                                    <div class="text-xs text-gray-500">Keep the app running in the system tray when minimized</div>
-                                </div>
-                            </label>
-                            
                             <label class="flex items-start gap-3 cursor-pointer">
                                 <input 
                                     type="checkbox" 

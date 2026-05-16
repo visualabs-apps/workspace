@@ -29,8 +29,7 @@ const { registerCookieHandlers } = require('./handlers/cookies.cjs');
 const { registerDownloadHandlers, handleAria2Download } = require('./handlers/downloads.cjs');
 const { registerInjectorRoutes } = require('./handlers/injectorController/routes.cjs');
 const { registerChildWindowHandlers } = require('./handlers/childWindows.cjs');
-const { createWindow, getMainWindow, setIsQuitting, setTray } = require('./window/createWindow.cjs');
-const { createTray } = require('./window/createTray.cjs');
+const { createWindow, getMainWindow, setIsQuitting } = require('./window/createWindow.cjs');
 const { handlePermissions } = require('./utils/permissions.cjs');
 const { checkForNewVersion } = require('./utils/versionCheck.cjs');
 const { registerSafeStorageHandlers } = require('./utils/safeStorage.cjs');
@@ -38,45 +37,6 @@ const { registerSafeStorageHandlers } = require('./utils/safeStorage.cjs');
 // IPC Handlers
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('get-app-path', () => app.getAppPath());
-
-ipcMain.on('update-badge-count', (event, count) => {
-    const tray = require('./window/createTray.cjs').getTray();
-    const mainWindow = getMainWindow();
-    
-    if (tray) {
-        if (count > 0) {
-            tray.setToolTip(`VisualBox (${count} unread)`);
-
-            if (process.platform === 'win32' && mainWindow) {
-                const { nativeImage } = require('electron');
-                mainWindow.setOverlayIcon(
-                    nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='),
-                    count.toString()
-                );
-            }
-        } else {
-            tray.setToolTip('VisualBox Browser');
-            if (process.platform === 'win32' && mainWindow) {
-                mainWindow.setOverlayIcon(null, '');
-            }
-        }
-    }
-});
-
-ipcMain.on('show-notification', (event, { title, body }) => {
-    const tray = require('./window/createTray.cjs').getTray();
-    const mainWindow = getMainWindow();
-    
-    if (tray && mainWindow && !mainWindow.isVisible()) {
-        if (process.platform === 'win32') {
-            tray.displayBalloon({
-                title: title || 'VisualBox',
-                content: body || '',
-                icon: path.join(__dirname, '..', 'public', 'VBOXICON.ico')
-            });
-        }
-    }
-});
 
 app.on('ready', async () => {
     console.log('🚀 App ready, initializing...');
@@ -146,9 +106,6 @@ app.on('ready', async () => {
             }
         });
     });
-    
-    const tray = createTray();
-    setTray(tray);
     
     const mainWindow = createWindow(isDevEnvironment, aria2);
 

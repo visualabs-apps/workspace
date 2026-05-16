@@ -1,83 +1,9 @@
-const { ipcMain, app } = require('electron');
+const { ipcMain } = require('electron');
 const { getDatabase } = require('../database/index.cjs');
 
 function registerSettingsHandlers() {
     const db = getDatabase();
     
-    // Launch on Startup
-    ipcMain.handle('settings-launch-on-startup', async (event, enabled) => {
-        try {
-            app.setLoginItemSettings({
-                openAtLogin: enabled,
-                openAsHidden: false
-            });
-            
-            // Save to database for persistence
-            if (db) {
-                const stmt = db.prepare(`
-                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
-                    VALUES (?, ?, ?)
-                `);
-                stmt.run('launchOnStartup', JSON.stringify(enabled), Date.now());
-            }
-            
-            return { success: true, enabled };
-        } catch (error) {
-            console.error('settings-launch-on-startup error:', error);
-            return { success: false, error: error.message };
-        }
-    });
-
-    ipcMain.handle('settings-get-launch-on-startup', async (event) => {
-        try {
-            const loginSettings = app.getLoginItemSettings();
-            return { success: true, enabled: loginSettings.openAtLogin };
-        } catch (error) {
-            console.error('settings-get-launch-on-startup error:', error);
-            return { success: false, error: error.message, enabled: false };
-        }
-    });
-
-    // Minimize to Tray
-    ipcMain.handle('settings-minimize-to-tray', async (event, enabled) => {
-        try {
-            // Save to database
-            if (db) {
-                const stmt = db.prepare(`
-                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
-                    VALUES (?, ?, ?)
-                `);
-                stmt.run('minimizeToTray', JSON.stringify(enabled), Date.now());
-            }
-            
-            return { success: true, enabled };
-        } catch (error) {
-            console.error('settings-minimize-to-tray error:', error);
-            return { success: false, error: error.message };
-        }
-    });
-
-    ipcMain.handle('settings-get-minimize-to-tray', async (event) => {
-        try {
-            if (!db) return { success: true, enabled: false };
-            
-            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
-            const row = stmt.get('minimizeToTray');
-            
-            if (!row) return { success: true, enabled: false };
-            
-            try {
-                const enabled = JSON.parse(row.value);
-                return { success: true, enabled };
-            } catch {
-                return { success: true, enabled: false };
-            }
-        } catch (error) {
-            console.error('settings-get-minimize-to-tray error:', error);
-            return { success: false, error: error.message, enabled: false };
-        }
-    });
-
     // Show Notifications
     ipcMain.handle('settings-show-notifications', async (event, enabled) => {
         try {

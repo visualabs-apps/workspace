@@ -21,7 +21,7 @@ function createWindow(isDevEnvironment, aria2) {
     mainWindow = new BrowserWindow({
         width: 1300,
         height: 600,
-        icon: path.join(__dirname, '..', '..', 'public', 'VBOXICON.ico'),
+        icon: path.join(__dirname, '..', '..', 'public', 'VBOXICON.png'),
         webPreferences: {
             preload: path.join(__dirname, '..', 'preload.cjs'),
             webviewTag: true,
@@ -394,45 +394,9 @@ function createWindow(isDevEnvironment, aria2) {
     mainWindow.on('close', async (event) => {
         if (!isQuitting) {
             event.preventDefault();
-            
-            // Check minimize to tray setting
-            let minimizeToTray = false;
-            try {
-                const db = getDatabase();
-                if (db) {
-                    const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
-                    const row = stmt.get('minimizeToTray');
-                    if (row) {
-                        minimizeToTray = JSON.parse(row.value);
-                    }
-                }
-            } catch (error) {
-                console.error('Error reading minimizeToTray setting:', error);
-            }
-            
-            if (minimizeToTray) {
-                mainWindow.hide();
-
-                if (process.platform === 'win32') {
-                    const tray = getTray();
-                    if (tray) {
-                        try {
-                            tray.displayBalloon({
-                                title: 'VisualBox',
-                                content: 'VisualBox is still running in the background. Click the tray icon to open.',
-                                icon: path.join(__dirname, '..', '..', 'public', 'VBOXICON.ico')
-                            });
-                        } catch (e) {
-                            // Ignore balloon errors
-                        }
-                    }
-                }
-            } else {
-                // If minimize to tray is disabled, quit the app
-                isQuitting = true;
-                const { app } = require('electron');
-                app.quit();
-            }
+            isQuitting = true;
+            const { app } = require('electron');
+            app.quit();
         }
         return false;
     });
@@ -473,19 +437,9 @@ function setIsQuitting(value) {
     isQuitting = value;
 }
 
-// Placeholder for tray reference (will be set from createTray)
-let trayRef = null;
-function setTray(tray) {
-    trayRef = tray;
-}
-function getTray() {
-    return trayRef;
-}
 
 module.exports = { 
     createWindow, 
     getMainWindow, 
-    setIsQuitting,
-    setTray,
-    getTray
+    setIsQuitting
 };

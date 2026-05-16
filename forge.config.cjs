@@ -2,7 +2,7 @@ module.exports = {
   packagerConfig: {
     name: 'VisualBox',
     executableName: 'visualbox',
-    icon: './public/VBOXICON', // Path to icon (without extension, will use .ico on Windows)
+    icon: './public/VBOXICON', // Path to icon (without extension, electron-forge auto-detects format)
     asar: true,
   },
   rebuildConfig: {},
@@ -21,8 +21,8 @@ module.exports = {
         allowToChangeInstallationDirectory: true,
         
         // UI customization
-        installerIcon: './public/VBOXICON.ico',
-        uninstallerIcon: './public/VBOXICON.ico',
+        installerIcon: './public/VBOXICON.png',
+        uninstallerIcon: './public/VBOXICON.png',
         
         // Shortcuts
         createDesktopShortcut: true,

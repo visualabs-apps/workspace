@@ -5,7 +5,7 @@ const { getMainWindow, setIsQuitting } = require('./createWindow.cjs');
 let tray = null;
 
 function createTray() {
-    const iconPath = path.join(__dirname, '..', '..', 'public', 'VBOXICON.ico');
+    const iconPath = path.join(__dirname, '..', '..', 'public', 'VBOXICON.png');
     const trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
 
     tray = new Tray(trayIcon);
