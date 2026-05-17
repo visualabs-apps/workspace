@@ -23,7 +23,6 @@ function getVboxApiInline() {
 
 class ExecutionController {
     static async execute(event, scriptId, getMainWindow) {
-        console.log('▶️ scripts-execute called for:', scriptId);
         try {
             const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : getMainWindow;
             
@@ -34,8 +33,6 @@ class ExecutionController {
             const codePath = path.join(SCRIPTS_DIR, `${scriptId}.js`);
             const scriptCode = await fs.readFile(codePath, 'utf-8');
             
-            console.log('🚀 Executing script in webview...');
-            console.log('📝 Script length:', scriptCode.length, 'characters');
             
             const vboxAPICode = getVboxApiInline();
             const userScriptCode = scriptCode;
@@ -131,7 +128,6 @@ class ExecutionController {
                 })()
             `);
             
-            console.log('✅ Execution completed:', executionResult);
             
             if (!executionResult.success && executionResult.error) {
                 console.error('❌ Script failed:', executionResult.error);

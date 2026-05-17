@@ -22,9 +22,6 @@ class NativeApiService {
 
     async request(method, endpoint, data = null, options = {}) {
         const url = this.buildUrl(endpoint);
-        const startTime = performance.now();
-
-        console.log(`[API] → ${method.toUpperCase()} ${url}`, data ? { data } : '');
 
         try {
             const headers = { ...this.defaultHeaders, ...options.headers };
@@ -44,12 +41,9 @@ class NativeApiService {
             };
 
             const response = await window.api.http.request(requestOptions);
-            const duration = Math.round(performance.now() - startTime);
-            console.log(`[API] ← ${method.toUpperCase()} ${url} ${response.status} (${duration}ms)`, response.data);
             return response;
 
         } catch (error) {
-            const duration = Math.round(performance.now() - startTime);
             let extractedError = error;
             
             if (error.message && error.message.includes('Error invoking remote method')) {
@@ -62,15 +56,12 @@ class NativeApiService {
                 }
             }
 
-            console.error(`[API] ✗ ${method.toUpperCase()} ${url} ${extractedError.status || 'ERR'} (${duration}ms)`, extractedError.message);
-
             if (extractedError.status === 401 && !options._retry) {
                 try {
-                    console.log('[API] ↻ Refreshing token...');
                     await this.refreshToken();
                     return this.request(method, endpoint, data, { ...options, _retry: true });
                 } catch (refreshError) {
-                    console.error('[API] ✗ Token refresh failed', refreshError.message);
+                    console.error('[API] Token refresh failed:', refreshError.message);
                     await this.clearAuth();
                     window.dispatchEvent(new CustomEvent('auth:logout'));
                     throw refreshError;

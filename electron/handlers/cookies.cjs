@@ -4,14 +4,12 @@ const crypto = require('crypto');
 function registerCookieHandlers() {
     ipcMain.handle('get-cookies-from-partition', async (event, partition) => {
         try {
-            console.log('🍪 Getting cookies from partition:', partition);
             
             const targetSession = partition 
                 ? session.fromPartition(partition)
                 : session.defaultSession;
             
             const cookies = await targetSession.cookies.get({});
-            console.log('🍪 Found', cookies.length, 'cookies');
             
             return cookies;
         } catch (error) {
@@ -22,7 +20,6 @@ function registerCookieHandlers() {
 
     ipcMain.handle('set-cookie-to-partition', async (event, partition, cookie) => {
         try {
-            console.log('🍪 Setting cookie to partition:', partition, cookie.name);
             
             // Validate required fields
             if (!cookie.name || typeof cookie.name !== 'string') {
@@ -74,7 +71,6 @@ function registerCookieHandlers() {
             
             // Flush cookie store
             await targetSession.cookies.flushStore();
-            console.log('🍪 Cookie set successfully:', cookie.name);
             
             return { success: true };
         } catch (error) {
@@ -83,24 +79,55 @@ function registerCookieHandlers() {
         }
     });
 
-    ipcMain.handle('delete-cookie-from-partition', async (event, partition, name, domain, path) => {
+    ipcMain.handle('delete-cookie-from-partition', async (event, partition, name, domain, path, secure) => {
         try {
-            console.log('🍪 Deleting cookie from partition:', partition, name);
             
-            const targetSession = partition 
+            const targetSession = partition
                 ? session.fromPartition(partition)
                 : session.defaultSession;
             
-            // Helper function to generate proper cookie URL
-            const protocol = 'https://';
+            // Clean domain (remove leading dot)
             const cleanDomain = domain.startsWith('.') ? domain.substring(1) : domain;
-            const url = protocol + cleanDomain;
             
-            await targetSession.cookies.remove(url, name);
+            // Determine protocol from the cookie's own secure flag
+            // If secure flag is explicitly provided, use it; otherwise try both
+            if (typeof secure === 'boolean') {
+                const protocol = secure ? 'https://' : 'http://';
+                const url = protocol + cleanDomain;
+                try {
+                    await targetSession.cookies.remove(url, name);
+                } catch (removeError) {
+                    // If the determined protocol fails, try the opposite
+                    const fallbackProtocol = secure ? 'http://' : 'https://';
+                    const fallbackUrl = fallbackProtocol + cleanDomain;
+                    try {
+                        await targetSession.cookies.remove(fallbackUrl, name);
+                    } catch (fallbackError) {
+                        console.warn('🍪 Cookie not found for deletion:', name, domain);
+                    }
+                }
+            } else {
+                // No secure flag provided - try both protocols
+                const urls = [`https://${cleanDomain}`, `http://${cleanDomain}`];
+                let deleted = false;
+                
+                for (const url of urls) {
+                    try {
+                        await targetSession.cookies.remove(url, name);
+                        deleted = true;
+                        break;
+                    } catch (removeError) {
+                        continue;
+                    }
+                }
+                
+                if (!deleted) {
+                    console.warn('🍪 Cookie not found for deletion:', name, domain);
+                }
+            }
             
             // Flush cookie store
             await targetSession.cookies.flushStore();
-            console.log('🍪 Cookie deleted successfully');
             
             return { success: true };
         } catch (error) {

@@ -4,7 +4,6 @@ function handlePermissions(session) {
     session.setPermissionRequestHandler(async (webContents, permission, callback) => {
         const url = webContents.getURL();
         
-        console.log(`🔔 Permission request: ${permission} from ${url}`);
 
         // Check notification setting for 'notifications' permission
         if (permission === 'notifications') {
@@ -18,15 +17,12 @@ function handlePermissions(session) {
                     if (row) {
                         showNotifications = JSON.parse(row.value);
                     }
-                    console.log(`🔔 Notification setting from DB: ${showNotifications}`);
                 } else {
-                    console.log('🔔 Database not initialized, defaulting to true');
                 }
             } catch (error) {
                 console.error('🔔 Error reading showNotifications setting:', error);
             }
             
-            console.log(`🔔 Notification permission ${showNotifications ? 'GRANTED' : 'DENIED'} for ${url}`);
             
             // Grant or deny permission based on setting
             callback(showNotifications);
@@ -36,10 +32,8 @@ function handlePermissions(session) {
         const allowedPermissions = ['media', 'geolocation', 'fullscreen'];
 
         if (allowedPermissions.includes(permission)) {
-            console.log(`✅ Permission granted: ${permission} for ${url}`);
             callback(true);
         } else {
-            console.log(`❌ Permission denied: ${permission} for ${url}`);
             callback(false);
         }
     });

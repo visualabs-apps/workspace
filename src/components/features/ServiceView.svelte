@@ -12,6 +12,9 @@
     // Global webview registry - persistent across component lifecycle
     const webviewRegistry = globalThis.webviewRegistry || (globalThis.webviewRegistry = new Map());
 
+    // Reload tracking - detect unwanted rapid reloads
+    const reloadTracker = globalThis.reloadTracker || (globalThis.reloadTracker = new Map());
+
     // Local state
     let container = $state(null);
     let webview = $state(null);
@@ -135,6 +138,41 @@
         };
 
         const handleDidReload = () => {
+            // Track reload events to detect unwanted rapid reloads
+            const now = Date.now();
+            const appId = app.id;
+            
+            if (!reloadTracker.has(appId)) {
+                reloadTracker.set(appId, { timestamps: [], url: app.url, suppressed: false });
+            }
+            
+            const tracker = reloadTracker.get(appId);
+            tracker.timestamps.push(now);
+            tracker.url = webviewElement.getURL?.() || app.url;
+            
+            // Keep only last 30 seconds of data
+            tracker.timestamps = tracker.timestamps.filter(t => now - t < 30000);
+            
+            // Count reloads in last 10 seconds
+            const recentReloads = tracker.timestamps.filter(t => now - t < 10000);
+            
+            if (recentReloads.length >= 5) {
+                console.error(
+                    `[RELOAD-DETECT] ⚠️ EXCESSIVE RELOADS detected on "${app.name}" (id: ${appId})\n` +
+                    `  URL: ${tracker.url}\n` +
+                    `  ${recentReloads.length} reloads in last 10 seconds\n` +
+                    `  This may indicate an infinite reload loop. Check for:\n` +
+                    `  - Security verification pages (Cloudflare, etc.)\n` +
+                    `  - JavaScript redirects that trigger on load\n` +
+                    `  - Service workers or meta refresh tags`
+                );
+                tracker.suppressed = true;
+            } else if (recentReloads.length >= 3) {
+                console.warn(
+                    `[RELOAD-DETECT] Frequent reloads on "${app.name}" (id: ${appId}): ` +
+                    `${recentReloads.length} reloads in 10s — URL: ${tracker.url}`
+                );
+            }
         };
 
         const handleDidStopLoading = () => {
@@ -148,11 +186,35 @@
             let url = null;
             try {
                 url = webviewElement.getURL?.();
-            } catch (e) {
+            } catch (err) {
                 // Webview not ready yet
             }
             if (url) {
                 appStore.updateApp(app.id, { url });
+                
+                // Track navigation for redirect loop detection
+                const now = Date.now();
+                const appId = app.id;
+                if (!reloadTracker.has(appId)) {
+                    reloadTracker.set(appId, { timestamps: [], navigations: [], url: app.url, suppressed: false });
+                }
+                const tracker = reloadTracker.get(appId);
+                if (!tracker.navigations) tracker.navigations = [];
+                tracker.navigations.push({ url, time: now });
+                // Keep only last 30 seconds
+                tracker.navigations = tracker.navigations.filter(n => now - n.time < 30000);
+                
+                // Detect rapid navigation to same URL (redirect loop)
+                const recentNavs = tracker.navigations.filter(n => now - n.time < 10000);
+                const sameUrlNavs = recentNavs.filter(n => n.url === url);
+                if (sameUrlNavs.length >= 5) {
+                    console.error(
+                        `[NAV-LOOP] ⚠️ REDIRECT LOOP detected on "${app.name}" (id: ${appId})\n` +
+                        `  URL: ${url}\n` +
+                        `  ${sameUrlNavs.length} navigations to same URL in 10 seconds\n` +
+                        `  This suggests the page is redirecting to itself`
+                    );
+                }
                 
                 // Add to history when navigation completes
                 if (workspaceStore.activeWorkspace) {
@@ -425,14 +487,14 @@
                 // Ignore errors
             }
         } else if (!shouldUnload && webviewElement && container && !webviewElement.parentNode) {
-            // Reload: attach webview back to DOM
+            // Re-attach webview back to DOM (without reloading - preserves page state)
             try {
                 container.appendChild(webviewElement);
                 webview = webviewElement;
-                // Reload the page to refresh content
-                if (webviewElement.reload) {
-                    webviewElement.reload();
-                }
+                // NOTE: Do NOT call reload() here!
+                // Reloading causes issues with Cloudflare/Security verification pages
+                // and creates infinite reload loops. The webview preserves its state
+                // when removed from DOM and will continue where it left off.
             } catch (e) {
                 // Ignore errors
             }
@@ -448,6 +510,9 @@
                 // Ignore errors
             }
         }
+        
+        // Clean up reload tracker for this app to prevent memory leaks
+        reloadTracker.delete(app.id);
         
         // Reset local state but keep webview in registry
         webview = null;

@@ -77,11 +77,6 @@ function registerHttpHandler() {
 
                             if (res.statusCode >= 400) {
                                 console.error(`[HTTP] ✗ ${method.toUpperCase()} ${url} → ${res.statusCode} (${duration}ms)`);
-                                // Forward log to renderer DevTools console (serialize data safely)
-                                try {
-                                    const safeData = typeof parsedData === 'object' ? JSON.stringify(parsedData).substring(0, 500) : String(parsedData);
-                                    event.sender.send('api-log', { level: 'error', method, url, status: res.statusCode, duration, dataPreview: safeData });
-                                } catch(e) {}
 
                                 const error = new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`);
                                 error.response = response;
@@ -90,10 +85,6 @@ function registerHttpHandler() {
                                 error.statusText = res.statusMessage;
                                 reject(error);
                             } else {
-                                console.log(`[HTTP] ✓ ${method.toUpperCase()} ${url} → ${res.statusCode} (${duration}ms)`);
-                                // Forward log to renderer DevTools console
-                                try { event.sender.send('api-log', { level: 'info', method, url, status: res.statusCode, duration }); } catch(e) {}
-
                                 resolve(response);
                             }
                         } catch (parseError) {
@@ -105,14 +96,12 @@ function registerHttpHandler() {
                 req.on('error', (error) => {
                     const duration = Date.now() - startTime;
                     console.error(`[HTTP] ✗ ${method.toUpperCase()} ${url} → ERROR (${duration}ms)`, error.message);
-                    try { event.sender.send('api-log', { level: 'error', method, url, status: 'ERR', duration, error: error.message }); } catch(e) {}
                     reject(error);
                 });
 
                 req.on('timeout', () => {
                     const duration = Date.now() - startTime;
                     console.error(`[HTTP] ✗ ${method.toUpperCase()} ${url} → TIMEOUT (${duration}ms)`);
-                    try { event.sender.send('api-log', { level: 'error', method, url, status: 'TIMEOUT', duration }); } catch(e) {}
                     req.destroy();
                     reject(new Error('Request timeout'));
                 });

@@ -51,7 +51,6 @@ function registerDownloadHandlers(aria2, mainWindow) {
     // Cancel download (aria2)
     ipcMain.handle('cancel-download', async (event, gid) => {
         try {
-            console.log('🔴 Cancel request for gid:', gid);
             
             if (!aria2.isReady) {
                 return { success: false, error: 'aria2 is not ready' };
@@ -70,7 +69,6 @@ function registerDownloadHandlers(aria2, mainWindow) {
                 });
             }
             
-            console.log('✅ Download cancelled successfully');
             return { success: true };
         } catch (error) {
             console.error('❌ cancel-download error:', error);
@@ -81,7 +79,6 @@ function registerDownloadHandlers(aria2, mainWindow) {
     // Pause download (aria2)
     ipcMain.handle('pause-download', async (event, gid) => {
         try {
-            console.log('🔵 Pause request for gid:', gid);
             
             if (!aria2.isReady) {
                 return { success: false, error: 'aria2 is not ready' };
@@ -100,7 +97,6 @@ function registerDownloadHandlers(aria2, mainWindow) {
                 });
             }
             
-            console.log('✅ Download paused successfully');
             return { success: true };
         } catch (error) {
             console.error('❌ pause-download error:', error);
@@ -111,14 +107,12 @@ function registerDownloadHandlers(aria2, mainWindow) {
     // Resume download (aria2)
     ipcMain.handle('resume-download', async (event, gid) => {
         try {
-            console.log('🟢 Resume request for gid:', gid);
             
             if (!aria2.isReady) {
                 return { success: false, error: 'aria2 is not ready' };
             }
             
             await aria2.resume(gid);
-            console.log('✅ Download resumed successfully');
             return { success: true };
         } catch (error) {
             console.error('❌ resume-download error:', error);
@@ -129,14 +123,12 @@ function registerDownloadHandlers(aria2, mainWindow) {
     // Remove download file
     ipcMain.handle('remove-download-file', async (event, filePath) => {
         try {
-            console.log('🗑️ Remove file request:', filePath);
             
             if (!filePath || !fs.existsSync(filePath)) {
                 return { success: false, error: 'File not found' };
             }
             
             await fs.remove(filePath);
-            console.log('✅ File removed successfully');
             return { success: true };
         } catch (error) {
             console.error('❌ remove-download-file error:', error);
@@ -147,7 +139,6 @@ function registerDownloadHandlers(aria2, mainWindow) {
 
 function handleAria2Download(ses, aria2, mainWindow) {
     if (downloadHandlerRegistered.has(ses)) {
-        console.log('⚠️ Download handler already registered for this session');
         return;
     }
     
@@ -161,7 +152,6 @@ function handleAria2Download(ses, aria2, mainWindow) {
             const totalBytes = item.getTotalBytes();
             const fileName = item.getFilename();
             
-            console.log(`📥 Download intercepted: ${fileName} (${totalBytes} bytes)`);
             
             // Cancel Electron's default download
             event.preventDefault();
@@ -175,7 +165,6 @@ function handleAria2Download(ses, aria2, mainWindow) {
             });
             
             if (canceled || !savePath) {
-                console.log('❌ Download cancelled by user');
                 return;
             }
             
@@ -193,7 +182,6 @@ function handleAria2Download(ses, aria2, mainWindow) {
                     `).get(savePath);
                     
                     if (existingDownload) {
-                        console.log('🔄 Found existing download for this path, removing old entry');
                         
                         // Cancel old aria2 download if still active
                         if (existingDownload.gid && aria2Downloads.has(existingDownload.gid)) {
@@ -201,7 +189,6 @@ function handleAria2Download(ses, aria2, mainWindow) {
                                 await aria2.cancel(existingDownload.gid);
                                 aria2Downloads.delete(existingDownload.gid);
                             } catch (e) {
-                                console.log('Old download already completed or cancelled');
                             }
                         }
                         
@@ -222,7 +209,6 @@ function handleAria2Download(ses, aria2, mainWindow) {
             
             // Delete existing file if it exists (user chose to replace)
             if (fs.existsSync(savePath)) {
-                console.log('🗑️ Removing existing file:', savePath);
                 await fs.remove(savePath);
                 
                 // Also remove .aria2 control file if exists
@@ -262,7 +248,6 @@ function handleAria2Download(ses, aria2, mainWindow) {
                 savePath: savePath
             });
             
-            console.log(`📥 Download started via aria2: ${actualFilename} (gid: ${gid})`);
             
         } catch (error) {
             console.error('Failed to start download:', error);
@@ -278,7 +263,6 @@ function handleAria2Download(ses, aria2, mainWindow) {
         }
     });
     
-    console.log('✅ Download handler registered successfully');
 }
 
 function getAria2Downloads() {

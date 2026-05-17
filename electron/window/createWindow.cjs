@@ -198,8 +198,6 @@ function createWindow(isDevEnvironment, aria2) {
                         return;
                     }
                     
-                    console.log('🍪 Importing', cookies.length, 'cookies');
-                    console.log('🍪 Partition:', params.partition);
                     
                     // Helper function to generate proper cookie URL
                     const getCookieUrl = (cookie) => {
@@ -212,10 +210,9 @@ function createWindow(isDevEnvironment, aria2) {
                     let targetSession;
                     if (params.partition) {
                         targetSession = session.fromPartition(params.partition);
-                        console.log('🍪 Using partition session:', params.partition);
+                        targetSession = session.fromPartition(params.partition);
                     } else {
                         targetSession = session.defaultSession;
-                        console.log('🍪 Using default session');
                     }
                     
                     // Import cookies
@@ -225,7 +222,6 @@ function createWindow(isDevEnvironment, aria2) {
                     for (const cookie of cookies) {
                         try {
                             const cookieUrl = getCookieUrl(cookie);
-                            console.log('🍪 Setting cookie:', cookie.name, 'for', cookieUrl);
                             
                             await targetSession.cookies.set({
                                 url: cookieUrl,
@@ -248,7 +244,6 @@ function createWindow(isDevEnvironment, aria2) {
                     
                     // Flush cookie store to ensure cookies are saved
                     await targetSession.cookies.flushStore();
-                    console.log('🍪 Cookie store flushed');
                     
                     // Reload webview to apply cookies
                     event.sender.send('reload-webview');
@@ -259,7 +254,6 @@ function createWindow(isDevEnvironment, aria2) {
                         message: `${successCount} cookies berhasil diimport${failCount > 0 ? `, ${failCount} gagal` : ''}`
                     });
                     
-                    console.log(`✅ Imported ${successCount} cookies, ${failCount} failed`);
                 } catch (error) {
                     console.error('Failed to import cookies:', error);
                     event.sender.send('show-toast', {
@@ -286,28 +280,23 @@ function createWindow(isDevEnvironment, aria2) {
                         return;
                     }
                     
-                    console.log('🍪 Exporting cookies for URL:', url);
                     
                     // Parse URL to get domain
                     const urlObj = new URL(url);
                     const domain = urlObj.hostname;
                     
-                    console.log('🍪 Domain:', domain);
-                    console.log('🍪 Partition:', params.partition);
                     
                     // Get session based on partition
                     let targetSession;
                     if (params.partition) {
                         targetSession = session.fromPartition(params.partition);
-                        console.log('🍪 Using partition session:', params.partition);
+                        targetSession = session.fromPartition(params.partition);
                     } else {
                         targetSession = session.defaultSession;
-                        console.log('🍪 Using default session');
                     }
                     
                     // Get ALL cookies from the session first (for debugging)
                     const allSessionCookies = await targetSession.cookies.get({});
-                    console.log('🍪 Total cookies in session:', allSessionCookies.length);
                     
                     // Filter cookies that match the domain (including subdomains)
                     const allCookies = allSessionCookies.filter(c => {
@@ -315,25 +304,21 @@ function createWindow(isDevEnvironment, aria2) {
                         const cookieDomain = c.domain.startsWith('.') ? c.domain.substring(1) : c.domain;
                         return domain === cookieDomain || domain.endsWith('.' + cookieDomain) || cookieDomain.endsWith('.' + domain);
                     });
-                    console.log('🍪 Cookies matching domain:', allCookies.length);
                     
                     // Filter out session-only and expired cookies
                     const now = Date.now() / 1000;
                     const validCookies = allCookies.filter(c => {
                         // Remove session-only cookies
                         if (c.session) {
-                            console.log('🍪 Skipping session-only cookie:', c.name);
                             return false;
                         }
                         // Remove expired cookies
                         if (c.expirationDate && c.expirationDate < now) {
-                            console.log('🍪 Skipping expired cookie:', c.name);
                             return false;
                         }
                         return true;
                     });
                     
-                    console.log('🍪 Valid cookies after filtering:', validCookies.length);
                     
                     if (validCookies.length === 0) {
                         event.sender.send('show-toast', {
@@ -367,7 +352,6 @@ function createWindow(isDevEnvironment, aria2) {
                         message: `${validCookies.length} cookies dari ${domain} disalin ke clipboard`
                     });
                     
-                    console.log(`✅ Exported ${validCookies.length} cookies from ${domain}`);
                 } catch (error) {
                     console.error('Failed to export cookies:', error);
                     event.sender.send('show-toast', {

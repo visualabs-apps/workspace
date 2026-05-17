@@ -367,9 +367,9 @@
                 break;
             case 'target':
                 if (useBrowserWindow) {
-                    openPredefinedWindow('TARGET');
+                    openPredefinedWindow('TARGET', { profileName: activeWorkspace?.name || '' });
                 } else {
-                    openPredefinedWindow('TARGET');
+                    openPredefinedWindow('TARGET', { profileName: activeWorkspace?.name || '' });
                 }
                 break;
             case 'history':
@@ -618,13 +618,7 @@
 
         {#snippet children()}
             <!-- Browser Features -->
-            <button
-                onclick={() => handleBrowserMenuClick('todo-list')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
-            >
-                <CheckSquare size={16} />
-                To-Do List
-            </button>
+            <!-- To-Do List hidden for now -->
             <button
                 onclick={() => handleBrowserMenuClick('target')}
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"

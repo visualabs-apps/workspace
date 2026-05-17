@@ -68,7 +68,7 @@ const api = {
         // Cookie operations
         getCookiesFromPartition: (partition) => ipcRenderer.invoke('get-cookies-from-partition', partition),
         setCookieToPartition: (partition, cookie) => ipcRenderer.invoke('set-cookie-to-partition', partition, cookie),
-        deleteCookieFromPartition: (partition, name, domain, path) => ipcRenderer.invoke('delete-cookie-from-partition', partition, name, domain, path),
+        deleteCookieFromPartition: (partition, name, domain, path, secure) => ipcRenderer.invoke('delete-cookie-from-partition', partition, name, domain, path, secure),
         decryptCookieExport: (encryptedData, password) => ipcRenderer.invoke('decrypt-cookie-export', encryptedData, password),
     },
 
@@ -86,6 +86,8 @@ const api = {
         getTabLifetime: () => ipcRenderer.invoke('settings-get-tab-lifetime'),
         setDefaultSearchEngine: (engine) => ipcRenderer.invoke('settings-default-search-engine', engine),
         getDefaultSearchEngine: () => ipcRenderer.invoke('settings-get-default-search-engine'),
+        setAutoStart: (enabled) => ipcRenderer.invoke('settings-set-auto-start', enabled),
+        getAutoStart: () => ipcRenderer.invoke('settings-get-auto-start'),
     },
     
     // Favicon fetching (main process handles CORS)
@@ -188,14 +190,12 @@ const api = {
     // Script input window
     onScriptInputOpen: (callback) => {
         const handler = (event, config) => {
-            console.log('[Preload] Script input open event:', config);
             callback(config);
         };
         ipcRenderer.on('open-script-input', handler);
         return () => ipcRenderer.removeListener('open-script-input', handler);
     },
     sendScriptInputResponse: (data) => {
-        console.log('[Preload] Sending input response:', data);
         ipcRenderer.send('script-input-response', data);
     },
     
@@ -269,23 +269,7 @@ const api = {
         navigateAndWait: (params) => ipcRenderer.invoke('mcp-navigate-and-wait', params),
     },
 
-    // Listen for API logs from main process (forwarded to DevTools Console)
-    onApiLog: (callback) => {
-        const listener = (event, data) => callback(data);
-        ipcRenderer.on('api-log', listener);
-        return () => ipcRenderer.removeListener('api-log', listener);
-    },
+    // Listen for API logs from main process (available on demand, not auto-forwarded to reduce console noise)
 }
 
 contextBridge.exposeInMainWorld('api', api)
-
-// Auto-forward API logs from main process to DevTools Console
-ipcRenderer.on('api-log', (event, data) => {
-    const { level, method, url, status, duration, error } = data;
-    const msg = `[HTTP] ${method?.toUpperCase()} ${url} → ${status} (${duration}ms)`;
-    if (level === 'error') {
-        console.error(msg, error || '');
-    } else {
-        console.log(msg);
-    }
-});

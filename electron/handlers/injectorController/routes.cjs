@@ -14,7 +14,6 @@ const { WebviewController } = require('./WebviewController.cjs');
  * @param {Function} getMainWindow - Function to get main window instance
  */
 function registerInjectorRoutes(getMainWindow) {
-    console.log('🔧 Registering Script Injector routes...');
     
     // ─── Script CRUD ─────────────────────────────────────────────
     
@@ -135,18 +134,6 @@ function registerInjectorRoutes(getMainWindow) {
         return WebviewController.navigateAndWait(event, params, getMainWindow);
     });
     
-    console.log('✅ Script Injector routes registered');
-    console.log('📋 Available routes:');
-    console.log('   Script CRUD: scripts-list, scripts-save, scripts-load, scripts-delete, scripts-get-directory');
-    console.log('   Execution: scripts-execute, script-open-input, script-input-response');
-    console.log('   Media: webview-screenshot, generate-powerpoint, ppt-*');
-    console.log('   Files: save-file, script-add-to-downloads');
-    console.log('   Console: webview-console-log, get-workspace-context');
-    console.log('   Navigation: webview-navigate, webview-go-back, webview-go-forward, webview-reload');
-    console.log('   Cookies: webview-get-cookies, webview-set-cookie');
-    console.log('   Dialogs: webview-handle-dialog, webview-clear-dialog-handler');
-    console.log('   Tabs: webview-list-profiles, webview-list-tabs, webview-switch-tab, webview-get-page-info');
-    console.log('   MCP: mcp-navigate-and-wait');
 }
 
 

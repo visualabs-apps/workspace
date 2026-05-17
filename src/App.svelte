@@ -598,18 +598,8 @@
                                 <!-- Buttons -->
                                 <div class="flex gap-3 justify-center">
                                     <button
-                                        onclick={handleStartWithApp}
-                                        class="group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
-                                    >
-                                        <Rocket
-                                            size={16}
-                                            class="group-hover:translate-y-[-2px] transition-transform"
-                                        />
-                                        Mulai dengan aplikasi
-                                    </button>
-                                    <button
                                         onclick={handleStartWithTab}
-                                        class="group flex items-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg font-medium transition-all hover:scale-105"
+                                        class="group flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white text-sm rounded-lg font-medium transition-all shadow-lg hover:shadow-xl hover:scale-105"
                                     >
                                         <Plus
                                             size={16}
@@ -660,8 +650,8 @@
 
             <!-- Right Floating Sidebar -->
             {#if activeWorkspace}
-                <RightFloatingSidebar 
-                    onOpenTarget={() => openPredefinedWindow('TARGET')}
+                <RightFloatingSidebar
+                    onOpenTarget={() => openPredefinedWindow('TARGET', { profileName: workspaceStore.activeWorkspace?.name || '' })}
                 />
             {/if}
         </div>

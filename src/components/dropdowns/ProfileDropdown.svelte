@@ -42,7 +42,13 @@
 
     function handleManageCookies() {
         showDropdown = false;
-        openPredefinedWindow('COOKIE_MANAGER');
+        const workspace = activeWorkspace;
+        if (workspace) {
+            const partition = `persist:workspace-${workspace.id}`;
+            openPredefinedWindow('COOKIE_MANAGER', { partition, profileId: workspace.id });
+        } else {
+            openPredefinedWindow('COOKIE_MANAGER');
+        }
     }
 </script>
 

@@ -6,6 +6,20 @@
 
     const WINDOW_ID = 'target-window';
 
+    let profileName = $state('');
+
+    // Receive data from parent window via IPC
+    $effect(() => {
+        const handleWindowData = (data) => {
+            console.log('[WindowTarget] Received data:', data);
+            if (data.profileName) profileName = data.profileName;
+        };
+
+        if (window.api?.onWindowData) {
+            window.api.onWindowData(handleWindowData);
+        }
+    });
+
     let items = $derived(targetStore.items);
     let isLoading = $derived(targetStore.isLoading);
     let hasMore = $derived(targetStore.hasMore);
@@ -103,7 +117,9 @@
     <div class="h-10 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4" style="-webkit-app-region: drag">
         <div class="flex items-center gap-2">
             <Target size={16} class="text-blue-600" />
-            <span class="text-sm font-medium text-gray-700">Target Manager</span>
+            <span class="text-sm font-medium text-gray-700">
+                Target Manager{profileName ? ` dari ${profileName}` : ''}
+            </span>
         </div>
         <div style="-webkit-app-region: no-drag">
             <ChildWindowControls variant="light" windowId={WINDOW_ID} />

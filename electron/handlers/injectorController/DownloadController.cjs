@@ -4,7 +4,6 @@ const { v4: uuidv4 } = require('uuid');
 class DownloadController {
     static async addToDownloads(event, fileInfo, getMainWindow) {
         try {
-            console.log('📥 Adding file to download manager:', fileInfo.filename);
             
             const { getDatabase } = require('../../database/index.cjs');
             const db = getDatabase();
@@ -65,7 +64,6 @@ class DownloadController {
                 );
             }
             
-            console.log('✅ File added to download manager');
             
             const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : getMainWindow;
             if (mainWindow && !mainWindow.isDestroyed()) {

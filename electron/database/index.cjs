@@ -9,7 +9,6 @@ function initDatabase(app) {
         const userDataPath = app.getPath('userData');
         const dbPath = path.join(userDataPath, 'vbox.db');
         
-        console.log('📦 Initializing SQLite database at:', dbPath);
         
         fs.mkdirSync(userDataPath, { recursive: true });
         
@@ -90,14 +89,12 @@ function initDatabase(app) {
         // Migration: Add gid and download_speed columns if they don't exist
         try {
             db.exec(`ALTER TABLE downloads ADD COLUMN gid TEXT`);
-            console.log('✅ Added gid column to downloads table');
         } catch (e) {
             // Column already exists, ignore
         }
         
         try {
             db.exec(`ALTER TABLE downloads ADD COLUMN download_speed INTEGER NOT NULL DEFAULT 0`);
-            console.log('✅ Added download_speed column to downloads table');
         } catch (e) {
             // Column already exists, ignore
         }
@@ -108,7 +105,6 @@ function initDatabase(app) {
         `).run();
         
         if (cleanupResult.changes > 0) {
-            console.log(`🧹 Cleaned up ${cleanupResult.changes} old downloads with invalid timestamps`);
         }
         
         db.exec(`
@@ -120,7 +116,6 @@ function initDatabase(app) {
         `);
         
         // Cleanup orphaned downloads (downloads that were interrupted by app close)
-        console.log('🧹 Cleaning up orphaned downloads...');
         const orphanedDownloads = db.prepare(`
             SELECT * FROM downloads 
             WHERE state IN ('progressing', 'paused') 
@@ -128,7 +123,6 @@ function initDatabase(app) {
         `).all();
         
         if (orphanedDownloads.length > 0) {
-            console.log(`Found ${orphanedDownloads.length} orphaned downloads`);
             
             // Mark as failed or keep as paused for manual resume
             const updateStmt = db.prepare(`
@@ -139,10 +133,8 @@ function initDatabase(app) {
             `);
             updateStmt.run(Date.now());
             
-            console.log('✅ Orphaned downloads marked as interrupted');
         }
         
-        console.log('✅ Database initialized successfully');
         return db;
     } catch (error) {
         console.error('❌ Failed to initialize database:', error);

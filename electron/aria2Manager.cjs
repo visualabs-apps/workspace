@@ -19,7 +19,6 @@ class Aria2Manager {
 
     async start(downloadsPath) {
         if (this.process) {
-            console.log('⚠️ Aria2 already running');
             return;
         }
 
@@ -27,7 +26,6 @@ class Aria2Manager {
         if (this.startAttempts > 0) {
             this.port = 6800 + this.startAttempts;
             this.rpcUrl = `http://localhost:${this.port}/jsonrpc`;
-            console.log(`🔄 Trying alternative port: ${this.port}`);
         }
 
         this.startAttempts++;
@@ -41,7 +39,6 @@ class Aria2Manager {
             try {
                 const { execSync } = require('child_process');
                 execSync('taskkill /F /IM aria2c-64.exe 2>nul', { windowsHide: true });
-                console.log('🧹 Killed existing aria2c processes');
                 await new Promise(resolve => setTimeout(resolve, 500));
             } catch (e) {
                 // No existing process, ignore
@@ -54,8 +51,6 @@ class Aria2Manager {
                 throw new Error('aria2c executable not found at: ' + aria2cPath);
             }
 
-            console.log('🚀 Starting aria2c from:', aria2cPath);
-            console.log('📁 Downloads directory:', downloadsPath);
 
             // Ensure downloads directory exists
             fs.ensureDirSync(downloadsPath);
@@ -96,14 +91,12 @@ class Aria2Manager {
             this.process.stdout.on('data', (data) => {
                 const output = data.toString().trim();
                 if (output) {
-                    console.log('[aria2c stdout]', output);
                 }
             });
 
             this.process.stderr.on('data', (data) => {
                 const output = data.toString().trim();
                 if (output) {
-                    console.log('[aria2c stderr]', output);
                 }
             });
 
@@ -114,14 +107,12 @@ class Aria2Manager {
             });
 
             this.process.on('exit', (code, signal) => {
-                console.log(`🛑 aria2c exited with code ${code}, signal ${signal}`);
                 this.process = null;
                 this.isReady = false;
             });
 
             // Wait for aria2 to be ready
             await this.waitForReady();
-            console.log('✅ aria2c is ready');
 
         } catch (error) {
             console.error('❌ Failed to start aria2:', error);
@@ -130,19 +121,16 @@ class Aria2Manager {
     }
 
     async waitForReady(maxAttempts = 50) {
-        console.log('⏳ Waiting for aria2 to be ready...');
         for (let i = 0; i < maxAttempts; i++) {
             try {
                 const version = await this.call('aria2.getVersion');
                 if (version) {
-                    console.log('✅ aria2 version:', version.version);
                     this.isReady = true;
                     return true;
                 }
             } catch (error) {
                 // Not ready yet, wait and retry
                 if (i % 10 === 0) {
-                    console.log(`⏳ Attempt ${i + 1}/${maxAttempts}...`);
                 }
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
@@ -155,7 +143,6 @@ class Aria2Manager {
             return;
         }
 
-        console.log('🛑 Stopping aria2c...');
 
         try {
             // Try graceful shutdown first
@@ -165,7 +152,6 @@ class Aria2Manager {
             await new Promise(resolve => setTimeout(resolve, 1000));
             
         } catch (error) {
-            console.log('⚠️ Graceful shutdown failed, forcing kill');
         }
 
         // Force kill if still running
@@ -183,7 +169,6 @@ class Aria2Manager {
         this.process = null;
         this.isReady = false;
         this.downloads.clear();
-        console.log('✅ aria2c stopped');
     }
 
     async call(method, params = []) {

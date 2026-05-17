@@ -8,7 +8,6 @@ class ContextController {
      */
     static async getWorkspaceContext(event, getMainWindow) {
         try {
-            console.log('📍 Getting workspace context...');
             
             const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : getMainWindow;
             
@@ -68,7 +67,6 @@ class ContextController {
                 })()
             `);
             
-            console.log('✅ Workspace context:', result);
             return result;
             
         } catch (error) {

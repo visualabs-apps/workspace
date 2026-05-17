@@ -12,6 +12,7 @@
     let tabLifetime = $state("30"); // minutes or "forever" for unlimited
     let defaultSearchEngine = $state("google");
     let showNotifications = $state(true);
+    let autoStart = $state(false);
     
     const tabs = [
         { id: "general", label: "General", icon: Settings },
@@ -35,7 +36,8 @@
         console.log('[WindowSettings] Current settings:', {
             showNotifications,
             tabLifetime,
-            defaultSearchEngine
+            defaultSearchEngine,
+            autoStart
         });
         
         try {
@@ -43,6 +45,11 @@
             console.log('[WindowSettings] Saving show notifications...');
             const notifResult = await window.api.settings.setShowNotifications(showNotifications);
             console.log('[WindowSettings] Notif result:', notifResult);
+            
+            // Save auto start setting
+            console.log('[WindowSettings] Saving auto start...');
+            const autoStartResult = await window.api.settings.setAutoStart(autoStart);
+            console.log('[WindowSettings] Auto start result:', autoStartResult);
             
             // Save tab lifetime setting
             console.log('[WindowSettings] Saving tab lifetime...');
@@ -81,6 +88,12 @@
             const notifResult = await window.api.settings.getShowNotifications();
             if (notifResult.success) {
                 showNotifications = notifResult.enabled;
+            }
+            
+            // Load auto start setting
+            const autoStartResult = await window.api.settings.getAutoStart();
+            if (autoStartResult.success) {
+                autoStart = autoStartResult.enabled;
             }
             
             // Load tab lifetime setting
@@ -164,9 +177,21 @@
                         
                         <div class="space-y-4">
                             <label class="flex items-start gap-3 cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                                <input
+                                    type="checkbox"
+                                    class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    bind:checked={autoStart}
+                                />
+                                <div>
+                                    <div class="text-sm font-medium text-gray-900">Start automatically when computer turns on</div>
+                                    <div class="text-xs text-gray-500">Launch VisualBox automatically when Windows starts up</div>
+                                </div>
+                            </label>
+                            
+                            <label class="flex items-start gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                     bind:checked={showNotifications}
                                 />
                                 <div>

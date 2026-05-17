@@ -11,7 +11,6 @@ class PowerPointController {
     // Generate PowerPoint from scratch with slides
     static async generate(event, pptData) {
         try {
-            console.log('� Generating PowerPoint:', pptData.filename);
             
             const pptx = new PptxGenJS();
             
@@ -164,7 +163,6 @@ class PowerPointController {
             
             await pptx.writeFile({ fileName: filePath });
             
-            console.log('✅ PowerPoint saved:', filePath);
             
             const stats = fs.statSync(filePath);
             
@@ -186,8 +184,6 @@ class PowerPointController {
     // Process template with variable replacement
     static async processTemplate(event, { templateName, variables, outputFilename }) {
         try {
-            console.log('📄 Processing template:', templateName);
-            console.log('📝 Variables:', variables);
             
             const templatePath = path.join(TEMPLATES_DIR, templateName);
             
@@ -226,7 +222,6 @@ class PowerPointController {
             
             fs.writeFileSync(outputPath, buf);
             
-            console.log('✅ Template processed:', outputPath);
             
             const stats = fs.statSync(outputPath);
             

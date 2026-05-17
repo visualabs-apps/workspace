@@ -302,19 +302,14 @@ function registerDatabaseHandlers() {
         try {
             if (!db) return { success: false, error: 'Database not initialized' };
             
-            console.log('🧹 Clearing all local data for user logout...');
-            
             const tables = ['downloads', 'tabs', 'bookmarks', 'profile_colors', 'app_settings'];
             for (const table of tables) {
                 try {
                     db.exec(`DELETE FROM ${table}`);
-                    console.log(`  ✅ Cleared table: ${table}`);
                 } catch (e) {
-                    console.log(`  ⚠️ Skipped table: ${table} (${e.message})`);
+                    // Table might not exist, skip
                 }
             }
-            
-            console.log('✅ All local data cleared');
             return { success: true };
         } catch (error) {
             console.error('clear-all-local-data error:', error);
@@ -331,7 +326,6 @@ function registerDatabaseHandlers() {
             const result = stmt.run();
             
             if (result.changes > 0) {
-                console.log(`🧹 Cleaned up ${result.changes} orphaned downloads`);
             }
             return { success: true, removed: result.changes };
         } catch (error) {

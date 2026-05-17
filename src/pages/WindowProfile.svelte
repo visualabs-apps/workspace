@@ -137,7 +137,7 @@
     async function openCookieManager() {
         if (editingProfile) {
             const partition = `persist:workspace-${editingProfile.id}`;
-            await openPredefinedWindow('COOKIE_MANAGER', { partition });
+            await openPredefinedWindow('COOKIE_MANAGER', { partition, profileId: editingProfile.id });
         }
     }
 </script>

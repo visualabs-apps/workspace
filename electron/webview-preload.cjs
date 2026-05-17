@@ -3,7 +3,6 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-console.log('[VBox Webview Preload] Loading...');
 
 // Expose console logging to webview
 contextBridge.exposeInMainWorld('vboxConsole', {
@@ -28,15 +27,12 @@ contextBridge.exposeInMainWorld('vboxConsole', {
 // Expose PowerPoint API to webview
 contextBridge.exposeInMainWorld('vboxPowerPoint', {
     generate: (pptData) => {
-        console.log('[VBox Webview Preload] PowerPoint generate called');
         return ipcRenderer.invoke('generate-powerpoint', pptData);
     },
     processTemplate: (templateName, variables, outputFilename) => {
-        console.log('[VBox Webview Preload] Template process called:', templateName);
         return ipcRenderer.invoke('ppt-process-template', { templateName, variables, outputFilename });
     },
     listTemplates: () => {
-        console.log('[VBox Webview Preload] List templates called');
         return ipcRenderer.invoke('ppt-list-templates');
     }
 });
@@ -44,7 +40,6 @@ contextBridge.exposeInMainWorld('vboxPowerPoint', {
 // Expose download manager API to webview
 contextBridge.exposeInMainWorld('vboxDownloads', {
     addToDownloads: (fileInfo) => {
-        console.log('[VBox Webview Preload] addToDownloads called');
         return ipcRenderer.invoke('script-add-to-downloads', fileInfo);
     }
 });
@@ -52,14 +47,11 @@ contextBridge.exposeInMainWorld('vboxDownloads', {
 // Expose script input API to webview
 contextBridge.exposeInMainWorld('vboxInput', {
     open: async (config) => {
-        console.log('[VBox Webview Preload] Input window open called:', config);
-        console.log('[VBox Webview Preload] Invoking script-open-input IPC...');
         
         try {
             // Serialize config to ensure it can be cloned through IPC
             const serializedConfig = JSON.parse(JSON.stringify(config));
             const result = await ipcRenderer.invoke('script-open-input', serializedConfig);
-            console.log('[VBox Webview Preload] IPC Result:', result);
             return result; // Return the full result object { success, data }
         } catch (error) {
             console.error('[VBox Webview Preload] IPC Error:', error);
@@ -71,11 +63,9 @@ contextBridge.exposeInMainWorld('vboxInput', {
 // Expose screenshot API to webview
 contextBridge.exposeInMainWorld('vboxScreenshot', {
     capture: async (options) => {
-        console.log('[VBox Webview Preload] Screenshot capture called:', options);
         
         try {
             const result = await ipcRenderer.invoke('webview-screenshot', options);
-            console.log('[VBox Webview Preload] Screenshot result:', result);
             return result;
         } catch (error) {
             console.error('[VBox Webview Preload] Screenshot error:', error);
@@ -87,11 +77,9 @@ contextBridge.exposeInMainWorld('vboxScreenshot', {
 // Expose file save API to webview
 contextBridge.exposeInMainWorld('vboxFile', {
     save: async (content, filename, type = 'text/html') => {
-        console.log('[VBox Webview Preload] File save called:', filename);
         
         try {
             const result = await ipcRenderer.invoke('save-file', { content, filename, type });
-            console.log('[VBox Webview Preload] File save result:', result);
             return result;
         } catch (error) {
             console.error('[VBox Webview Preload] File save error:', error);
@@ -103,11 +91,9 @@ contextBridge.exposeInMainWorld('vboxFile', {
 // Expose workspace/profile context API to webview
 contextBridge.exposeInMainWorld('vboxContext', {
     getWorkspaceInfo: async () => {
-        console.log('[VBox Webview Preload] Getting workspace info...');
         
         try {
             const result = await ipcRenderer.invoke('get-workspace-context');
-            console.log('[VBox Webview Preload] Workspace info:', result);
             return result;
         } catch (error) {
             console.error('[VBox Webview Preload] Get workspace info error:', error);
@@ -144,10 +130,6 @@ contextBridge.exposeInMainWorld('vboxTabs', {
     getPageInfo: (tabId) => ipcRenderer.invoke('webview-get-page-info', tabId || null)
 });
 
-console.log('[VBox Webview Preload] APIs exposed successfully');
-console.log('[VBox Webview Preload] window.vboxPowerPoint:', typeof window.vboxPowerPoint);
-console.log('[VBox Webview Preload] window.vboxDownloads:', typeof window.vboxDownloads);
-console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxContext);
 
 // Override console methods to forward to main process
 (function() {
@@ -192,7 +174,6 @@ console.log('[VBox Webview Preload] window.vboxContext:', typeof window.vboxCont
         ipcRenderer.send('webview-console-log', { level: 'info', args: serializeArgs(args) });
     };
     
-    console.log('[VBox Webview Preload] Console methods overridden');
 })();
 
 // VBox API - Injected once via preload (no IPC size limits!)

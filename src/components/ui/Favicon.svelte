@@ -6,7 +6,7 @@
         alt = 'Favicon'
     } = $props();
     
-    const FALLBACK_ICON = `${import.meta.env.BASE_URL}visualbox_icon.png`;
+    const FALLBACK_ICON = `${import.meta.env.BASE_URL}VBOXICON.png`;
     
     let faviconUrl = $state('');
     let hasError = $state(false);
@@ -43,11 +43,19 @@
         }
     }
     
+    let fallbackAttempted = $state(false);
+
     function handleError(e) {
         // Prevent infinite retry loop
         e.target.onerror = null;
-        // Set to default icon
-        e.target.src = FALLBACK_ICON;
+        if (!fallbackAttempted) {
+            // Try fallback icon once
+            fallbackAttempted = true;
+            e.target.src = FALLBACK_ICON;
+        } else {
+            // If fallback also fails, hide the image completely (no more requests)
+            e.target.style.display = 'none';
+        }
     }
 </script>
 

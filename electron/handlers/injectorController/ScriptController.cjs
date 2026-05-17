@@ -64,7 +64,6 @@ function validateScriptData(scriptData) {
 
 class ScriptController {
     static async list(event) {
-        console.log('📋 scripts-list called');
         try {
             await ensureScriptsDir();
             const files = await fs.readdir(SCRIPTS_DIR);

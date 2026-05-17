@@ -1,4 +1,4 @@
-const { ipcMain } = require('electron');
+const { ipcMain, app } = require('electron');
 const { getDatabase } = require('../database/index.cjs');
 
 function registerSettingsHandlers() {
@@ -121,6 +121,69 @@ function registerSettingsHandlers() {
         } catch (error) {
             console.error('settings-get-default-search-engine error:', error);
             return { success: false, error: error.message, engine: 'google' };
+        }
+    });
+
+    // Auto Start (Open at Login)
+    ipcMain.handle('settings-set-auto-start', async (event, enabled) => {
+        try {
+            // Set the app to open at login using Electron's built-in API
+            app.setLoginItemSettings({
+                openAtLogin: enabled,
+                path: app.getPath('exe'),
+            });
+
+            // Also persist the setting to database for UI state
+            if (db) {
+                const stmt = db.prepare(`
+                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                `);
+                stmt.run('autoStart', JSON.stringify(enabled), Date.now());
+            }
+
+            return { success: true, enabled };
+        } catch (error) {
+            console.error('settings-set-auto-start error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('settings-get-auto-start', async (event) => {
+        try {
+            // Get the actual system state from Electron
+            const loginItemSettings = app.getLoginItemSettings();
+
+            // Also check database for persisted preference
+            let dbEnabled = null;
+            if (db) {
+                const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+                const row = stmt.get('autoStart');
+                if (row) {
+                    try {
+                        dbEnabled = JSON.parse(row.value);
+                    } catch {
+                        dbEnabled = null;
+                    }
+                }
+            }
+
+            // Use system state as source of truth
+            const enabled = loginItemSettings.openAtLogin;
+
+            // Sync database with actual system state if they differ
+            if (dbEnabled !== null && dbEnabled !== enabled && db) {
+                const stmt = db.prepare(`
+                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                `);
+                stmt.run('autoStart', JSON.stringify(enabled), Date.now());
+            }
+
+            return { success: true, enabled };
+        } catch (error) {
+            console.error('settings-get-auto-start error:', error);
+            return { success: false, error: error.message, enabled: false };
         }
     });
 }

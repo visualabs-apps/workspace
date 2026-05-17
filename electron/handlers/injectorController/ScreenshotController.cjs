@@ -5,7 +5,6 @@ const path = require('path');
 class ScreenshotController {
     static async capture(event, options, getMainWindow) {
         try {
-            console.log('📸 Webview screenshot requested:', options);
             
             const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : getMainWindow;
             
@@ -77,7 +76,6 @@ class ScreenshotController {
                 const timestamp = Date.now();
                 const newFilename = `${baseName}_${timestamp}${ext}`;
                 outputPath = path.join(downloadsPath, newFilename);
-                console.log('📸 File exists, using:', newFilename);
             }
             
             const base64Data = result.dataURL.replace(/^data:image\/png;base64,/, '');
@@ -88,7 +86,6 @@ class ScreenshotController {
             const stats = fs.statSync(outputPath);
             const finalFilename = path.basename(outputPath);
             
-            console.log('✅ Screenshot saved:', outputPath);
             
             return {
                 success: true,

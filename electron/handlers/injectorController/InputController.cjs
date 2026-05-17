@@ -1,7 +1,6 @@
 class InputController {
     static async open(event, config, getMainWindow) {
         try {
-            console.log('📝 Opening script input window:', config);
             
             const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : getMainWindow;
             
@@ -10,7 +9,6 @@ class InputController {
                 return { success: false, message: 'Main window not found', data: null };
             }
             
-            console.log('✅ Main window found, executing JavaScript...');
             
             const configBase64 = Buffer.from(JSON.stringify(config)).toString('base64');
             
@@ -48,7 +46,6 @@ class InputController {
                 })()
             `);
             
-            console.log('📥 Input window result:', executionResult);
             return executionResult;
             
         } catch (error) {
@@ -65,7 +62,6 @@ class InputController {
      * This handler exists only for debugging/logging purposes.
      */
     static handleResponse(event, data) {
-        console.log('📨 Script input response received (debug):', data);
     }
 }
 

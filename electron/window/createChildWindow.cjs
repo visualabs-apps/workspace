@@ -75,9 +75,6 @@ function createChildWindow(options) {
         // Ensure route starts with /
         const formattedRoute = route.startsWith('/') ? route : `/${route}`;
         const url = `http://localhost:5184/#${formattedRoute}`;
-        console.log('[createChildWindow] Loading URL:', url);
-        console.log('[createChildWindow] Route:', route);
-        console.log('[createChildWindow] Formatted route:', formattedRoute);
         
         childWindow.loadURL(url).catch((e) => {
             console.error('Failed to load child window:', e);
@@ -88,7 +85,6 @@ function createChildWindow(options) {
     } else {
         const htmlPath = path.join(__dirname, '..', 'build', 'index.html');
         const formattedRoute = route.startsWith('/') ? route : `/${route}`;
-        console.log('[createChildWindow] Loading file:', htmlPath, 'with hash:', formattedRoute);
         childWindow.loadFile(htmlPath, { hash: formattedRoute }).catch((e) => {
             console.error('Failed to load child window:', e);
         });
@@ -101,9 +97,14 @@ function createChildWindow(options) {
         isMinimized: false,
     });
 
-    // Clean up on close
+    // Clean up on close — also show/focus parent window
     childWindow.on('closed', () => {
         childWindows.delete(id);
+        // Show and focus parent (main) window when child closes
+        if (parent && !parent.isDestroyed()) {
+            parent.show();
+            parent.focus();
+        }
     });
 
     // Pass data to window when ready
@@ -150,21 +151,16 @@ function minimizeChildWindow(id) {
  * @returns {Object} - Result with success flag
  */
 function restoreChildWindow(id) {
-    console.log('[restoreChildWindow] Attempting to restore window:', id);
     const data = childWindows.get(id);
     
     if (!data) {
-        console.log('[restoreChildWindow] Window not found in map:', id);
-        console.log('[restoreChildWindow] Available windows:', Array.from(childWindows.keys()));
         return { success: false, error: 'Window not found' };
     }
     
     if (data.window.isDestroyed()) {
-        console.log('[restoreChildWindow] Window is destroyed:', id);
         return { success: false, error: 'Window is destroyed' };
     }
     
-    console.log('[restoreChildWindow] Showing window:', id);
     data.window.show();
     data.window.focus();
     data.isMinimized = false;

@@ -39,13 +39,10 @@ ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('get-app-path', () => app.getAppPath());
 
 app.on('ready', async () => {
-    console.log('🚀 App ready, initializing...');
-    
     // Initialize database first
     initDatabase(app);
     
     // Register all IPC handlers
-    console.log('📝 Registering IPC handlers...');
     registerDatabaseHandlers();
     registerFaviconHandler();
     registerSettingsHandlers();
@@ -60,7 +57,6 @@ app.on('ready', async () => {
     ipcMain.handle('reload-app', () => {
         const win = getMainWindow();
         if (win) {
-            console.log('🔄 Reloading main window...');
             win.reload();
         }
     });
@@ -68,12 +64,10 @@ app.on('ready', async () => {
     // Clear all session partitions (cookies, localStorage, cache) on logout
     ipcMain.handle('clear-session-partitions', async () => {
         try {
-            console.log('🧹 Clearing all session partitions...');
             const { session } = require('electron');
             
             // Clear default session
             await session.defaultSession.clearStorageData();
-            console.log('  ✅ Default session cleared');
             
             // Clear all persist:workspace-* partitions
             const ses = session.fromPartition('persist:workspace-');
@@ -84,7 +78,6 @@ app.on('ready', async () => {
             await session.defaultSession.clearAuthCache();
             await session.defaultSession.cookies.flushStore();
             
-            console.log('✅ All session data cleared');
             return { success: true };
         } catch (error) {
             console.error('clear-session-partitions error:', error);
@@ -92,7 +85,6 @@ app.on('ready', async () => {
         }
     });
     
-    console.log('✅ All IPC handlers registered');
     
     // Block Ctrl+R, F5, and other shortcuts globally for all web contents (including webviews)
     app.on('web-contents-created', (event, contents) => {
@@ -130,7 +122,6 @@ app.on('ready', async () => {
     try {
         const downloadsPath = app.getPath('downloads');
         await aria2.start(downloadsPath);
-        console.log('✅ aria2 started successfully');
         
         // Register aria2 download handler for default session AFTER aria2 is ready
         handleAria2Download(session.defaultSession, aria2, mainWindow);

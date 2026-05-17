@@ -6,7 +6,6 @@ class FileController {
     // Save text/HTML file to Downloads folder
     static async saveFile(event, { content, filename, type = 'text/html' }) {
         try {
-            console.log('💾 Saving file:', filename);
             
             const downloadsPath = app.getPath('downloads');
             let filePath = path.join(downloadsPath, filename);
@@ -18,13 +17,11 @@ class FileController {
                 const timestamp = Date.now();
                 const newFilename = `${baseName}_${timestamp}${ext}`;
                 filePath = path.join(downloadsPath, newFilename);
-                console.log('💾 File exists, using:', newFilename);
             }
             
             // Write file
             fs.writeFileSync(filePath, content, 'utf-8');
             
-            console.log('✅ File saved:', filePath);
             
             const stats = fs.statSync(filePath);
             const finalFilename = path.basename(filePath);

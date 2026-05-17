@@ -1,11 +1,13 @@
 <script>
     import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
-    import { Cookie, Trash2, ChevronDown, ChevronRight, Plus, Save, RefreshCw, Search } from "lucide-svelte";
+    import { Cookie, Trash2, ChevronDown, ChevronRight, Plus, Save, RefreshCw, Search, Cloud, CloudOff, CircleCheck, Edit3 } from "lucide-svelte";
     import { toastStore } from "../lib/managers/toast.svelte.js";
+    import { getChromeProfile, updateChromeProfile } from "../lib/api/api.js";
 
     const WINDOW_ID = 'cookie-manager-window';
 
     let partition = $state('');
+    let profileId = $state(null);
     let isOpen = $state(false);
 
     // Receive data from parent window via IPC
@@ -13,6 +15,7 @@
         const handleWindowData = (data) => {
             console.log('[CookieManager] Received data:', data);
             if (data.partition) partition = data.partition;
+            if (data.profileId) profileId = data.profileId;
             isOpen = true;
         };
 
@@ -21,12 +24,13 @@
         }
     });
 
+    // All cookies come from backend
     let cookies = $state([]);
     let isLoading = $state(false);
     let searchQuery = $state("");
     let expandedDomains = $state(new Set());
     let expandedCookies = $state(new Set());
-    let editingCookie = $state(null);
+    let editingCookieIndex = $state(null); // Index in cookies array
     let editingJson = $state("");
     let showImportModal = $state(false);
     let importJson = $state("");
@@ -34,6 +38,352 @@
     let importPassword = $state("");
     let isImporting = $state(false);
     let isDragOver = $state(false);
+    let showAddModal = $state(false);
+    let newCookieJson = $state('');
+
+    // Filter cookies by search
+    let filteredCookies = $derived(() => {
+        if (!searchQuery.trim()) return cookies;
+        const query = searchQuery.toLowerCase();
+        return cookies.filter(cookie => 
+            cookie.name.toLowerCase().includes(query) ||
+            cookie.domain.toLowerCase().includes(query) ||
+            cookie.value.toLowerCase().includes(query)
+        );
+    });
+
+    // Group filtered cookies by domain
+    let cookiesByDomain = $derived(() => {
+        const grouped = {};
+        filteredCookies().forEach(cookie => {
+            const domain = cookie.domain;
+            if (!grouped[domain]) {
+                grouped[domain] = [];
+            }
+            grouped[domain].push(cookie);
+        });
+        return grouped;
+    });
+
+    let domains = $derived(Object.keys(cookiesByDomain()).sort());
+
+    $effect(() => {
+        if (isOpen && profileId) {
+            loadCookiesFromServer();
+        }
+    });
+
+    /**
+     * Load cookies from backend server (source of truth)
+     */
+    async function loadCookiesFromServer() {
+        if (!profileId) {
+            cookies = [];
+            return;
+        }
+
+        isLoading = true;
+        try {
+            const response = await getChromeProfile(profileId);
+            if (response.success && response.data) {
+                const serverCookies = response.data.cookies;
+                cookies = Array.isArray(serverCookies) ? serverCookies : [];
+            } else {
+                console.error('[CookieManager] Failed to load from server:', response.error);
+                cookies = [];
+            }
+        } catch (error) {
+            console.error('[CookieManager] Load error:', error);
+            cookies = [];
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    /**
+     * Save entire cookies array to backend server
+     */
+    async function saveCookiesToServer(updatedCookies) {
+        if (!profileId) {
+            toastStore.error('No profile ID — cannot save to server');
+            return false;
+        }
+
+        try {
+            const result = await updateChromeProfile(profileId, {
+                cookies: updatedCookies,
+            });
+
+            if (result.success) {
+                cookies = updatedCookies;
+                return true;
+            } else {
+                toastStore.error(result.error || 'Failed to save cookies to server');
+                return false;
+            }
+        } catch (error) {
+            console.error('[CookieManager] Save to server error:', error);
+            toastStore.error('Failed to save cookies to server');
+            return false;
+        }
+    }
+
+    /**
+     * Apply cookies to local Electron session (so webview can use them)
+     */
+    async function applyCookiesToLocalSession() {
+        if (!partition || cookies.length === 0) return;
+
+        try {
+            for (const cookie of cookies) {
+                if (!cookie.name || !cookie.domain) continue;
+                if (cookie.value === undefined || cookie.value === null) cookie.value = '';
+                try {
+                    await window.api.db.setCookieToPartition(partition, cookie);
+                } catch (err) {
+                    console.warn('[CookieManager] Failed to apply cookie:', cookie.name, err);
+                }
+            }
+            console.log(`[CookieManager] Applied ${cookies.length} cookies to local session`);
+        } catch (error) {
+            console.error('[CookieManager] Apply to local session error:', error);
+        }
+    }
+
+    function toggleDomain(domain) {
+        if (expandedDomains.has(domain)) {
+            expandedDomains.delete(domain);
+        } else {
+            expandedDomains.add(domain);
+        }
+        expandedDomains = new Set(expandedDomains);
+    }
+
+    function toggleCookie(cookieId) {
+        if (expandedCookies.has(cookieId)) {
+            expandedCookies.delete(cookieId);
+        } else {
+            expandedCookies.add(cookieId);
+        }
+        expandedCookies = new Set(expandedCookies);
+    }
+
+    function getCookieId(cookie) {
+        return `${cookie.domain}-${cookie.name}-${cookie.path}`;
+    }
+
+    function findCookieIndex(cookie) {
+        return cookies.findIndex(c =>
+            c.name === cookie.name &&
+            c.domain === cookie.domain &&
+            c.path === cookie.path
+        );
+    }
+
+    function startEditCookie(cookie) {
+        const idx = findCookieIndex(cookie);
+        if (idx === -1) return;
+        editingCookieIndex = idx;
+        editingJson = JSON.stringify(cookie, null, 2);
+    }
+
+    function cancelEdit() {
+        editingCookieIndex = null;
+        editingJson = "";
+    }
+
+    /**
+     * Update a single cookie on the backend
+     */
+    async function updateCookie() {
+        try {
+            const updatedCookie = JSON.parse(editingJson);
+
+            // Validate required fields
+            if (!updatedCookie.name || !updatedCookie.value === undefined || !updatedCookie.domain) {
+                toastStore.error('Cookie must have name, value, and domain');
+                return;
+            }
+
+            // Ensure defaults
+            if (!updatedCookie.path) updatedCookie.path = '/';
+            if (updatedCookie.secure === undefined) updatedCookie.secure = false;
+            if (updatedCookie.httpOnly === undefined) updatedCookie.httpOnly = false;
+
+            // Replace the old cookie in the array
+            const updatedCookies = [...cookies];
+            if (editingCookieIndex !== null && editingCookieIndex >= 0 && editingCookieIndex < updatedCookies.length) {
+                updatedCookies[editingCookieIndex] = updatedCookie;
+            }
+
+            const success = await saveCookiesToServer(updatedCookies);
+            if (success) {
+                toastStore.success('Cookie updated on server');
+                cancelEdit();
+            }
+        } catch (error) {
+            console.error('Update cookie error:', error);
+            toastStore.error('Invalid JSON or update failed');
+        }
+    }
+
+    /**
+     * Delete a single cookie from the backend
+     */
+    async function deleteCookie(cookie) {
+        if (!confirm(`Delete cookie "${cookie.name}"?`)) return;
+
+        const idx = findCookieIndex(cookie);
+        if (idx === -1) {
+            toastStore.error('Cookie not found');
+            return;
+        }
+
+        const updatedCookies = cookies.filter((_, i) => i !== idx);
+        const success = await saveCookiesToServer(updatedCookies);
+        if (success) {
+            toastStore.success('Cookie deleted from server');
+        }
+    }
+
+    /**
+     * Add a new cookie
+     */
+    async function addNewCookie() {
+        try {
+            let newCookie;
+            if (newCookieJson.trim()) {
+                newCookie = JSON.parse(newCookieJson);
+            } else {
+                // Create a minimal empty cookie
+                newCookie = {
+                    name: 'new_cookie',
+                    value: '',
+                    domain: '.example.com',
+                    path: '/',
+                    secure: false,
+                    httpOnly: false,
+                };
+            }
+
+            // Validate
+            if (!newCookie.name || !newCookie.domain) {
+                toastStore.error('Cookie must have at least name and domain');
+                return;
+            }
+
+            // Ensure defaults
+            if (newCookie.value === undefined || newCookie.value === null) newCookie.value = '';
+            if (!newCookie.path) newCookie.path = '/';
+            if (newCookie.secure === undefined) newCookie.secure = false;
+            if (newCookie.httpOnly === undefined) newCookie.httpOnly = false;
+
+            const updatedCookies = [...cookies, newCookie];
+            const success = await saveCookiesToServer(updatedCookies);
+            if (success) {
+                toastStore.success('Cookie added to server');
+                showAddModal = false;
+                newCookieJson = '';
+            }
+        } catch (error) {
+            console.error('Add cookie error:', error);
+            toastStore.error('Invalid JSON or add failed');
+        }
+    }
+
+    // Detect if JSON is Cookie-Editor encrypted format
+    function detectEncryptedFormat(parsed) {
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            && parsed.url && parsed.version && parsed.data && typeof parsed.data === 'string';
+    }
+
+    /**
+     * Import cookies — merge into backend cookies array
+     */
+    async function importCookie() {
+        if (isImporting) return;
+        isImporting = true;
+
+        try {
+            const parsedData = JSON.parse(importJson);
+            let cookiesToImport;
+
+            // Check if it's Cookie-Editor encrypted format
+            if (detectEncryptedFormat(parsedData)) {
+                if (!importPassword.trim()) {
+                    toastStore.error('Password is required to decrypt this cookie export');
+                    isImporting = false;
+                    return;
+                }
+
+                try {
+                    const result = await window.api.db.decryptCookieExport(parsedData.data, importPassword);
+                    if (!result.success) {
+                        toastStore.error(result.error || 'Decryption failed');
+                        isImporting = false;
+                        return;
+                    }
+                    cookiesToImport = Array.isArray(result.cookies) ? result.cookies : [result.cookies];
+                } catch (error) {
+                    console.error('Decryption error:', error);
+                    toastStore.error('Failed to decrypt: wrong password or corrupted data');
+                    isImporting = false;
+                    return;
+                }
+            } else {
+                cookiesToImport = Array.isArray(parsedData) ? parsedData : [parsedData];
+            }
+
+            // Validate and normalize
+            const validCookies = [];
+            for (const c of cookiesToImport) {
+                if (!c.name || !c.domain) {
+                    console.warn('⚠️ Skipping invalid cookie:', c.name || 'unnamed');
+                    continue;
+                }
+                if (c.value === undefined || c.value === null) c.value = '';
+                if (!c.path) c.path = '/';
+                if (c.secure === undefined) c.secure = false;
+                if (c.httpOnly === undefined) c.httpOnly = false;
+                validCookies.push(c);
+            }
+
+            if (validCookies.length === 0) {
+                toastStore.error('No valid cookies found');
+                isImporting = false;
+                return;
+            }
+
+            // Merge: replace existing cookies with same name+domain+path, add new ones
+            const mergedCookies = [...cookies];
+            for (const newCookie of validCookies) {
+                const existingIdx = mergedCookies.findIndex(c =>
+                    c.name === newCookie.name &&
+                    c.domain === newCookie.domain &&
+                    c.path === newCookie.path
+                );
+                if (existingIdx !== -1) {
+                    mergedCookies[existingIdx] = newCookie; // Replace
+                } else {
+                    mergedCookies.push(newCookie); // Add
+                }
+            }
+
+            const success = await saveCookiesToServer(mergedCookies);
+            if (success) {
+                toastStore.success(`✅ ${validCookies.length} cookie(s) imported to server`);
+                showImportModal = false;
+                importJson = "";
+                importPassword = "";
+                isEncryptedImport = false;
+            }
+        } catch (error) {
+            console.error('Import cookie error:', error);
+            toastStore.error('Invalid JSON format');
+        } finally {
+            isImporting = false;
+        }
+    }
 
     function handleDragOver(e) {
         e.preventDefault();
@@ -65,20 +415,15 @@
         reader.onload = (event) => {
             const content = event.target.result;
             importJson = content;
-
-            // Auto-detect format
             try {
                 const parsed = JSON.parse(content);
                 isEncryptedImport = detectEncryptedFormat(parsed);
             } catch {
                 isEncryptedImport = false;
             }
-
             toastStore.success(`File loaded: ${file.name}`);
         };
-        reader.onerror = () => {
-            toastStore.error('Failed to read file');
-        };
+        reader.onerror = () => toastStore.error('Failed to read file');
         reader.readAsText(file);
     }
 
@@ -90,253 +435,16 @@
         reader.onload = (event) => {
             const content = event.target.result;
             importJson = content;
-
             try {
                 const parsed = JSON.parse(content);
                 isEncryptedImport = detectEncryptedFormat(parsed);
             } catch {
                 isEncryptedImport = false;
             }
-
             toastStore.success(`File loaded: ${file.name}`);
         };
         reader.readAsText(file);
-        e.target.value = ''; // Reset so same file can be selected again
-    }
-
-    // Filter cookies by search
-    let filteredCookies = $derived(() => {
-        if (!searchQuery.trim()) return cookies;
-        const query = searchQuery.toLowerCase();
-        return cookies.filter(cookie => 
-            cookie.name.toLowerCase().includes(query) ||
-            cookie.domain.toLowerCase().includes(query) ||
-            cookie.value.toLowerCase().includes(query)
-        );
-    });
-
-    // Group filtered cookies by domain
-    let cookiesByDomain = $derived(() => {
-        const grouped = {};
-        filteredCookies().forEach(cookie => {
-            const domain = cookie.domain;
-            if (!grouped[domain]) {
-                grouped[domain] = [];
-            }
-            grouped[domain].push(cookie);
-        });
-        return grouped;
-    });
-
-    let domains = $derived(Object.keys(cookiesByDomain()).sort());
-
-    $effect(() => {
-        if (isOpen && partition) {
-            loadCookies();
-        }
-    });
-
-    async function loadCookies() {
-        if (!partition) return;
-        
-        isLoading = true;
-        try {
-            const result = await window.api.db.getCookiesFromPartition(partition);
-            if (Array.isArray(result)) {
-                cookies = result;
-            } else {
-                console.error('Unexpected cookies format:', result);
-                cookies = [];
-            }
-        } catch (error) {
-            console.error('Load cookies error:', error);
-            cookies = [];
-        } finally {
-            isLoading = false;
-        }
-    }
-
-    function toggleDomain(domain) {
-        if (expandedDomains.has(domain)) {
-            expandedDomains.delete(domain);
-        } else {
-            expandedDomains.add(domain);
-        }
-        expandedDomains = new Set(expandedDomains);
-    }
-
-    function toggleCookie(cookieId) {
-        if (expandedCookies.has(cookieId)) {
-            expandedCookies.delete(cookieId);
-        } else {
-            expandedCookies.add(cookieId);
-        }
-        expandedCookies = new Set(expandedCookies);
-    }
-
-    function getCookieId(cookie) {
-        return `${cookie.domain}-${cookie.name}-${cookie.path}`;
-    }
-
-    function startEditCookie(cookie) {
-        editingCookie = cookie;
-        editingJson = JSON.stringify(cookie, null, 2);
-    }
-
-    function cancelEdit() {
-        editingCookie = null;
-        editingJson = "";
-    }
-
-    async function updateCookie() {
-        try {
-            const updatedCookie = JSON.parse(editingJson);
-            
-            // Validate required fields
-            if (!updatedCookie.name || !updatedCookie.value || !updatedCookie.domain) {
-                toastStore.error('Cookie must have name, value, and domain');
-                return;
-            }
-
-            // Delete old cookie first
-            await window.api.db.deleteCookieFromPartition(
-                partition, 
-                editingCookie.name, 
-                editingCookie.domain, 
-                editingCookie.path
-            );
-
-            // Set new cookie
-            const result = await window.api.db.setCookieToPartition(partition, updatedCookie);
-            if (result && result.success) {
-                toastStore.success('Cookie updated');
-                cancelEdit();
-                await loadCookies();
-            } else {
-                toastStore.error('Failed to update cookie');
-            }
-        } catch (error) {
-            console.error('Update cookie error:', error);
-            toastStore.error('Invalid JSON or update failed');
-        }
-    }
-
-    async function deleteCookie(cookie) {
-        if (!confirm(`Delete cookie "${cookie.name}"?`)) return;
-
-        try {
-            const result = await window.api.db.deleteCookieFromPartition(
-                partition, 
-                cookie.name, 
-                cookie.domain, 
-                cookie.path
-            );
-            if (result && result.success) {
-                toastStore.success('Cookie deleted');
-                await loadCookies();
-            } else {
-                toastStore.error('Failed to delete cookie');
-            }
-        } catch (error) {
-            console.error('Delete cookie error:', error);
-            toastStore.error('Failed to delete cookie');
-        }
-    }
-
-    // Detect if JSON is Cookie-Editor encrypted format
-    function detectEncryptedFormat(parsed) {
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-            && parsed.url && parsed.version && parsed.data && typeof parsed.data === 'string';
-    }
-
-    async function importCookie() {
-        if (isImporting) return;
-        isImporting = true;
-        
-        try {
-            const parsedData = JSON.parse(importJson);
-            let cookiesToImport;
-            
-            // Check if it's Cookie-Editor encrypted format: {url, version, data}
-            if (detectEncryptedFormat(parsedData)) {
-                if (!importPassword.trim()) {
-                    toastStore.error('Password is required to decrypt this cookie export');
-                    isImporting = false;
-                    return;
-                }
-                
-                try {
-                    const result = await window.api.db.decryptCookieExport(parsedData.data, importPassword);
-                    if (!result.success) {
-                        toastStore.error(result.error || 'Decryption failed');
-                        isImporting = false;
-                        return;
-                    }
-                    cookiesToImport = Array.isArray(result.cookies) ? result.cookies : [result.cookies];
-                } catch (error) {
-                    console.error('Decryption error:', error);
-                    toastStore.error('Failed to decrypt: wrong password or corrupted data');
-                    isImporting = false;
-                    return;
-                }
-            } else {
-                // Plain cookie array or single cookie
-                cookiesToImport = Array.isArray(parsedData) ? parsedData : [parsedData];
-            }
-            
-            let successCount = 0;
-            let failCount = 0;
-            
-            for (const newCookie of cookiesToImport) {
-                // Validate required fields
-                if (!newCookie.name || !newCookie.domain) {
-                    console.warn('⚠️ Skipping invalid cookie:', newCookie.name || 'unnamed');
-                    failCount++;
-                    continue;
-                }
-                
-                // Ensure value exists (can be empty string)
-                if (newCookie.value === undefined || newCookie.value === null) {
-                    newCookie.value = '';
-                }
-                
-                try {
-                    const result = await window.api.db.setCookieToPartition(partition, newCookie);
-                    if (result && result.success) {
-                        successCount++;
-                    } else {
-                        console.error('Failed to import cookie:', newCookie.name, result?.error);
-                        failCount++;
-                    }
-                } catch (error) {
-                    console.error('Error importing cookie:', newCookie.name, error);
-                    failCount++;
-                }
-            }
-            
-            // Show result
-            if (successCount > 0) {
-                toastStore.success(`${successCount} cookie(s) imported successfully`);
-                showImportModal = false;
-                importJson = "";
-                importPassword = "";
-                isEncryptedImport = false;
-                await loadCookies();
-            }
-            
-            if (failCount > 0) {
-                toastStore.warning(`${failCount} cookie(s) failed to import`);
-            }
-            
-            if (successCount === 0 && failCount === 0) {
-                toastStore.error('No valid cookies found');
-            }
-        } catch (error) {
-            console.error('Import cookie error:', error);
-            toastStore.error('Invalid JSON format');
-        } finally {
-            isImporting = false;
-        }
+        e.target.value = '';
     }
 
     function handleClose() {
@@ -347,6 +455,8 @@
         cancelEdit();
         showImportModal = false;
         importJson = "";
+        showAddModal = false;
+        newCookieJson = '';
     }
 </script>
 
@@ -356,12 +466,17 @@
         <div class="flex items-center gap-2">
             <Cookie size={16} class="text-blue-600" />
             <span class="text-sm font-medium text-gray-700">Cookie Manager</span>
+            {#if profileId}
+                <span class="text-xs text-gray-400">•</span>
+                <Cloud size={14} class="text-green-500" />
+                <span class="text-xs text-gray-500">Server: {cookies.length} cookies</span>
+            {/if}
         </div>
         <div style="-webkit-app-region: no-drag">
             <ChildWindowControls variant="light" windowId={WINDOW_ID} />
         </div>
     </div>
-    
+
     <!-- Content -->
     <div class="flex-1 overflow-y-auto p-6">
         <div class="flex flex-col h-full">
@@ -381,21 +496,29 @@
             <!-- Header Actions -->
             <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
                 <div class="flex items-center gap-2">
-                    <Cookie size={18} class="text-blue-600" />
+                    <Cloud size={18} class="text-blue-600" />
                     <span class="text-sm font-medium text-gray-700">
                         {domains.length} Domain{domains.length !== 1 ? 's' : ''} • {filteredCookies().length} Cookie{filteredCookies().length !== 1 ? 's' : ''}
                     </span>
+                    <span class="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded">Server</span>
                 </div>
                 <div class="flex items-center gap-2">
+                    <button
+                        onclick={() => { showAddModal = true; newCookieJson = ''; }}
+                        class="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center gap-2"
+                    >
+                        <Plus size={14} />
+                        New Cookie
+                    </button>
                     <button
                         onclick={() => showImportModal = true}
                         class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
                     >
                         <Plus size={14} />
-                        Import Cookie
+                        Import
                     </button>
                     <button
-                        onclick={loadCookies}
+                        onclick={loadCookiesFromServer}
                         disabled={isLoading}
                         class="px-3 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
                     >
@@ -405,23 +528,45 @@
                 </div>
             </div>
 
+            <!-- Backend status banner -->
+            {#if !profileId}
+                <div class="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-center gap-2">
+                    <CloudOff size={14} />
+                    <span>No profile linked — open cookie manager from a profile to enable server sync.</span>
+                </div>
+            {:else}
+                <div class="mb-3 p-2.5 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700 flex items-center gap-2">
+                    <CircleCheck size={14} />
+                    <span>Connected to server — all changes are saved directly to backend (Profile #{profileId})</span>
+                </div>
+            {/if}
+
             <!-- Cookies List -->
             <div class="flex-1 overflow-y-auto">
                 {#if isLoading}
                     <div class="flex items-center justify-center py-12">
-                        <div class="text-gray-500">Loading cookies...</div>
+                        <div class="flex items-center gap-2 text-gray-500">
+                            <RefreshCw size={18} class="animate-spin" />
+                            <span>Loading cookies from server...</span>
+                        </div>
+                    </div>
+                {:else if !profileId}
+                    <div class="flex flex-col items-center justify-center py-12 text-gray-500">
+                        <CloudOff size={48} class="mb-4 text-gray-300" />
+                        <p>No profile selected</p>
                     </div>
                 {:else if domains.length === 0}
                     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
                         <Cookie size={48} class="mb-4 text-gray-300" />
-                        <p>{searchQuery ? 'No cookies match your search' : 'No cookies found'}</p>
+                        <p>{searchQuery ? 'No cookies match your search' : 'No cookies on server yet'}</p>
+                        <p class="text-xs mt-1">Click "New Cookie" or "Import" to add cookies</p>
                     </div>
                 {:else}
                     <div class="space-y-2">
                         {#each domains as domain}
                             {@const domainCookies = cookiesByDomain()[domain]}
                             {@const isExpanded = expandedDomains.has(domain)}
-                            
+
                             <div class="border border-gray-200 rounded-lg overflow-hidden">
                                 <!-- Domain Header -->
                                 <button
@@ -429,9 +574,9 @@
                                     class="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 flex items-center justify-between transition-colors"
                                 >
                                     <div class="flex items-center gap-2">
-                                        <svelte:component 
-                                            this={isExpanded ? ChevronDown : ChevronRight} 
-                                            size={16} 
+                                        <svelte:component
+                                            this={isExpanded ? ChevronDown : ChevronRight}
+                                            size={16}
                                             class="text-gray-600"
                                         />
                                         <Cookie size={16} class="text-gray-600" />
@@ -448,7 +593,8 @@
                                         {#each domainCookies as cookie}
                                             {@const cookieId = getCookieId(cookie)}
                                             {@const isCookieExpanded = expandedCookies.has(cookieId)}
-                                            
+                                            {@const cookieIdx = findCookieIndex(cookie)}
+
                                             <div class="border-b border-gray-100 last:border-b-0">
                                                 <!-- Cookie Name Header -->
                                                 <div class="flex items-center justify-between p-3 hover:bg-gray-50 transition-colors">
@@ -456,20 +602,33 @@
                                                         onclick={() => toggleCookie(cookieId)}
                                                         class="flex-1 flex items-center gap-2 text-left"
                                                     >
-                                                        <svelte:component 
-                                                            this={isCookieExpanded ? ChevronDown : ChevronRight} 
-                                                            size={14} 
+                                                        <svelte:component
+                                                            this={isCookieExpanded ? ChevronDown : ChevronRight}
+                                                            size={14}
                                                             class="text-gray-500"
                                                         />
                                                         <div class="flex-1">
                                                             <div class="font-medium text-gray-900 text-sm">{cookie.name}</div>
                                                             <div class="text-xs text-gray-500">
-                                                                Path: {cookie.path}
+                                                                Path: {cookie.path || '/'}
                                                                 {#if cookie.expirationDate}
                                                                     • Expires: {new Date(cookie.expirationDate * 1000).toLocaleDateString()}
                                                                 {/if}
+                                                                {#if cookie.secure}
+                                                                    • 🔒 Secure
+                                                                {/if}
+                                                                {#if cookie.httpOnly}
+                                                                    • 🛡 HttpOnly
+                                                                {/if}
                                                             </div>
                                                         </div>
+                                                    </button>
+                                                    <button
+                                                        onclick={() => startEditCookie(cookie)}
+                                                        class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
+                                                        title="Edit"
+                                                    >
+                                                        <Edit3 size={14} />
                                                     </button>
                                                     <button
                                                         onclick={() => deleteCookie(cookie)}
@@ -483,9 +642,10 @@
                                                 <!-- JSON View/Edit Accordion -->
                                                 {#if isCookieExpanded}
                                                     <div class="px-3 pb-3 bg-gray-50">
-                                                        {#if editingCookie === cookie}
+                                                        {#if editingCookieIndex === cookieIdx}
                                                             <!-- Edit Mode -->
-                                                            <div class="p-3 bg-white rounded-lg border border-gray-200">
+                                                            <div class="p-3 bg-white rounded-lg border border-blue-200">
+                                                                <label class="block text-xs font-medium text-gray-600 mb-1">Edit Cookie JSON</label>
                                                                 <textarea
                                                                     bind:value={editingJson}
                                                                     class="w-full h-48 p-2 text-xs font-mono bg-gray-50 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
@@ -494,9 +654,10 @@
                                                                 <div class="flex items-center gap-2 mt-2">
                                                                     <button
                                                                         onclick={updateCookie}
-                                                                        class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                                                                        class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center gap-1"
                                                                     >
-                                                                        Update
+                                                                        <Save size={12} />
+                                                                        Save to Server
                                                                     </button>
                                                                     <button
                                                                         onclick={cancelEdit}
@@ -510,15 +671,6 @@
                                                             <!-- View Mode -->
                                                             <div class="p-3 bg-white rounded-lg border border-gray-200">
                                                                 <pre class="text-xs font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">{JSON.stringify(cookie, null, 2)}</pre>
-                                                                <div class="flex items-center gap-2 mt-2">
-                                                                    <button
-                                                                        onclick={() => startEditCookie(cookie)}
-                                                                        class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center gap-1"
-                                                                    >
-                                                                        <Save size={12} />
-                                                                        Edit JSON
-                                                                    </button>
-                                                                </div>
                                                             </div>
                                                         {/if}
                                                     </div>
@@ -534,17 +686,52 @@
             </div>
         </div>
 
+        <!-- Add Cookie Modal -->
+        {#if showAddModal}
+            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => { showAddModal = false; newCookieJson = ''; }}>
+                <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4" onclick={(e) => e.stopPropagation()}>
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-900">Add New Cookie</h3>
+                        <p class="text-sm text-gray-500 mt-1">Cookie will be saved directly to server</p>
+                    </div>
+                    <div class="p-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Cookie JSON</label>
+                        <textarea
+                            bind:value={newCookieJson}
+                            class="w-full h-48 p-3 text-sm font-mono border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                            placeholder={"{\n  \"name\": \"session_id\",\n  \"value\": \"abc123\",\n  \"domain\": \".example.com\",\n  \"path\": \"/\",\n  \"secure\": true,\n  \"httpOnly\": true\n}"}
+                        ></textarea>
+                        <p class="text-xs text-gray-400 mt-2">Required fields: name, domain. Optional: value, path, secure, httpOnly, sameSite, expirationDate</p>
+                    </div>
+                    <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
+                        <button
+                            onclick={() => { showAddModal = false; newCookieJson = ''; }}
+                            class="px-4 py-2 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onclick={addNewCookie}
+                            class="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                        >
+                            Save to Server
+                        </button>
+                    </div>
+                </div>
+            </div>
+        {/if}
+
         <!-- Import Modal -->
         {#if showImportModal}
             <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => showImportModal = false}>
                 <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4" onclick={(e) => e.stopPropagation()}>
                     <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-lg font-semibold text-gray-900">Import Cookie</h3>
+                        <h3 class="text-lg font-semibold text-gray-900">Import Cookies</h3>
                         <p class="text-sm text-gray-500 mt-1">
                             {#if isEncryptedImport}
                                 🔒 Cookie-Editor encrypted format detected — enter password to decrypt
                             {:else}
-                                Paste cookie JSON below (plain array or Cookie-Editor format)
+                                Cookies will be merged and saved directly to server
                             {/if}
                         </p>
                     </div>
@@ -579,7 +766,6 @@
                                 class="w-full h-48 p-3 text-sm font-mono bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-900 resize-none"
                                 placeholder="Paste cookie JSON or drag & drop a .json file here..."
                             ></textarea>
-                            <!-- File input overlay -->
                             <div class="absolute bottom-2 right-2 flex gap-2">
                                 <label class="px-2.5 py-1 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer text-gray-600 shadow-sm">
                                     📁 Browse file
@@ -612,7 +798,7 @@
                             disabled={isImporting || (isEncryptedImport && !importPassword.trim())}
                             class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {isImporting ? 'Importing...' : isEncryptedImport ? 'Decrypt & Import' : 'Import'}
+                            {isImporting ? 'Importing...' : isEncryptedImport ? 'Decrypt & Import to Server' : 'Import to Server'}
                         </button>
                     </div>
                 </div>

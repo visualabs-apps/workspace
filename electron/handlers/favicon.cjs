@@ -56,7 +56,7 @@ function registerFaviconHandler() {
                 
                 iconBuffer = response;
             } catch (error) {
-                console.log(`Failed to fetch favicon for ${domain}:`, error.message);
+                // Favicon not available, will try Google fallback
             }
             
             // 3. Fallback to Google favicon service
@@ -83,7 +83,7 @@ function registerFaviconHandler() {
                     
                     iconBuffer = response;
                 } catch (error) {
-                    console.log(`Failed to fetch Google favicon for ${domain}:`, error.message);
+                    // Google favicon fallback also failed
                 }
             }
             
