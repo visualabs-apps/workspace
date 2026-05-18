@@ -1,8 +1,11 @@
 const { ipcMain, app } = require('electron');
 const { getDatabase } = require('../database/index.cjs');
 
-function registerSettingsHandlers() {
+let _isDevEnvironment = false;
+
+function registerSettingsHandlers(isDevEnvironment = false) {
     const db = getDatabase();
+    _isDevEnvironment = isDevEnvironment;
     
     // Show Notifications
     ipcMain.handle('settings-show-notifications', async (event, enabled) => {
@@ -186,6 +189,55 @@ function registerSettingsHandlers() {
             return { success: false, error: error.message, enabled: false };
         }
     });
+    // Developer Mode
+    ipcMain.handle('settings-set-developer-mode', async (event, enabled) => {
+        try {
+            if (db) {
+                const stmt = db.prepare(`
+                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                `);
+                stmt.run('developerMode', JSON.stringify(enabled), Date.now());
+            }
+            return { success: true, enabled };
+        } catch (error) {
+            console.error('settings-set-developer-mode error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('settings-get-developer-mode', async (event) => {
+        try {
+            const defaultEnabled = _isDevEnvironment;
+            if (!db) return { success: true, enabled: defaultEnabled };
+            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+            const row = stmt.get('developerMode');
+            if (!row) return { success: true, enabled: defaultEnabled };
+            try {
+                const enabled = JSON.parse(row.value);
+                return { success: true, enabled };
+            } catch {
+                return { success: true, enabled: defaultEnabled };
+            }
+        } catch (error) {
+            console.error('settings-get-developer-mode error:', error);
+            return { success: false, error: error.message, enabled: _isDevEnvironment };
+        }
+    });
 }
 
-module.exports = { registerSettingsHandlers };
+module.exports = { registerSettingsHandlers, isDeveloperModeEnabled };
+
+// Check if developer mode is currently enabled (reads from DB)
+async function isDeveloperModeEnabled() {
+    try {
+        const db = getDatabase();
+        if (!db) return _isDevEnvironment;
+        const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+        const row = stmt.get('developerMode');
+        if (!row) return _isDevEnvironment;
+        return JSON.parse(row.value);
+    } catch {
+        return _isDevEnvironment;
+    }
+}

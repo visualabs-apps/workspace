@@ -1,6 +1,6 @@
 <script>
     import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
-    import { Settings, User, Bell, Lock, Palette, Layers, Search } from "lucide-svelte";
+    import { Settings, User, Bell, Lock, Palette, Layers, Search, Code } from "lucide-svelte";
     import { toastStore } from "../lib/managers/toast.svelte.js";
     import { tabLifetimeManager } from "../lib/managers/tabLifetime.svelte.js";
 
@@ -13,11 +13,13 @@
     let defaultSearchEngine = $state("google");
     let showNotifications = $state(true);
     let autoStart = $state(false);
+    let developerMode = $state(false);
     
     const tabs = [
         { id: "general", label: "General", icon: Settings },
         { id: "tabs", label: "Tabs", icon: Layers },
         { id: "search", label: "Search", icon: Search },
+        { id: "developer", label: "Developer", icon: Code },
         { id: "account", label: "Account", icon: User },
         { id: "notifications", label: "Notifications", icon: Bell },
         { id: "privacy", label: "Privacy", icon: Lock },
@@ -63,6 +65,11 @@
             console.log('[WindowSettings] Saving search engine...');
             const searchResult = await window.api.settings.setDefaultSearchEngine(defaultSearchEngine);
             console.log('[WindowSettings] Search result:', searchResult);
+            
+            // Save developer mode
+            console.log('[WindowSettings] Saving developer mode...');
+            const devModeResult = await window.api.settings.setDeveloperMode(developerMode);
+            console.log('[WindowSettings] Developer mode result:', devModeResult);
             
             // Dispatch event to notify other components about settings update
             window.dispatchEvent(new CustomEvent('settings-updated'));
@@ -126,6 +133,11 @@
             const searchEngineResult = await window.api.settings.getDefaultSearchEngine();
             if (searchEngineResult.success) {
                 defaultSearchEngine = searchEngineResult.engine;
+            }
+            // Load developer mode
+            const devModeResult = await window.api.settings.getDeveloperMode();
+            if (devModeResult.success) {
+                developerMode = devModeResult.enabled;
             }
         } catch (error) {
             console.error('Failed to load settings:', error);
@@ -317,6 +329,27 @@
                                     {/each}
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    
+                {:else if activeTab === "developer"}
+                    <div class="space-y-6">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 mb-1">Developer Settings</h3>
+                            <p class="text-sm text-gray-500">Configure developer features and advanced options</p>
+                        </div>
+                        
+                        <div class="space-y-4">
+                            <label class="flex items-start gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    class="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    bind:checked={developerMode}
+                                />
+                                <div>
+                                    <div class="text-sm font-medium text-gray-900">Developer Mode</div>
+                                </div>
+                            </label>
                         </div>
                     </div>
                     

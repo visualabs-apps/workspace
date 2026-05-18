@@ -34,7 +34,7 @@ class NativeApiService {
             const requestOptions = {
                 method: method.toUpperCase(),
                 url,
-                data,
+                data: data ? JSON.parse(JSON.stringify(data)) : data,
                 headers,
                 timeout: options.timeout || this.timeout,
                 withCredentials: true

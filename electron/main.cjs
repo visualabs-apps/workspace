@@ -26,7 +26,7 @@ const { registerFaviconHandler } = require('./handlers/favicon.cjs');
 const { registerSettingsHandlers } = require('./handlers/settings.cjs');
 const { registerHttpHandler } = require('./handlers/http.cjs');
 const { registerCookieHandlers } = require('./handlers/cookies.cjs');
-const { registerDownloadHandlers, handleAria2Download } = require('./handlers/downloads.cjs');
+const { registerDownloadHandlers, handleAria2Download, startAria2Polling, stopAria2Polling } = require('./handlers/downloads.cjs');
 const { registerInjectorRoutes } = require('./handlers/injectorController/routes.cjs');
 const { registerChildWindowHandlers } = require('./handlers/childWindows.cjs');
 const { createWindow, getMainWindow, setIsQuitting } = require('./window/createWindow.cjs');
@@ -45,7 +45,7 @@ app.on('ready', async () => {
     // Register all IPC handlers
     registerDatabaseHandlers();
     registerFaviconHandler();
-    registerSettingsHandlers();
+    registerSettingsHandlers(isDevEnvironment);
     registerHttpHandler();
     registerCookieHandlers();
     registerDownloadHandlers(aria2, getMainWindow);
@@ -125,6 +125,9 @@ app.on('ready', async () => {
         
         // Register aria2 download handler for default session AFTER aria2 is ready
         handleAria2Download(session.defaultSession, aria2, mainWindow);
+        
+        // Start polling aria2 for download progress/completion
+        startAria2Polling(aria2, mainWindow);
     } catch (error) {
         console.error('❌ Failed to start aria2:', error);
         // Fallback: don't register download handler if aria2 fails
@@ -166,6 +169,9 @@ app.on('window-all-closed', (e) => {
 
 app.on('before-quit', async () => {
     setIsQuitting(true);
+    
+    // Stop aria2 polling
+    stopAria2Polling();
     
     // Stop aria2 gracefully
     console.log('🛑 Stopping aria2...');

@@ -1,6 +1,6 @@
 <script>
     import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
-    import { Code, Play, Save, Trash2, FileCode, FolderOpen, Download, BookOpen, Copy, Check, Terminal, Wand2, X } from "lucide-svelte";
+    import { Code, Play, Save, Trash2, FileCode, FolderOpen, Download, BookOpen, Copy, Check, Terminal, Wand2, X, Zap, FileUp } from "lucide-svelte";
     import { toastStore } from "../lib/managers/toast.svelte.js";
     import { workspaceStore } from "../lib/stores/workspaces.svelte.js";
     import CodeEditor from "../components/ui/CodeEditor.svelte";
@@ -24,6 +24,7 @@
     let scriptsDirectory = $state("");
     let copiedSection = $state(null);
     let codeEditor = $state(null);
+    let developerMode = $state(false);
 
     // Get active workspace
     let activeWorkspace = $derived(workspaceStore.activeWorkspace);
@@ -31,6 +32,7 @@
     onMount(() => {
         loadSavedScripts();
         loadScriptsDirectory();
+        loadDeveloperMode();
         
         const cleanupConsoleListener = setupConsoleListener();
         setupWebviewListeners();
@@ -100,6 +102,27 @@
             }
         });
     }
+
+    // Load developer mode setting
+    async function loadDeveloperMode() {
+        try {
+            const result = await window.api.settings.getDeveloperMode();
+            if (result.success) {
+                developerMode = result.enabled;
+            }
+        } catch (error) {
+            console.error("Failed to load developer mode:", error);
+        }
+    }
+
+    // Listen for settings changes
+    $effect(() => {
+        const handleSettingsUpdate = () => {
+            loadDeveloperMode();
+        };
+        window.addEventListener('settings-updated', handleSettingsUpdate);
+        return () => window.removeEventListener('settings-updated', handleSettingsUpdate);
+    });
 
     // Load scripts directory path
     async function loadScriptsDirectory() {
@@ -211,9 +234,10 @@
     }
 
     // Execute script in active webview
-    async function executeScript() {
-        if (!selectedScriptId) {
-            toastStore.error("Simpan script terlebih dahulu");
+    async function executeScript(scriptId) {
+        const id = scriptId || selectedScriptId;
+        if (!id) {
+            toastStore.error("Pilih script terlebih dahulu");
             return;
         }
 
@@ -226,7 +250,7 @@
         activeTab = 'console';
 
         try {
-            const result = await window.api.scripts.execute(selectedScriptId);
+            const result = await window.api.scripts.execute(id);
             
             if (result.success) {
                 toastStore.success("Script berhasil dijalankan");
@@ -442,6 +466,8 @@ return { success: true, links: links.length, images: images.length };`;
         <!-- Tab Content -->
         <div class="flex-1 overflow-hidden bg-white">
             {#if activeTab === 'editor'}
+                {#if developerMode}
+                <!-- DEVELOPER MODE: Full editor UI -->
                 <div class="flex gap-4 h-full p-6">
                 <!-- Saved Scripts Sidebar -->
                 <div class="w-64 border-r border-gray-200 flex flex-col bg-gray-50 -ml-6 -my-6 mr-0">
@@ -546,6 +572,75 @@ vbox.toast('Script running', 'info');"
                 </div>
             </div>
         </div>
+                {:else}
+                <!-- SIMPLIFIED MODE: Script list with run buttons -->
+                <div class="h-full overflow-y-auto p-6">
+                    <div class="max-w-2xl mx-auto">
+                        {#if savedScripts.length === 0}
+                            <div class="text-center py-16">
+                                <FileCode size={48} class="mx-auto mb-4 text-gray-300" />
+                                <h3 class="text-lg font-medium text-gray-500 mb-2">Belum ada script</h3>
+                                <p class="text-sm text-gray-400 mb-6">Tambahkan script ke folder scripts atau nyalakan Developer Mode untuk membuat script baru</p>
+                                <button
+                                    onclick={openScriptsFolder}
+                                    class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors text-sm font-medium inline-flex items-center gap-2"
+                                >
+                                    <FolderOpen size={16} />
+                                    Buka Folder Scripts
+                                </button>
+                            </div>
+                        {:else}
+                            <div class="space-y-3">
+                                {#each savedScripts as script (script.id)}
+                                    <div class="p-4 rounded-xl border border-gray-200 bg-white hover:border-purple-200 hover:shadow-sm transition-all">
+                                        <div class="flex items-center justify-between gap-4">
+                                            <div class="flex-1 min-w-0">
+                                                <div class="flex items-center gap-2">
+                                                    <div class="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
+                                                        <Zap size={16} class="text-purple-600" />
+                                                    </div>
+                                                    <div class="flex-1 min-w-0">
+                                                        <div class="font-medium text-sm text-gray-900 truncate">{script.name}</div>
+                                                        {#if script.description}
+                                                            <div class="text-xs text-gray-500 truncate">{script.description}</div>
+                                                        {:else}
+                                                            <div class="text-xs text-gray-400">{script.urlPattern || '*'}</div>
+                                                        {/if}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-2 shrink-0">
+                                                {#if script.autoRun}
+                                                    <span class="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full font-medium">Auto</span>
+                                                {/if}
+                                                <button
+                                                    onclick={() => executeScript(script.id)}
+                                                    disabled={isExecuting}
+                                                    class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700 transition-colors flex items-center gap-1.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {#if isExecuting && selectedScriptId === script.id}
+                                                        <div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                    {:else}
+                                                        <Play size={14} />
+                                                    {/if}
+                                                    Run
+                                                </button>
+                                                <button
+                                                    onclick={() => deleteScript(script.id)}
+                                                    class="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                                                    title="Hapus"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                </div>
+                {/if}
             {:else if activeTab === 'console'}
                 <!-- Console Tab — uses shared ScriptConsolePanel -->
                 <ScriptConsolePanel showHeader={true} />
@@ -559,34 +654,48 @@ vbox.toast('Script running', 'info');"
         <div class="border-t border-gray-200 px-6 py-4 bg-gray-50">
             <div class="flex items-center justify-between">
                 <div class="text-xs text-gray-500">
-                    Script disimpan sebagai file • Gunakan VBox API
+                    {#if developerMode}
+                        Script disimpan sebagai file • Gunakan VBox API
+                    {:else}
+                        {savedScripts.length} script tersedia • Buka folder untuk menambahkan
+                    {/if}
                 </div>
                 <div class="flex items-center gap-2">
-                    <button
-                        onclick={clearForm}
-                        class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors text-sm font-medium"
-                    >
-                        Baru
-                    </button>
-                    <button
-                        onclick={saveScript}
-                        class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
-                    >
-                        <Save size={16} />
-                        Simpan
-                    </button>
-                    <button
-                        onclick={executeScript}
-                        disabled={isExecuting || !selectedScriptId}
-                        class="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700 transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {#if isExecuting}
-                            <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        {:else}
-                            <Play size={16} />
-                        {/if}
-                        Jalankan
-                    </button>
+                    {#if developerMode}
+                        <button
+                            onclick={clearForm}
+                            class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors text-sm font-medium"
+                        >
+                            Baru
+                        </button>
+                        <button
+                            onclick={saveScript}
+                            class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
+                        >
+                            <Save size={16} />
+                            Simpan
+                        </button>
+                        <button
+                            onclick={() => executeScript()}
+                            disabled={isExecuting || !selectedScriptId}
+                            class="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700 transition-colors flex items-center gap-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {#if isExecuting}
+                                <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            {:else}
+                                <Play size={16} />
+                            {/if}
+                            Jalankan
+                        </button>
+                    {:else}
+                        <button
+                            onclick={openScriptsFolder}
+                            class="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-2 text-sm font-medium"
+                        >
+                            <FolderOpen size={16} />
+                            Buka Folder
+                        </button>
+                    {/if}
                 </div>
             </div>
         </div>

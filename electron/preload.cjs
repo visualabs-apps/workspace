@@ -64,12 +64,12 @@ const api = {
         fileExists: (filePath) => ipcRenderer.invoke('file-exists', filePath),
         openFileLocation: (filePath) => ipcRenderer.invoke('open-file-location', filePath),
         openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
+        readTextFile: (filePath) => ipcRenderer.invoke('read-text-file', filePath),
         
         // Cookie operations
         getCookiesFromPartition: (partition) => ipcRenderer.invoke('get-cookies-from-partition', partition),
         setCookieToPartition: (partition, cookie) => ipcRenderer.invoke('set-cookie-to-partition', partition, cookie),
         deleteCookieFromPartition: (partition, name, domain, path, secure) => ipcRenderer.invoke('delete-cookie-from-partition', partition, name, domain, path, secure),
-        decryptCookieExport: (encryptedData, password) => ipcRenderer.invoke('decrypt-cookie-export', encryptedData, password),
     },
 
     // Download dialog helpers
@@ -88,6 +88,8 @@ const api = {
         getDefaultSearchEngine: () => ipcRenderer.invoke('settings-get-default-search-engine'),
         setAutoStart: (enabled) => ipcRenderer.invoke('settings-set-auto-start', enabled),
         getAutoStart: () => ipcRenderer.invoke('settings-get-auto-start'),
+        setDeveloperMode: (enabled) => ipcRenderer.invoke('settings-set-developer-mode', enabled),
+        getDeveloperMode: () => ipcRenderer.invoke('settings-get-developer-mode'),
     },
     
     // Favicon fetching (main process handles CORS)

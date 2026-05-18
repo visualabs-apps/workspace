@@ -33,6 +33,7 @@
     import BookmarkPanel from "../panels/BookmarkPanel.svelte";
     import DownloadManagerPanel from "../panels/DownloadManagerPanel.svelte";
     import ProfileDropdown from "../dropdowns/ProfileDropdown.svelte";
+    import { LogOut, User } from "lucide-svelte";
     import Dropdown from "../dropdowns/Dropdown.svelte";
     import { onMount } from "svelte";
 
@@ -45,6 +46,7 @@
     let isInjectScriptModalOpen = $state(false);
     let showAutocomplete = $state(false);
     let showBrowserMenu = $state(false);
+    let showUserDropdown = $state(false);
     let useBrowserWindow = $state(true); // Toggle between BrowserWindow and Svelte overlay
     let isBookmarked = $state(false);
     let isEditProfileModalOpen = $state(false);
@@ -90,34 +92,6 @@
         if (user?.id && clients.length === 0) {
             loadClients();
         }
-    });
-    
-    // Get active downloads count from database
-    let activeDownloadsCount = $state(0);
-    
-    // Update active downloads count periodically
-    let countInterval;
-    $effect(() => {
-        async function updateCount() {
-            try {
-                const result = await window.api.db.getDownloads(activeWorkspace?.id);
-                if (result.success) {
-                    const activeCount = result.downloads.filter(d => 
-                        d.state === 'progressing' || d.state === 'paused'
-                    ).length;
-                    activeDownloadsCount = activeCount;
-                }
-            } catch (error) {
-                console.error('Failed to get active downloads count:', error);
-            }
-        }
-        
-        updateCount();
-        countInterval = setInterval(updateCount, 2000); // Update every 2 seconds
-        
-        return () => {
-            if (countInterval) clearInterval(countInterval);
-        };
     });
     
     // Expose toastStore to window for downloads.svelte.js
@@ -380,6 +354,7 @@
                 break;
             case 'downloads':
                 panelStore.openDownloads();
+                downloadStore.markAllViewed();
                 break;
             case 'reload-app':
                 if (window.api?.reloadApp) {
@@ -568,11 +543,37 @@
         </button>
     {/if}
 
-    <!-- Profile Dropdown -->
-    <ProfileDropdown 
-        onEditProfile={handleEditProfile}
-        onDeleteProfile={handleDeleteProfile}
-    />
+    <!-- User Name + Logout Dropdown -->
+    <Dropdown
+        isOpen={showUserDropdown}
+        onClose={() => showUserDropdown = false}
+        dropdownId="user-dropdown"
+        width="w-48"
+        zIndex="z-[9999]"
+    >
+        {#snippet trigger()}
+            <button
+                onclick={(e) => { e.stopPropagation(); showUserDropdown = !showUserDropdown; }}
+                class="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+                style="-webkit-app-region: no-drag"
+            >
+                <User size={16} class="text-gray-500" />
+                <span class="text-sm font-medium text-gray-700 max-w-[140px] truncate">
+                    {authStore.user?.name || authStore.user?.email || 'User'}
+                </span>
+            </button>
+        {/snippet}
+
+        {#snippet children()}
+            <button
+                onclick={() => { showUserDropdown = false; handleBrowserMenuClick('logout'); }}
+                class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+            >
+                <LogOut size={16} />
+                Logout
+            </button>
+        {/snippet}
+    </Dropdown>
 
     <!-- Download Manager Icon -->
     <div data-download-trigger="download-panel" style="-webkit-app-region: no-drag">
@@ -581,15 +582,29 @@
             onclick={(e) => {
                 e.stopPropagation();
                 panelStore.toggleDownloads();
+                if (panelStore.isDownloadPanelOpen) {
+                    downloadStore.markAllViewed();
+                }
             }}
             class="p-2 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors relative"
             title="Unduhan (Ctrl+J)"
         >
             <DownloadIcon size={20} />
-            {#if activeDownloadsCount > 0}
+            {#if downloadStore.activeDownloads.length > 0}
                 <span class="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
-                    {activeDownloadsCount}
+                    {downloadStore.activeDownloads.length}
                 </span>
+            {/if}
+            {#if downloadStore.unviewedCompletedCount > 0}
+                <span class="absolute -top-1 -right-1 {downloadStore.activeDownloads.length > 0 ? 'top-3 -right-0.5 w-3 h-3' : 'bg-green-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium'} {downloadStore.activeDownloads.length === 0 ? '' : 'bg-green-500'}">
+                    {#if downloadStore.activeDownloads.length === 0}
+                        {downloadStore.unviewedCompletedCount}
+                    {:else}
+                        <span class="block w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
+                    {/if}
+                </span>
+                <!-- Green glow effect on icon -->
+                <span class="absolute inset-0 rounded-lg animate-pulse bg-green-400/20 pointer-events-none"></span>
             {/if}
         </button>
     </div>
@@ -617,8 +632,10 @@
         {/snippet}
 
         {#snippet children()}
-            <!-- Browser Features -->
-            <!-- To-Do List hidden for now -->
+            <!-- Profile-scoped items -->
+            <div class="px-4 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Profil
+            </div>
             <button
                 onclick={() => handleBrowserMenuClick('target')}
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
@@ -650,23 +667,19 @@
                 Unduhan
                 <span class="ml-auto text-xs text-gray-400">Ctrl+J</span>
             </button>
+            
+            <hr class="my-2 border-gray-100" />
+            
+            <!-- Global items -->
+            <div class="px-4 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                Aplikasi
+            </div>
             <button
                 onclick={() => handleBrowserMenuClick('reload-app')}
                 class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
             >
                 <RotateCw size={16} />
                 Segarkan Aplikasi
-            </button>
-            
-            <hr class="my-2 border-gray-100" />
-            
-            <!-- Settings & Help -->
-            <button
-                onclick={() => handleBrowserMenuClick('my-profile')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                Profil Saya
             </button>
             <button
                 onclick={() => handleBrowserMenuClick('settings')}

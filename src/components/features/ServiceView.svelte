@@ -362,9 +362,10 @@
             webviewElement.src = app.url;
             webviewElement.partition = app.partition;
             webviewElement.allowpopups = true;
+            webviewElement.setAttribute('nativeWindowOpen', '');
             webviewElement.preload = preloadPath;
-            webviewElement.useragent = app.userAgent || 
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0";
+            webviewElement.useragent = app.userAgent ||
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
             webviewElement.style.width = '100%';
             webviewElement.style.height = '100%';
             webviewElement.setAttribute('data-webview', 'true');
@@ -436,17 +437,11 @@
         };
 
         const handleDownloadImage = (imageUrl) => {
+            // Image downloads are now handled entirely in the main process
+            // (context menu "Simpan Gambar Sebagai..." uses direct aria2/net.fetch)
+            // This handler is kept as a fallback but should not be triggered
             if (!imageUrl) return;
-            
-            // Trigger download by opening in external browser
-            // Or you can implement custom download logic here
-            if (webview) {
-                try {
-                    webview.downloadURL(imageUrl);
-                } catch (e) {
-                    console.warn("Failed to download image:", e);
-                }
-            }
+            console.warn("handleDownloadImage called unexpectedly — image saves should be handled by main process");
         };
 
         const handleReloadWebview = () => {

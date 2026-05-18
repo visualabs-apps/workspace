@@ -3,7 +3,7 @@
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { getClientsForAdmin } from "../../lib/api/api.js";
     import { toastStore } from "../../lib/managers/toast.svelte.js";
-    import { Plus, Trash2, Pencil } from "lucide-svelte";
+    import { Plus, Trash2, Pencil, PanelLeftClose, PanelLeftOpen } from "lucide-svelte";
     import { openPredefinedWindow } from "../../lib/utils/childWindow.js";
 
     // Auth state
@@ -26,6 +26,9 @@
 
     // Context menu state
     let workspaceContextMenu = $state({ show: false, x: 0, y: 0, workspaceId: null });
+
+    // Toggle state
+    let isExpanded = $state(false);
 
     function closeContextMenu() {
         workspaceContextMenu = { show: false, x: 0, y: 0, workspaceId: null };
@@ -157,60 +160,91 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-    class="w-16 h-full bg-white border-r border-gray-200 text-gray-900 flex flex-col items-center py-4 shrink-0 shadow-lg relative z-[100] select-none"
-    style="-webkit-app-region: drag"
+    class="h-full bg-white border-r border-gray-200 text-gray-900 flex flex-col py-4 shrink-0 relative z-[100] select-none transition-all duration-200 ease-in-out"
+    style="width: {isExpanded ? '220px' : '64px'}; -webkit-app-region: drag;"
 >
     <!-- Add Workspace Button -->
     <div class="w-full px-2.5 mb-3" style="-webkit-app-region: no-drag">
         <button
             onclick={(e) => toggleAddModal(e)}
-            class="popup-trigger-button w-full h-11 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all group relative"
-            title="Add Profilex"
+            class="w-full h-11 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all group"
+            title="Add Profile"
         >
             <Plus size={16} class="text-gray-600 group-hover:text-gray-900 group-hover:rotate-90 transition-all" />
         </button>
     </div>
 
     <!-- Workspace List -->
-    <div class="flex-1 w-full px-3 py-1 custom-scrollbar" style="-webkit-app-region: no-drag; overflow-x: visible;">
-        <div class="flex flex-col gap-3">
-            {#if isLoadingWorkspaces}
-                <!-- Skeleton Loading -->
+    <div class="flex-1 w-full px-2.5 py-1 custom-scrollbar overflow-y-auto overflow-x-hidden" style="-webkit-app-region: no-drag">
+        {#if isLoadingWorkspaces}
+            <!-- Skeleton Loading -->
+            <div class="flex flex-col gap-2">
                 {#each Array(3) as _, i}
-                    <div class="relative group flex items-center justify-center">
-                        <div class="w-10 h-10 rounded-full bg-gray-200 animate-pulse"></div>
+                    <div class="flex items-center gap-3 px-1 py-2">
+                        <div class="w-10 h-10 rounded-full bg-gray-200 animate-pulse shrink-0"></div>
+                        {#if isExpanded}
+                            <div class="flex-1 space-y-2">
+                                <div class="h-3 bg-gray-200 rounded animate-pulse w-3/4"></div>
+                                <div class="h-2 bg-gray-100 rounded animate-pulse w-1/2"></div>
+                            </div>
+                        {/if}
                     </div>
                 {/each}
-            {:else}
-                <!-- Profile List -->
+            </div>
+        {:else}
+            <!-- Profile List -->
+            <div class="flex flex-col gap-1">
                 {#each workspaces as workspace (workspace.id)}
-                <div class="relative group flex items-center justify-center">
                     <button
                         onclick={() => handleWorkspaceSwitch(workspace.id)}
                         oncontextmenu={(e) => handleWorkspaceContextMenu(e, workspace.id)}
-                        class="w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-md hover:shadow-xl relative {workspace.id === activeWorkspace?.id ? 'opacity-100 ring-[3px] ring-blue-400 scale-110 active-profile' : 'opacity-70 hover:opacity-100 hover:scale-105'}"
-                        style="background: linear-gradient(135deg, {workspace.color?.hex || workspace.color?.value || workspace.color || '#6366f1'}, {workspace.color?.hex || workspace.color?.value || workspace.color || '#6366f1'}dd);"
+                        class="w-full flex items-center gap-3 px-1.5 py-2 rounded-xl transition-all hover:bg-gray-50"
                     >
-                        <!-- Display client initials -->
-                        <span class="text-sm font-bold text-white">
-                            {getWorkspaceInitials(workspace.name)}
-                        </span>
-                    </button>
-
-                    <!-- Hover Tooltip -->
-                    <div class="absolute left-full ml-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[99999] delay-300">
-                        <div class="bg-gray-900 text-white rounded-lg shadow-xl px-3 py-2 min-w-[180px] max-w-[250px]">
-                            <p class="font-medium text-sm break-words">{workspace.name}</p>
-                            {#if workspace.customerName}
-                                <p class="text-xs text-gray-300 mt-0.5">{workspace.customerName}</p>
+                        <!-- Avatar -->
+                        <div class="relative shrink-0">
+                            {#if workspace.id === activeWorkspace?.id}
+                                <!-- Active indicator ring -->
+                                <div class="absolute -inset-1 rounded-full bg-gradient-to-tr from-blue-400 to-blue-500 active-ring"></div>
                             {/if}
-                            <div class="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-r-4 border-r-gray-900"></div>
+                            <div
+                                class="w-10 h-10 rounded-full flex items-center justify-center relative transition-all {workspace.id === activeWorkspace?.id ? 'scale-110 shadow-lg z-10' : 'shadow-sm hover:shadow-md hover:scale-105'}"
+                                style="background: linear-gradient(135deg, {workspace.color?.hex || workspace.color?.value || workspace.color || '#6366f1'}, {workspace.color?.hex || workspace.color?.value || workspace.color || '#6366f1'}dd);"
+                            >
+                                <span class="text-sm font-bold text-white">
+                                    {getWorkspaceInitials(workspace.name)}
+                                </span>
+                            </div>
                         </div>
-                    </div>
-                </div>
-            {/each}
+
+                        <!-- Profile Info (visible when expanded) -->
+                        {#if isExpanded}
+                            <div class="flex-1 min-w-0 text-left">
+                                <p class="text-sm font-medium {workspace.id === activeWorkspace?.id ? 'text-gray-900' : 'text-gray-700'} truncate">{workspace.name}</p>
+                                {#if workspace.customerName}
+                                    <p class="text-xs text-gray-400 truncate">{workspace.customerName}</p>
+                                {/if}
+                            </div>
+                        {/if}
+                    </button>
+                {/each}
+            </div>
+        {/if}
+    </div>
+
+    <!-- Toggle Button (always at bottom) -->
+    <div class="w-full px-2.5 mt-2" style="-webkit-app-region: no-drag">
+        <button
+            onclick={() => isExpanded = !isExpanded}
+            class="w-full h-9 rounded-xl bg-gray-50 hover:bg-gray-100 flex items-center justify-center gap-2 text-xs text-gray-400 hover:text-gray-600 transition-all"
+            title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        >
+            {#if isExpanded}
+                <PanelLeftClose size={14} />
+                <span>Tutup</span>
+            {:else}
+                <PanelLeftOpen size={16} />
             {/if}
-        </div>
+        </button>
     </div>
 </div>
 
@@ -270,11 +304,6 @@
         background: rgba(156, 163, 175, 0.5);
     }
 
-    /* Tooltip delay */
-    .group:hover .delay-300 {
-        transition-delay: 300ms;
-    }
-
     /* Skeleton animation */
     @keyframes pulse {
         0%, 100% {
@@ -289,18 +318,34 @@
         animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
 
-    /* Active profile ring animation */
+    /* Active profile shadow pulse */
     @keyframes ring-pulse {
         0%, 100% {
-            box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.7);
+            box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.25);
         }
         50% {
-            box-shadow: 0 0 0 6px rgba(96, 165, 250, 0);
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
         }
     }
 
     .active-profile {
-        animation: ring-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        animation: ring-pulse 2.5s ease-in-out infinite;
+    }
+
+    /* Active indicator ring pulse */
+    @keyframes active-ring-pulse {
+        0%, 100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+        50% {
+            opacity: 0.5;
+            transform: scale(1.08);
+        }
+    }
+
+    .active-ring {
+        animation: active-ring-pulse 2s ease-in-out infinite;
     }
 </style>
 

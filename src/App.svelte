@@ -380,6 +380,9 @@
         if ((e.ctrlKey || e.metaKey) && e.key === "j") {
             e.preventDefault();
             panelStore.toggleDownloads();
+            if (panelStore.isDownloadPanelOpen) {
+                downloadStore.markAllViewed();
+            }
         }
 
         if ((e.ctrlKey || e.metaKey) && e.key === "h") {

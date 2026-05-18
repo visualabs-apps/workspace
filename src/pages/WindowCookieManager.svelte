@@ -1,7 +1,8 @@
 <script>
     import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
-    import { Cookie, Trash2, ChevronDown, ChevronRight, Plus, Save, RefreshCw, Search, Cloud, CloudOff, CircleCheck, Edit3 } from "lucide-svelte";
+    import { Cookie, Trash2, ChevronDown, ChevronRight, Save, RefreshCw, Search, Cloud, CloudOff, Edit3, Upload } from "lucide-svelte";
     import { toastStore } from "../lib/managers/toast.svelte.js";
+    import Toast from "../components/ui/Toast.svelte";
     import { getChromeProfile, updateChromeProfile } from "../lib/api/api.js";
 
     const WINDOW_ID = 'cookie-manager-window';
@@ -13,7 +14,6 @@
     // Receive data from parent window via IPC
     $effect(() => {
         const handleWindowData = (data) => {
-            console.log('[CookieManager] Received data:', data);
             if (data.partition) partition = data.partition;
             if (data.profileId) profileId = data.profileId;
             isOpen = true;
@@ -27,6 +27,7 @@
     // All cookies come from backend
     let cookies = $state([]);
     let isLoading = $state(false);
+    let loadError = $state('');
     let searchQuery = $state("");
     let expandedDomains = $state(new Set());
     let expandedCookies = $state(new Set());
@@ -34,12 +35,8 @@
     let editingJson = $state("");
     let showImportModal = $state(false);
     let importJson = $state("");
-    let isEncryptedImport = $state(false);
-    let importPassword = $state("");
     let isImporting = $state(false);
     let isDragOver = $state(false);
-    let showAddModal = $state(false);
-    let newCookieJson = $state('');
 
     // Filter cookies by search
     let filteredCookies = $derived(() => {
@@ -79,22 +76,24 @@
     async function loadCookiesFromServer() {
         if (!profileId) {
             cookies = [];
+            loadError = 'No profile linked';
             return;
         }
 
         isLoading = true;
+        loadError = '';
         try {
             const response = await getChromeProfile(profileId);
             if (response.success && response.data) {
                 const serverCookies = response.data.cookies;
                 cookies = Array.isArray(serverCookies) ? serverCookies : [];
             } else {
-                console.error('[CookieManager] Failed to load from server:', response.error);
                 cookies = [];
+                loadError = response.error || 'Failed to load cookies';
             }
         } catch (error) {
-            console.error('[CookieManager] Load error:', error);
             cookies = [];
+            loadError = error.message || 'Failed to connect to server';
         } finally {
             isLoading = false;
         }
@@ -110,8 +109,11 @@
         }
 
         try {
+            // Deep-clone via JSON to strip undefined values and non-cloneable objects
+            // before sending through IPC (prevents DataCloneError)
+            const safeCookies = JSON.parse(JSON.stringify(updatedCookies));
             const result = await updateChromeProfile(profileId, {
-                cookies: updatedCookies,
+                cookies: safeCookies,
             });
 
             if (result.success) {
@@ -144,7 +146,6 @@
                     console.warn('[CookieManager] Failed to apply cookie:', cookie.name, err);
                 }
             }
-            console.log(`[CookieManager] Applied ${cookies.length} cookies to local session`);
         } catch (error) {
             console.error('[CookieManager] Apply to local session error:', error);
         }
@@ -200,7 +201,7 @@
             const updatedCookie = JSON.parse(editingJson);
 
             // Validate required fields
-            if (!updatedCookie.name || !updatedCookie.value === undefined || !updatedCookie.domain) {
+            if (!updatedCookie.name || updatedCookie.value === undefined || !updatedCookie.domain) {
                 toastStore.error('Cookie must have name, value, and domain');
                 return;
             }
@@ -246,56 +247,6 @@
         }
     }
 
-    /**
-     * Add a new cookie
-     */
-    async function addNewCookie() {
-        try {
-            let newCookie;
-            if (newCookieJson.trim()) {
-                newCookie = JSON.parse(newCookieJson);
-            } else {
-                // Create a minimal empty cookie
-                newCookie = {
-                    name: 'new_cookie',
-                    value: '',
-                    domain: '.example.com',
-                    path: '/',
-                    secure: false,
-                    httpOnly: false,
-                };
-            }
-
-            // Validate
-            if (!newCookie.name || !newCookie.domain) {
-                toastStore.error('Cookie must have at least name and domain');
-                return;
-            }
-
-            // Ensure defaults
-            if (newCookie.value === undefined || newCookie.value === null) newCookie.value = '';
-            if (!newCookie.path) newCookie.path = '/';
-            if (newCookie.secure === undefined) newCookie.secure = false;
-            if (newCookie.httpOnly === undefined) newCookie.httpOnly = false;
-
-            const updatedCookies = [...cookies, newCookie];
-            const success = await saveCookiesToServer(updatedCookies);
-            if (success) {
-                toastStore.success('Cookie added to server');
-                showAddModal = false;
-                newCookieJson = '';
-            }
-        } catch (error) {
-            console.error('Add cookie error:', error);
-            toastStore.error('Invalid JSON or add failed');
-        }
-    }
-
-    // Detect if JSON is Cookie-Editor encrypted format
-    function detectEncryptedFormat(parsed) {
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-            && parsed.url && parsed.version && parsed.data && typeof parsed.data === 'string';
-    }
 
     /**
      * Import cookies — merge into backend cookies array
@@ -306,33 +257,7 @@
 
         try {
             const parsedData = JSON.parse(importJson);
-            let cookiesToImport;
-
-            // Check if it's Cookie-Editor encrypted format
-            if (detectEncryptedFormat(parsedData)) {
-                if (!importPassword.trim()) {
-                    toastStore.error('Password is required to decrypt this cookie export');
-                    isImporting = false;
-                    return;
-                }
-
-                try {
-                    const result = await window.api.db.decryptCookieExport(parsedData.data, importPassword);
-                    if (!result.success) {
-                        toastStore.error(result.error || 'Decryption failed');
-                        isImporting = false;
-                        return;
-                    }
-                    cookiesToImport = Array.isArray(result.cookies) ? result.cookies : [result.cookies];
-                } catch (error) {
-                    console.error('Decryption error:', error);
-                    toastStore.error('Failed to decrypt: wrong password or corrupted data');
-                    isImporting = false;
-                    return;
-                }
-            } else {
-                cookiesToImport = Array.isArray(parsedData) ? parsedData : [parsedData];
-            }
+            let cookiesToImport = Array.isArray(parsedData) ? parsedData : [parsedData];
 
             // Validate and normalize
             const validCookies = [];
@@ -371,11 +296,9 @@
 
             const success = await saveCookiesToServer(mergedCookies);
             if (success) {
-                toastStore.success(`✅ ${validCookies.length} cookie(s) imported to server`);
+                toastStore.success(`${validCookies.length} cookie(s) imported to server`);
                 showImportModal = false;
                 importJson = "";
-                importPassword = "";
-                isEncryptedImport = false;
             }
         } catch (error) {
             console.error('Import cookie error:', error);
@@ -385,21 +308,55 @@
         }
     }
 
+    // Prevent Electron from navigating when files are dragged onto the window
+    // Must use both preventDefault AND stopPropagation to prevent Chromium
+    // from opening the file in its built-in text editor
+    $effect(() => {
+        const preventDrag = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        // Only prevent on the document body, NOT on the drop zone element
+        // The drop zone has its own handlers
+        document.body.addEventListener('dragover', preventDrag);
+        document.body.addEventListener('drop', preventDrag);
+        return () => {
+            document.body.removeEventListener('dragover', preventDrag);
+            document.body.removeEventListener('drop', preventDrag);
+        };
+    });
+
+    // Use a drag counter to prevent flickering when hovering over child elements
+    let dragCounter = $state(0);
+
+    function handleDragEnter(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter++;
+        isDragOver = true;
+    }
+
     function handleDragOver(e) {
         e.preventDefault();
         e.stopPropagation();
+        // Keep isDragOver true while dragging over the zone
         isDragOver = true;
     }
 
     function handleDragLeave(e) {
         e.preventDefault();
         e.stopPropagation();
-        isDragOver = false;
+        dragCounter--;
+        if (dragCounter <= 0) {
+            dragCounter = 0;
+            isDragOver = false;
+        }
     }
 
-    function handleDrop(e) {
+    async function handleDrop(e) {
         e.preventDefault();
         e.stopPropagation();
+        dragCounter = 0;
         isDragOver = false;
 
         const files = e.dataTransfer?.files;
@@ -411,39 +368,60 @@
             return;
         }
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const content = event.target.result;
-            importJson = content;
+        // In Electron, File objects have a `path` property with the full filesystem path
+        // Use IPC to read the file instead of FileReader to avoid DataCloneError
+        const filePath = file.path;
+        if (filePath && window.api?.db?.readTextFile) {
             try {
-                const parsed = JSON.parse(content);
-                isEncryptedImport = detectEncryptedFormat(parsed);
-            } catch {
-                isEncryptedImport = false;
+                const result = await window.api.db.readTextFile(filePath);
+                if (result.success) {
+                    importJson = result.content;
+                    toastStore.success(`File loaded: ${file.name}`);
+                } else {
+                    toastStore.error(result.error || 'Failed to read file');
+                }
+            } catch (err) {
+                toastStore.error('Failed to read file');
             }
-            toastStore.success(`File loaded: ${file.name}`);
-        };
-        reader.onerror = () => toastStore.error('Failed to read file');
-        reader.readAsText(file);
+        } else {
+            // Fallback: use FileReader (for non-Electron environments)
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                importJson = event.target.result;
+                toastStore.success(`File loaded: ${file.name}`);
+            };
+            reader.onerror = () => toastStore.error('Failed to read file');
+            reader.readAsText(file);
+        }
     }
 
-    function handleFileSelect(e) {
+    async function handleFileSelect(e) {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const content = event.target.result;
-            importJson = content;
+        // In Electron, File objects have a `path` property
+        const filePath = file.path;
+        if (filePath && window.api?.db?.readTextFile) {
             try {
-                const parsed = JSON.parse(content);
-                isEncryptedImport = detectEncryptedFormat(parsed);
-            } catch {
-                isEncryptedImport = false;
+                const result = await window.api.db.readTextFile(filePath);
+                if (result.success) {
+                    importJson = result.content;
+                    toastStore.success(`File loaded: ${file.name}`);
+                } else {
+                    toastStore.error(result.error || 'Failed to read file');
+                }
+            } catch (err) {
+                toastStore.error('Failed to read file');
             }
-            toastStore.success(`File loaded: ${file.name}`);
-        };
-        reader.readAsText(file);
+        } else {
+            // Fallback: use FileReader
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                importJson = event.target.result;
+                toastStore.success(`File loaded: ${file.name}`);
+            };
+            reader.readAsText(file);
+        }
         e.target.value = '';
     }
 
@@ -455,8 +433,6 @@
         cancelEdit();
         showImportModal = false;
         importJson = "";
-        showAddModal = false;
-        newCookieJson = '';
     }
 </script>
 
@@ -504,18 +480,11 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <button
-                        onclick={() => { showAddModal = true; newCookieJson = ''; }}
-                        class="px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors flex items-center gap-2"
-                    >
-                        <Plus size={14} />
-                        New Cookie
-                    </button>
-                    <button
                         onclick={() => showImportModal = true}
                         class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
                     >
-                        <Plus size={14} />
-                        Import
+                        <Upload size={14} />
+                        Import Cookie
                     </button>
                     <button
                         onclick={loadCookiesFromServer}
@@ -528,16 +497,11 @@
                 </div>
             </div>
 
-            <!-- Backend status banner -->
-            {#if !profileId}
+            <!-- Error banner (only shown when data fails to fetch) -->
+            {#if loadError}
                 <div class="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-center gap-2">
                     <CloudOff size={14} />
-                    <span>No profile linked — open cookie manager from a profile to enable server sync.</span>
-                </div>
-            {:else}
-                <div class="mb-3 p-2.5 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700 flex items-center gap-2">
-                    <CircleCheck size={14} />
-                    <span>Connected to server — all changes are saved directly to backend (Profile #{profileId})</span>
+                    <span>Failed to fetch data from server. {loadError}</span>
                 </div>
             {/if}
 
@@ -559,7 +523,7 @@
                     <div class="flex flex-col items-center justify-center py-12 text-gray-500">
                         <Cookie size={48} class="mb-4 text-gray-300" />
                         <p>{searchQuery ? 'No cookies match your search' : 'No cookies on server yet'}</p>
-                        <p class="text-xs mt-1">Click "New Cookie" or "Import" to add cookies</p>
+                        <p class="text-xs mt-1">Click "Import Cookie" to add cookies</p>
                     </div>
                 {:else}
                     <div class="space-y-2">
@@ -657,7 +621,7 @@
                                                                         class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center gap-1"
                                                                     >
                                                                         <Save size={12} />
-                                                                        Save to Server
+                                                                        Save
                                                                     </button>
                                                                     <button
                                                                         onclick={cancelEdit}
@@ -686,65 +650,25 @@
             </div>
         </div>
 
-        <!-- Add Cookie Modal -->
-        {#if showAddModal}
-            <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => { showAddModal = false; newCookieJson = ''; }}>
-                <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4" onclick={(e) => e.stopPropagation()}>
-                    <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-lg font-semibold text-gray-900">Add New Cookie</h3>
-                        <p class="text-sm text-gray-500 mt-1">Cookie will be saved directly to server</p>
-                    </div>
-                    <div class="p-6">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Cookie JSON</label>
-                        <textarea
-                            bind:value={newCookieJson}
-                            class="w-full h-48 p-3 text-sm font-mono border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-                            placeholder={"{\n  \"name\": \"session_id\",\n  \"value\": \"abc123\",\n  \"domain\": \".example.com\",\n  \"path\": \"/\",\n  \"secure\": true,\n  \"httpOnly\": true\n}"}
-                        ></textarea>
-                        <p class="text-xs text-gray-400 mt-2">Required fields: name, domain. Optional: value, path, secure, httpOnly, sameSite, expirationDate</p>
-                    </div>
-                    <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
-                        <button
-                            onclick={() => { showAddModal = false; newCookieJson = ''; }}
-                            class="px-4 py-2 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            onclick={addNewCookie}
-                            class="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
-                        >
-                            Save to Server
-                        </button>
-                    </div>
-                </div>
-            </div>
-        {/if}
-
         <!-- Import Modal -->
         {#if showImportModal}
             <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => showImportModal = false}>
                 <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4" onclick={(e) => e.stopPropagation()}>
                     <div class="px-6 py-4 border-b border-gray-200">
                         <h3 class="text-lg font-semibold text-gray-900">Import Cookies</h3>
-                        <p class="text-sm text-gray-500 mt-1">
-                            {#if isEncryptedImport}
-                                🔒 Cookie-Editor encrypted format detected — enter password to decrypt
-                            {:else}
-                                Cookies will be merged and saved directly to server
-                            {/if}
-                        </p>
+                        <p class="text-sm text-gray-500 mt-1">Cookies will be merged and saved directly to server</p>
                     </div>
                     <div class="p-6 space-y-4">
                         <!-- Drop Zone -->
                         <div
                             class="relative rounded-lg border-2 border-dashed transition-colors {isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}"
+                            ondragenter={handleDragEnter}
                             ondragover={handleDragOver}
                             ondragleave={handleDragLeave}
                             ondrop={handleDrop}
                         >
                             {#if isDragOver}
-                                <div class="absolute inset-0 flex items-center justify-center bg-blue-50/80 rounded-lg z-10">
+                                <div class="absolute inset-0 flex items-center justify-center bg-blue-50/80 rounded-lg z-10 pointer-events-none">
                                     <div class="text-center">
                                         <svg class="mx-auto h-10 w-10 text-blue-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -755,14 +679,6 @@
                             {/if}
                             <textarea
                                 bind:value={importJson}
-                                oninput={() => {
-                                    try {
-                                        const parsed = JSON.parse(importJson);
-                                        isEncryptedImport = detectEncryptedFormat(parsed);
-                                    } catch {
-                                        isEncryptedImport = false;
-                                    }
-                                }}
                                 class="w-full h-48 p-3 text-sm font-mono bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-900 resize-none"
                                 placeholder="Paste cookie JSON or drag & drop a .json file here..."
                             ></textarea>
@@ -773,32 +689,20 @@
                                 </label>
                             </div>
                         </div>
-                        {#if isEncryptedImport}
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Decryption Password</label>
-                                <input
-                                    type="password"
-                                    bind:value={importPassword}
-                                    class="w-full p-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
-                                    placeholder="Enter password used when exporting cookies"
-                                    onkeydown={(e) => { if (e.key === 'Enter') importCookie(); }}
-                                />
-                            </div>
-                        {/if}
                     </div>
                     <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
                         <button
-                            onclick={() => { showImportModal = false; importJson = ""; importPassword = ""; isEncryptedImport = false; }}
+                            onclick={() => { showImportModal = false; importJson = ""; }}
                             class="px-4 py-2 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
                         >
                             Cancel
                         </button>
                         <button
                             onclick={importCookie}
-                            disabled={isImporting || (isEncryptedImport && !importPassword.trim())}
+                            disabled={isImporting}
                             class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {isImporting ? 'Importing...' : isEncryptedImport ? 'Decrypt & Import to Server' : 'Import to Server'}
+                            {isImporting ? 'Importing...' : 'Import to Server'}
                         </button>
                     </div>
                 </div>
@@ -818,3 +722,6 @@
         </div>
     </div>
 </div>
+
+<!-- Toast notifications for child window -->
+<Toast />

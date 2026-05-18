@@ -9,6 +9,7 @@ function createDownloadStore() {
     let downloads = $state([]);
     let isDownloadPanelOpen = $state(false);
     let isLoaded = $state(false);
+    let unviewedCompletedIds = $state(new Set()); // IDs of completed downloads user hasn't seen
 
     // Load downloads from SQLite on init
     if (typeof window !== 'undefined' && window.api) {
@@ -95,7 +96,7 @@ function createDownloadStore() {
                 state: 'progressing',
                 startTime: data.startTime || Date.now(),
                 endTime: null,
-                mimeType: '',
+                mimeType: data.mimeType || '',
                 fileExists: true,
                 createdAt: Date.now()
             };
@@ -161,7 +162,10 @@ function createDownloadStore() {
         });
 
         window.api.onDownloadCompleted((data) => {
-            const download = downloads.find(d => d.gid === data.gid);
+            let download = data.gid ? downloads.find(d => d.gid === data.gid) : null;
+            if (!download && data.id) {
+                download = downloads.find(d => d.id === data.id);
+            }
             if (download) {
                 const index = downloads.indexOf(download);
                 const updated = {
@@ -181,6 +185,39 @@ function createDownloadStore() {
                 
                 // Save to SQLite
                 saveDownload(updated);
+                
+                // Mark as unviewed so the download icon shows green pulse
+                const next = new Set(unviewedCompletedIds);
+                next.add(download.id);
+                unviewedCompletedIds = next;
+            } else if (data.id) {
+                // No matching download in store — create a new completed entry
+                // (happens for data/blob URIs where download-started wasn't sent)
+                const profileId = workspaceStore.activeWorkspace?.id || null;
+                const newDownload = {
+                    id: data.id,
+                    gid: data.gid || null,
+                    profileId: profileId,
+                    filename: data.filename || 'file',
+                    url: data.url || '',
+                    savePath: data.savePath || '',
+                    totalBytes: data.totalBytes || 0,
+                    receivedBytes: data.totalBytes || 0,
+                    downloadSpeed: 0,
+                    state: 'completed',
+                    startTime: Date.now(),
+                    endTime: Date.now(),
+                    mimeType: '',
+                    fileExists: true,
+                    createdAt: Date.now()
+                };
+                downloads = [newDownload, ...downloads];
+                saveDownload(newDownload);
+                
+                // Mark as unviewed
+                const next = new Set(unviewedCompletedIds);
+                next.add(data.id);
+                unviewedCompletedIds = next;
 
                 // Get profile name for notification
                 const profileName = workspaceStore.activeWorkspace?.name || 'Unknown Profile';
@@ -222,7 +259,11 @@ function createDownloadStore() {
         });
 
         window.api.onDownloadFailed((data) => {
-            const download = downloads.find(d => d.gid === data.gid);
+            // Match by gid first, then fallback to filename for early failures
+            let download = data.gid ? downloads.find(d => d.gid === data.gid) : null;
+            if (!download && data.filename) {
+                download = downloads.find(d => d.filename === data.filename && d.state === 'progressing');
+            }
             if (download) {
                 const index = downloads.indexOf(download);
                 const updated = {
@@ -263,6 +304,9 @@ function createDownloadStore() {
         get completedDownloads() {
             return downloads.filter(d => d.state === 'completed');
         },
+        get unviewedCompletedCount() {
+            return unviewedCompletedIds.size;
+        },
         get isDownloadPanelOpen() { return isDownloadPanelOpen; },
         get isLoaded() { return isLoaded; },
 
@@ -271,14 +315,24 @@ function createDownloadStore() {
 
         toggleDownloadPanel() {
             isDownloadPanelOpen = !isDownloadPanelOpen;
+            if (isDownloadPanelOpen) {
+                unviewedCompletedIds = new Set();
+            }
         },
 
         openDownloadPanel() {
             isDownloadPanelOpen = true;
+            // Mark all completed downloads as viewed when panel opens
+            unviewedCompletedIds = new Set();
         },
 
         closeDownloadPanel() {
             isDownloadPanelOpen = false;
+        },
+
+        // Mark all completed downloads as viewed (clears green pulse indicator)
+        markAllViewed() {
+            unviewedCompletedIds = new Set();
         },
 
         // Update download

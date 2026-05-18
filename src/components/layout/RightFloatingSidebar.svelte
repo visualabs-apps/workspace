@@ -1,6 +1,7 @@
 <script>
-    import { Target, Bell, ChevronLeft } from "lucide-svelte";
-    import { toastStore } from "../../lib/managers/toast.svelte.js";
+    import { Target, Cookie, ChevronLeft } from "lucide-svelte";
+    import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
+    import { openPredefinedWindow } from "../../lib/utils/childWindow.js";
     
     let { 
         onOpenTarget = () => {}
@@ -11,6 +12,16 @@
     function toggleSidebar(e) {
         e.preventDefault();
         isActive = !isActive;
+    }
+
+    function handleManageCookies() {
+        const workspace = workspaceStore.activeWorkspace;
+        if (workspace) {
+            const partition = `persist:workspace-${workspace.id}`;
+            openPredefinedWindow('COOKIE_MANAGER', { partition, profileId: workspace.id });
+        } else {
+            openPredefinedWindow('COOKIE_MANAGER');
+        }
     }
     
     // Computed classes
@@ -34,37 +45,23 @@
     <!-- Sidebar Item - Target -->
     <button
         onclick={onOpenTarget}
-        class="sidebarItem relative flex flex-col items-center justify-center w-full py-4 px-2 border-b border-gray-200/50 transition-all duration-300 group hover:bg-blue-50/80 rounded-tl-2xl"
+        class="sidebarItem relative flex flex-col items-center justify-center w-full py-3 px-2 border-b border-gray-200/50 transition-all duration-300 group hover:bg-blue-50/80 rounded-tl-2xl"
     >
         <div class="p-2 rounded-xl bg-white group-hover:bg-blue-500 transition-all duration-300 shadow-sm group-hover:shadow-md group-hover:scale-110">
-            <Target size={24} class="text-gray-600 group-hover:text-white transition-all duration-300" strokeWidth={2} />
+            <Target size={22} class="text-gray-600 group-hover:text-white transition-all duration-300" strokeWidth={2} />
         </div>
-        
-        <!-- Tooltip - Only show when panel is active -->
-        {#if isActive}
-            <div class="absolute top-1/2 left-full -translate-y-1/2 ml-3 px-3 py-2 text-sm font-medium whitespace-nowrap text-white rounded-lg bg-gradient-to-r from-blue-600 to-blue-500 opacity-0 invisible pointer-events-none transition-all duration-200 group-hover:opacity-100 group-hover:visible group-hover:ml-4 shadow-lg z-[300]">
-                Target Dashboard
-                <div class="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-blue-600"></div>
-            </div>
-        {/if}
+        <span class="text-[10px] text-gray-500 group-hover:text-blue-600 font-medium mt-1 transition-colors">Target</span>
     </button>
 
-    <!-- Sidebar Item - Notification -->
+    <!-- Sidebar Item - Manage Cookies -->
     <button
-        onclick={() => toastStore.info('Notification feature coming soon!')}
-        class="sidebarItem relative flex flex-col items-center justify-center w-full py-4 px-2 transition-all duration-300 group hover:bg-purple-50/80 rounded-bl-2xl"
+        onclick={handleManageCookies}
+        class="sidebarItem relative flex flex-col items-center justify-center w-full py-3 px-2 transition-all duration-300 group hover:bg-amber-50/80 rounded-bl-2xl"
     >
-        <div class="p-2 rounded-xl bg-white group-hover:bg-purple-500 transition-all duration-300 shadow-sm group-hover:shadow-md group-hover:scale-110">
-            <Bell size={24} class="text-gray-600 group-hover:text-white transition-all duration-300" strokeWidth={2} />
+        <div class="p-2 rounded-xl bg-white group-hover:bg-amber-500 transition-all duration-300 shadow-sm group-hover:shadow-md group-hover:scale-110">
+            <Cookie size={22} class="text-gray-600 group-hover:text-white transition-all duration-300" strokeWidth={2} />
         </div>
-        
-        <!-- Tooltip - Only show when panel is active -->
-        {#if isActive}
-            <div class="absolute top-1/2 left-full -translate-y-1/2 ml-3 px-3 py-2 text-sm font-medium whitespace-nowrap text-white rounded-lg bg-gradient-to-r from-purple-600 to-purple-500 opacity-0 invisible pointer-events-none transition-all duration-200 group-hover:opacity-100 group-hover:visible group-hover:ml-4 shadow-lg z-[300]">
-                Notifications (Coming Soon)
-                <div class="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent border-r-[6px] border-r-purple-600"></div>
-            </div>
-        {/if}
+        <span class="text-[10px] text-gray-500 group-hover:text-amber-600 font-medium mt-1 transition-colors">Cookies</span>
     </button>
 
     <!-- Button Trigger -->

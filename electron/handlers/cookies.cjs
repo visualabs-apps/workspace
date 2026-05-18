@@ -1,5 +1,4 @@
 const { ipcMain, session } = require('electron');
-const crypto = require('crypto');
 
 function registerCookieHandlers() {
     ipcMain.handle('get-cookies-from-partition', async (event, partition) => {
@@ -133,42 +132,6 @@ function registerCookieHandlers() {
         } catch (error) {
             console.error('delete-cookie-from-partition error:', error);
             throw error;
-        }
-    });
-    // Decrypt Cookie-Editor encrypted export (AES-256-GCM)
-    ipcMain.handle('decrypt-cookie-export', async (event, encryptedDataBase64, password) => {
-        try {
-            const raw = Buffer.from(encryptedDataBase64, 'base64');
-
-            // Cookie-Editor format: salt(16 bytes) + iv(12 bytes) + ciphertext + authTag(16 bytes)
-            if (raw.length < 44) { // 16 + 12 + 16 minimum
-                return { success: false, error: 'Encrypted data is too short or corrupted' };
-            }
-
-            const salt = raw.subarray(0, 16);
-            const iv = raw.subarray(16, 28);
-            const authTag = raw.subarray(raw.length - 16);
-            const ciphertext = raw.subarray(28, raw.length - 16);
-
-            // Derive key using PBKDF2 (same as Cookie-Editor: 100000 iterations, SHA-256)
-            const key = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
-
-            // Decrypt using AES-256-GCM
-            const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-            decipher.setAuthTag(authTag);
-
-            let decrypted;
-            try {
-                decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-            } catch (decipherError) {
-                return { success: false, error: 'Wrong password or corrupted data' };
-            }
-
-            const cookies = JSON.parse(decrypted.toString('utf8'));
-            return { success: true, cookies };
-        } catch (error) {
-            console.error('decrypt-cookie-export error:', error.message);
-            return { success: false, error: error.message };
         }
     });
 }

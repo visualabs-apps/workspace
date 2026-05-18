@@ -1,5 +1,6 @@
 const { BrowserWindow } = require('electron');
 const path = require('path');
+const { isDeveloperModeEnabled } = require('../handlers/settings.cjs');
 
 // Store child windows with metadata
 const childWindows = new Map();
@@ -80,8 +81,12 @@ function createChildWindow(options) {
             console.error('Failed to load child window:', e);
         });
         
-        // Open DevTools in dev mode
-        childWindow.webContents.openDevTools();
+        // Open DevTools in dev mode only if developer mode is enabled
+        isDeveloperModeEnabled().then(enabled => {
+            if (enabled) {
+                childWindow.webContents.openDevTools();
+            }
+        });
     } else {
         const htmlPath = path.join(__dirname, '..', 'build', 'index.html');
         const formattedRoute = route.startsWith('/') ? route : `/${route}`;
@@ -89,6 +94,26 @@ function createChildWindow(options) {
             console.error('Failed to load child window:', e);
         });
     }
+
+    // Block DevTools unless developer mode is enabled
+    childWindow.webContents.on('before-input-event', (event, input) => {
+        const isDevToolsShortcut = (input.key === 'I' && (input.control || input.meta) && input.shift) || input.key === 'F12';
+        if (isDevToolsShortcut) {
+            isDeveloperModeEnabled().then(enabled => {
+                if (!enabled) {
+                    event.preventDefault();
+                }
+            });
+        }
+    });
+    // Also close DevTools if opened via other means (right-click, etc.)
+    childWindow.webContents.on('devtools-opened', () => {
+        isDeveloperModeEnabled().then(enabled => {
+            if (!enabled) {
+                childWindow.webContents.closeDevTools();
+            }
+        });
+    });
 
     // Store window reference with metadata
     childWindows.set(id, {
@@ -105,6 +130,16 @@ function createChildWindow(options) {
             parent.show();
             parent.focus();
         }
+    });
+
+    // Prevent navigation (e.g., when a file is dragged and dropped on the window)
+    childWindow.webContents.on('will-navigate', (event) => {
+        event.preventDefault();
+    });
+    
+    // Prevent new windows from opening
+    childWindow.webContents.setWindowOpenHandler(() => {
+        return { action: 'deny' };
     });
 
     // Pass data to window when ready

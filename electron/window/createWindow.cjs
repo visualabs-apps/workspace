@@ -1,21 +1,22 @@
-const { BrowserWindow, ipcMain, shell, Menu, session } = require('electron');
+const { BrowserWindow, ipcMain, shell, Menu, session, dialog, app } = require('electron');
 const path = require('path');
+const fs = require('fs-extra');
+const { v4: uuidv4 } = require('uuid');
 const { log } = require('console');
 const { getDatabase } = require('../database/index.cjs');
 const { handlePermissions } = require('../utils/permissions.cjs');
-const { handleAria2Download } = require('../handlers/downloads.cjs');
+const { handleAria2Download, getAria2Downloads, getAria2Instance } = require('../handlers/downloads.cjs');
+const { isDeveloperModeEnabled } = require('../handlers/settings.cjs');
 
 let mainWindow = null;
 let isQuitting = false;
 
 function createWindow(isDevEnvironment, aria2) {
     if (isDevEnvironment) {
-        const { app } = require('electron');
         app.commandLine.appendSwitch('disable-http-cache');
         app.commandLine.appendSwitch('disk-cache-size', '0');
     }
 
-    const { app } = require('electron');
     app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 
     mainWindow = new BrowserWindow({
@@ -116,8 +117,188 @@ function createWindow(isDevEnvironment, aria2) {
         if (params.hasImageContents || params.srcURL) {
             template.push({
                 label: 'Simpan Gambar Sebagai...',
-                click: () => {
-                    event.sender.send('download-image', params.srcURL);
+                click: async () => {
+                    const imageUrl = params.srcURL;
+                    if (!imageUrl) return;
+                    
+                    try {
+                        // Get the partition session for cookies
+                        let targetSession = session.defaultSession;
+                        if (params.partition) {
+                            targetSession = session.fromPartition(params.partition);
+                        }
+                        
+                        // Extract filename from URL
+                        let fileName = 'image.png';
+                        const isDataOrBlob = imageUrl.startsWith('data:') || imageUrl.startsWith('blob:');
+                        if (!isDataOrBlob) {
+                            try {
+                                const urlPath = new URL(imageUrl).pathname;
+                                const baseName = path.basename(decodeURIComponent(urlPath));
+                                if (baseName && baseName.length > 0 && baseName.includes('.')) {
+                                    fileName = baseName;
+                                }
+                            } catch (e) {
+                                // Use default filename
+                            }
+                        } else if (imageUrl.startsWith('data:image/')) {
+                            // Extract format from data URI (e.g., data:image/jpeg → .jpg)
+                            const match = imageUrl.match(/^data:image\/(\w+)/);
+                            if (match) {
+                                const fmt = match[1] === 'jpeg' ? 'jpg' : match[1];
+                                fileName = `image.${fmt}`;
+                            }
+                        }
+                        
+                        // Show save dialog directly (no webview.downloadURL — avoids double dialog)
+                        const downloadsPath = app.getPath('downloads');
+                        const { filePath: savePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+                            title: 'Save Image',
+                            defaultPath: path.join(downloadsPath, fileName),
+                            buttonLabel: 'Save'
+                        });
+                        
+                        if (canceled || !savePath) return;
+                        
+                        const saveDir = path.dirname(savePath);
+                        const actualFilename = path.basename(savePath);
+                        
+                        // Get cookies from the session for authenticated downloads
+                        let cookieHeader = '';
+                        let referer = '';
+                        if (!isDataOrBlob) {
+                            try {
+                                const urlObj = new URL(imageUrl);
+                                const cookies = await targetSession.cookies.get({ url: urlObj.origin });
+                                if (cookies.length > 0) {
+                                    cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+                                }
+                                referer = urlObj.origin + '/';
+                            } catch (e) {}
+                        }
+                        
+                        const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+                        
+                        // Delete existing file if user chose to replace
+                        if (fs.existsSync(savePath)) {
+                            await fs.remove(savePath);
+                        }
+                        
+                        // Get aria2 instance from the module-level reference
+                        const aria2Downloads = getAria2Downloads();
+                        const aria2 = getAria2Instance();
+                        const isHttpUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+                        
+                        // data/blob URIs cannot be downloaded by aria2 — handle directly
+                        if (!isHttpUrl) {
+                            let buffer;
+                            
+                            if (imageUrl.startsWith('data:')) {
+                                // Parse data URI directly: data:image/png;base64,<data>
+                                const matches = imageUrl.match(/^data:[^;]+;base64,(.+)$/);
+                                if (!matches) throw new Error('Invalid data URI');
+                                buffer = Buffer.from(matches[1], 'base64');
+                            } else if (imageUrl.startsWith('blob:')) {
+                                // blob URIs only exist in the renderer process — fetch there and send back
+                                const result = await event.sender.executeJavaScript(`
+                                    fetch('${imageUrl.replace(/'/g, "\\'")}')
+                                        .then(r => r.blob())
+                                        .then(b => new Promise(resolve => {
+                                            const reader = new FileReader();
+                                            reader.onload = () => resolve(reader.result);
+                                            reader.readAsDataURL(b);
+                                        }))
+                                `);
+                                const matches = result.match(/^data:[^;]+;base64,(.+)$/);
+                                if (!matches) throw new Error('Failed to read blob data');
+                                buffer = Buffer.from(matches[1], 'base64');
+                            } else {
+                                throw new Error('Unsupported URL scheme');
+                            }
+                            
+                            await fs.writeFile(savePath, buffer);
+                            
+                            const db = getDatabase();
+                            const downloadId = uuidv4();
+                            const now = Date.now();
+                            if (db) {
+                                db.prepare(`
+                                    INSERT INTO downloads (id, filename, url, save_path, total_bytes, received_bytes, state, start_time, end_time, created_at, file_exists)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                `).run(downloadId, actualFilename, imageUrl, savePath, buffer.byteLength, buffer.byteLength, 'complete', now, now, now, 1);
+                            }
+                            
+                            if (mainWindow && !mainWindow.isDestroyed()) {
+                                mainWindow.webContents.send('download-completed', {
+                                    gid: null,
+                                    id: downloadId,
+                                    filename: actualFilename,
+                                    savePath: savePath,
+                                    totalBytes: buffer.byteLength,
+                                    url: imageUrl
+                                });
+                            }
+                            return;
+                        }
+                        
+                        // HTTP/HTTPS URLs — ALWAYS use aria2
+                        if (!aria2 || !aria2.isReady) {
+                            throw new Error('Download manager is not ready. Please try again.');
+                        }
+                        
+                        const downloadId = uuidv4();
+                        const aria2Options = {
+                            filename: actualFilename,
+                            dir: saveDir
+                        };
+                        if (cookieHeader) {
+                            aria2Options.headers = { 'Cookie': cookieHeader };
+                        }
+                        if (userAgent) {
+                            aria2Options.headers = aria2Options.headers || {};
+                            aria2Options.headers['User-Agent'] = userAgent;
+                        }
+                        if (referer) {
+                            aria2Options.headers = aria2Options.headers || {};
+                            aria2Options.headers['Referer'] = referer;
+                        }
+                        
+                        const gid = await aria2.addDownload(imageUrl, aria2Options);
+                        
+                        aria2Downloads.set(gid, {
+                            id: downloadId,
+                            gid: gid,
+                            filename: actualFilename,
+                            url: imageUrl,
+                            savePath: savePath,
+                            startTime: Date.now()
+                        });
+                        
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.send('download-started', {
+                                id: downloadId,
+                                gid: gid,
+                                filename: actualFilename,
+                                url: imageUrl,
+                                startTime: Date.now(),
+                                totalBytes: 0,
+                                savePath: savePath,
+                                mimeType: ''
+                            });
+                        }
+                        
+                    } catch (error) {
+                        console.error('Failed to save image:', error);
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.send('download-failed', {
+                                gid: null,
+                                id: null,
+                                filename: 'image',
+                                error: error.message,
+                                state: 'failed'
+                            });
+                        }
+                    }
                 }
             });
             template.push({
@@ -164,207 +345,6 @@ function createWindow(isDevEnvironment, aria2) {
 
         // Standard actions
         template.push({
-            label: 'Import Cookies',
-            click: async () => {
-                try {
-                    // Get cookies from clipboard
-                    const clipboardText = require('electron').clipboard.readText();
-                    
-                    if (!clipboardText) {
-                        event.sender.send('show-toast', {
-                            type: 'error',
-                            message: 'Clipboard kosong'
-                        });
-                        return;
-                    }
-                    
-                    // Parse JSON
-                    let cookies;
-                    try {
-                        cookies = JSON.parse(clipboardText);
-                    } catch (e) {
-                        event.sender.send('show-toast', {
-                            type: 'error',
-                            message: 'Format cookies tidak valid (harus JSON)'
-                        });
-                        return;
-                    }
-                    
-                    if (!Array.isArray(cookies)) {
-                        event.sender.send('show-toast', {
-                            type: 'error',
-                            message: 'Format cookies harus berupa array'
-                        });
-                        return;
-                    }
-                    
-                    
-                    // Helper function to generate proper cookie URL
-                    const getCookieUrl = (cookie) => {
-                        const protocol = cookie.secure ? 'https://' : 'http://';
-                        const domain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
-                        return protocol + domain;
-                    };
-                    
-                    // Get session based on partition
-                    let targetSession;
-                    if (params.partition) {
-                        targetSession = session.fromPartition(params.partition);
-                        targetSession = session.fromPartition(params.partition);
-                    } else {
-                        targetSession = session.defaultSession;
-                    }
-                    
-                    // Import cookies
-                    let successCount = 0;
-                    let failCount = 0;
-                    
-                    for (const cookie of cookies) {
-                        try {
-                            const cookieUrl = getCookieUrl(cookie);
-                            
-                            await targetSession.cookies.set({
-                                url: cookieUrl,
-                                name: cookie.name,
-                                value: cookie.value,
-                                domain: cookie.domain,
-                                path: cookie.path || '/',
-                                expirationDate: cookie.expirationDate,
-                                secure: cookie.secure || false,
-                                httpOnly: cookie.httpOnly || false,
-                                sameSite: cookie.sameSite || 'unspecified'
-                            });
-                            
-                            successCount++;
-                        } catch (err) {
-                            console.error('🍪 Failed to set cookie:', cookie.name, err.message);
-                            failCount++;
-                        }
-                    }
-                    
-                    // Flush cookie store to ensure cookies are saved
-                    await targetSession.cookies.flushStore();
-                    
-                    // Reload webview to apply cookies
-                    event.sender.send('reload-webview');
-                    
-                    // Send success message
-                    event.sender.send('show-toast', {
-                        type: 'success',
-                        message: `${successCount} cookies berhasil diimport${failCount > 0 ? `, ${failCount} gagal` : ''}`
-                    });
-                    
-                } catch (error) {
-                    console.error('Failed to import cookies:', error);
-                    event.sender.send('show-toast', {
-                        type: 'error',
-                        message: 'Gagal import cookies: ' + error.message
-                    });
-                }
-            }
-        });
-        
-        template.push({
-            label: 'Export Cookies',
-            click: async () => {
-                try {
-                    // Get the URL from params
-                    const url = params.pageURL || params.frameURL;
-                    
-                    if (!url) {
-                        console.error('No URL available for cookie export');
-                        event.sender.send('show-toast', {
-                            type: 'error',
-                            message: 'Tidak ada URL untuk export cookies'
-                        });
-                        return;
-                    }
-                    
-                    
-                    // Parse URL to get domain
-                    const urlObj = new URL(url);
-                    const domain = urlObj.hostname;
-                    
-                    
-                    // Get session based on partition
-                    let targetSession;
-                    if (params.partition) {
-                        targetSession = session.fromPartition(params.partition);
-                        targetSession = session.fromPartition(params.partition);
-                    } else {
-                        targetSession = session.defaultSession;
-                    }
-                    
-                    // Get ALL cookies from the session first (for debugging)
-                    const allSessionCookies = await targetSession.cookies.get({});
-                    
-                    // Filter cookies that match the domain (including subdomains)
-                    const allCookies = allSessionCookies.filter(c => {
-                        // Match exact domain or parent domain (e.g., .roblox.com matches www.roblox.com)
-                        const cookieDomain = c.domain.startsWith('.') ? c.domain.substring(1) : c.domain;
-                        return domain === cookieDomain || domain.endsWith('.' + cookieDomain) || cookieDomain.endsWith('.' + domain);
-                    });
-                    
-                    // Filter out session-only and expired cookies
-                    const now = Date.now() / 1000;
-                    const validCookies = allCookies.filter(c => {
-                        // Remove session-only cookies
-                        if (c.session) {
-                            return false;
-                        }
-                        // Remove expired cookies
-                        if (c.expirationDate && c.expirationDate < now) {
-                            return false;
-                        }
-                        return true;
-                    });
-                    
-                    
-                    if (validCookies.length === 0) {
-                        event.sender.send('show-toast', {
-                            type: 'info',
-                            message: `Tidak ada cookies untuk ${domain}`
-                        });
-                        return;
-                    }
-                    
-                    // Format cookies with all required fields
-                    const formattedCookies = validCookies.map(c => ({
-                        name: c.name,
-                        value: c.value,
-                        domain: c.domain,
-                        path: c.path,
-                        expirationDate: c.expirationDate,
-                        secure: c.secure,
-                        httpOnly: c.httpOnly,
-                        sameSite: c.sameSite || 'unspecified'
-                    }));
-                    
-                    // Format cookies as JSON
-                    const cookiesJson = JSON.stringify(formattedCookies, null, 2);
-                    
-                    // Copy to clipboard
-                    require('electron').clipboard.writeText(cookiesJson);
-                    
-                    // Send success message
-                    event.sender.send('show-toast', {
-                        type: 'success',
-                        message: `${validCookies.length} cookies dari ${domain} disalin ke clipboard`
-                    });
-                    
-                } catch (error) {
-                    console.error('Failed to export cookies:', error);
-                    event.sender.send('show-toast', {
-                        type: 'error',
-                        message: 'Gagal export cookies: ' + error.message
-                    });
-                }
-            }
-        });
-        
-        template.push({ type: 'separator' });
-        
-        template.push({
             label: 'Muat Ulang',
             click: () => {
                 event.sender.send('reload-webview');
@@ -379,14 +359,32 @@ function createWindow(isDevEnvironment, aria2) {
         if (!isQuitting) {
             event.preventDefault();
             isQuitting = true;
-            const { app } = require('electron');
             app.quit();
         }
         return false;
     });
 
+    // Block DevTools unless developer mode is enabled
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        const isDevToolsShortcut = (input.key === 'I' && (input.control || input.meta) && input.shift) || input.key === 'F12';
+        if (isDevToolsShortcut) {
+            isDeveloperModeEnabled().then(enabled => {
+                if (!enabled) {
+                    event.preventDefault();
+                }
+            });
+        }
+    });
+    // Also close DevTools if opened via other means (right-click, etc.)
+    mainWindow.webContents.on('devtools-opened', () => {
+        isDeveloperModeEnabled().then(enabled => {
+            if (!enabled) {
+                mainWindow.webContents.closeDevTools();
+            }
+        });
+    });
+
     if (isDevEnvironment) {
-        const { app } = require('electron');
         app.commandLine.appendSwitch('disable-http-cache');
         app.commandLine.appendSwitch('disk-cache-size', '0');
 
@@ -399,8 +397,13 @@ function createWindow(isDevEnvironment, aria2) {
 
         setTimeout(loadVite, 2000);
 
-        mainWindow.webContents.on("did-frame-finish-load", () => {
-            mainWindow.webContents.openDevTools();
+        // Only auto-open DevTools if developer mode is enabled
+        isDeveloperModeEnabled().then(enabled => {
+            if (enabled) {
+                mainWindow.webContents.on("did-frame-finish-load", () => {
+                    mainWindow.webContents.openDevTools();
+                });
+            }
         });
 
         log('Electron running in dev mode: 🧪');
