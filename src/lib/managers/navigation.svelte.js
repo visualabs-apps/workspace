@@ -60,6 +60,46 @@ function createNavigationStore() {
             activeWebview?.reload?.();
         },
 
+        hardReload() {
+            if (activeWebview) {
+                const url = activeWebview.getURL?.();
+                if (!url) return;
+
+                // If on a login/auth page, navigate to the target URL instead
+                try {
+                    const urlObj = new URL(url);
+                    const isLoginPage = /login|signin|auth|accounts\./i.test(urlObj.hostname + urlObj.pathname);
+                    
+                    if (isLoginPage) {
+                        // Check for redirect parameter (e.g. ?next=, ?redirect=, ?return_to=)
+                        const redirectUrl = urlObj.searchParams.get('next') 
+                            || urlObj.searchParams.get('redirect') 
+                            || urlObj.searchParams.get('return_to')
+                            || urlObj.searchParams.get('continue');
+                        
+                        if (redirectUrl) {
+                            activeWebview.loadURL(redirectUrl);
+                            return;
+                        }
+
+                        // No redirect param — navigate to the site root of the referrer
+                        // e.g. accounts.shopee.co.id → shopee.co.id
+                        const parts = urlObj.hostname.split('.');
+                        if (parts.length > 2 && parts[0] !== 'www') {
+                            const rootDomain = parts.slice(1).join('.');
+                            activeWebview.loadURL(`https://${rootDomain}`);
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // URL parse failed, fall through to normal reload
+                }
+
+                // Not a login page — do a proper hard reload (bypass cache)
+                activeWebview.reloadIgnoringCache?.();
+            }
+        },
+
         goHome(url) {
             if (activeWebview && url) {
                 activeWebview.src = url;

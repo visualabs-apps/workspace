@@ -348,7 +348,3 @@
         animation: active-ring-pulse 2s ease-in-out infinite;
     }
 </style>
-
-
-
-

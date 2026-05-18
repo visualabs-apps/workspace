@@ -472,6 +472,13 @@
             >
                 <RotateCw size={16} />
             </button>
+            <button
+                class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-700 hover:text-gray-900 transition-colors"
+                title="Hard Reload"
+                onclick={() => navigationStore.hardReload()}
+            >
+                <RotateCw size={16} class="text-orange-500" />
+            </button>
         {/if}
         <button
             class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-700 hover:text-gray-900 transition-colors"

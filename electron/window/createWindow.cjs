@@ -351,8 +351,26 @@ function createWindow(isDevEnvironment, aria2) {
             }
         });
 
-        const menu = Menu.buildFromTemplate(template);
-        menu.popup();
+        // Inspect Element (only in developer mode)
+        isDeveloperModeEnabled().then(enabled => {
+            if (enabled) {
+                template.push({
+                    label: 'Inspect Element',
+                    click: () => {
+                        if (params.webContentsId) {
+                            const { webContents } = require('electron');
+                            const wc = webContents.fromId(params.webContentsId);
+                            if (wc) {
+                                wc.openDevTools();
+                            }
+                        }
+                    }
+                });
+            }
+
+            const menu = Menu.buildFromTemplate(template);
+            menu.popup();
+        });
     });
 
     mainWindow.on('close', async (event) => {

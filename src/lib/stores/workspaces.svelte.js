@@ -60,7 +60,7 @@ async function profileToWorkspace(profile) {
         userId: profile.userId,
         userAgent: profile.userAgent,
         proxy: profile.proxy,
-        cookies: profile.cookies,
+        cookies: typeof profile.cookies === 'string' ? (() => { try { return JSON.parse(profile.cookies); } catch { return []; } })() : profile.cookies,
         fingerprint: profile.fingerprint,
         status: profile.status,
         uuid: profile.uuid,

@@ -103,7 +103,7 @@
             if (zoomIndicatorTimeout) clearTimeout(zoomIndicatorTimeout);
             zoomIndicatorTimeout = setTimeout(() => {
                 showZoomIndicator = false;
-            }, 1000);
+            }, 2000);
         }
     }
 
@@ -182,7 +182,7 @@
             }
         };
 
-        const handleDidNavigate = (e) => {
+        const handleDidNavigate = async (e) => {
             let url = null;
             try {
                 url = webviewElement.getURL?.();
@@ -191,7 +191,7 @@
             }
             if (url) {
                 appStore.updateApp(app.id, { url });
-                
+
                 // Track navigation for redirect loop detection
                 const now = Date.now();
                 const appId = app.id;
@@ -307,10 +307,12 @@
 
         const handleContextMenu = (e) => {
             e.preventDefault();
-            // Include partition information for cookie export
+            // Include partition and webContentsId for context menu actions
+            const webContentsId = webviewElement.getWebContentsId?.();
             window.api.showContextMenu({
                 ...e.params,
-                partition: app.partition
+                partition: app.partition,
+                webContentsId
             });
         };
         
@@ -519,7 +521,6 @@
 <div
     class="w-full h-full flex flex-col relative"
     style:display={isActive ? "flex" : "none"}
-    onwheel={handleWheel}
 >
     <div class="flex-1 relative bg-gray-50">
         <!-- Webview container - managed by registry pattern -->
@@ -558,13 +559,49 @@
 
     <!-- Zoom Indicator -->
     {#if showZoomIndicator}
-        <div class="absolute top-4 right-4 z-50 pointer-events-none">
-            <div
-                class="bg-white backdrop-blur-sm rounded-lg shadow-2xl border border-gray-200 px-4 py-2"
-            >
-                <div class="text-gray-900 font-medium text-sm">
-                    {getZoomPercent()}%
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+            <div class="bg-white/95 backdrop-blur-sm rounded-lg shadow-2xl border border-gray-200 px-4 py-2 flex items-center gap-3">
+                <button
+                    onclick={() => {
+                        const currentZoom = app.zoomLevel ?? 0;
+                        const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
+                        const newPercent = Math.max(25, currentPercent - 10);
+                        const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
+                        appStore.updateApp(app.id, { zoomLevel: newZoomLevel });
+                    }}
+                    class="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-700 transition-colors"
+                    title="Zoom out"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <div class="flex flex-col items-center min-w-[60px]">
+                    <span class="text-gray-900 font-semibold text-sm">{getZoomPercent()}%</span>
+                    <div class="w-full h-1 bg-gray-200 rounded-full mt-1">
+                        <div class="h-full bg-blue-500 rounded-full transition-all duration-150" style="width: {Math.min(100, (getZoomPercent() - 25) / (500 - 25) * 100)}%"></div>
+                    </div>
                 </div>
+                <button
+                    onclick={() => {
+                        const currentZoom = app.zoomLevel ?? 0;
+                        const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
+                        const newPercent = Math.min(500, currentPercent + 10);
+                        const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
+                        appStore.updateApp(app.id, { zoomLevel: newZoomLevel });
+                    }}
+                    class="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-700 transition-colors"
+                    title="Zoom in"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                {#if getZoomPercent() !== 100}
+                    <button
+                        onclick={() => appStore.updateApp(app.id, { zoomLevel: 0 })}
+                        class="px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                        title="Reset to 100% (Ctrl+0)"
+                    >
+                        Reset
+                    </button>
+                {/if}
             </div>
         </div>
     {/if}

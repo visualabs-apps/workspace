@@ -36,7 +36,7 @@
     {onclick}
     class="transition-colors disabled:opacity-50 disabled:cursor-not-allowed {sizeClasses[size]} {variantClasses[variant]} {className}"
 >
-    <svelte:component this={icon} size={iconSizes[size]} />
+    {icon size={iconSizes[size]}}
 </button>
 
 

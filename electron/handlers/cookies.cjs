@@ -46,6 +46,12 @@ function registerCookieHandlers() {
             };
             
             // Prepare cookie data with defaults
+            // sameSite logic: if secure and no sameSite specified, use 'no_restriction' (SameSite=None)
+            // otherwise use the provided value or 'unspecified'
+            const sameSiteValue = cookie.sameSite && cookie.sameSite !== 'unspecified'
+                ? cookie.sameSite
+                : (cookie.secure ? 'no_restriction' : 'unspecified');
+
             const cookieData = {
                 url: getCookieUrl(cookie),
                 name: cookie.name,
@@ -54,7 +60,7 @@ function registerCookieHandlers() {
                 path: cookie.path || '/',
                 secure: cookie.secure || false,
                 httpOnly: cookie.httpOnly || false,
-                sameSite: cookie.sameSite || 'unspecified'
+                sameSite: sameSiteValue
             };
             
             // Add expiration if provided and valid
@@ -66,6 +72,15 @@ function registerCookieHandlers() {
                 cookieData.expirationDate = expiration;
             }
             
+            // Delete existing cookie first to avoid EXCLUDE_OVERWRITE_HTTP_ONLY error
+            // (Electron refuses to overwrite an HttpOnly cookie unless we remove it first)
+            const cookieUrl = getCookieUrl(cookie);
+            try {
+                await targetSession.cookies.remove(cookieUrl, cookie.name);
+            } catch (e) {
+                // Cookie doesn't exist yet — that's fine
+            }
+
             await targetSession.cookies.set(cookieData);
             
             // Flush cookie store

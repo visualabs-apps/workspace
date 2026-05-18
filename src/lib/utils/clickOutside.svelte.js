@@ -48,6 +48,19 @@ export function useClickOutside(options) {
     document.addEventListener('click', handleClick, true);
     handlers.push(() => document.removeEventListener('click', handleClick, true));
 
+    // 1b. Contextmenu (right-click) outside detection
+    const handleContextmenu = (e) => {
+        const element = document.querySelector(elementSelector);
+        if (!element) return;
+
+        const isInside = element.contains(e.target);
+        if (!isInside) {
+            onClickOutside();
+        }
+    };
+    document.addEventListener('contextmenu', handleContextmenu, true);
+    handlers.push(() => document.removeEventListener('contextmenu', handleContextmenu, true));
+
     // 2. ESC key
     if (includeEscape) {
         const handleEscape = (e) => {

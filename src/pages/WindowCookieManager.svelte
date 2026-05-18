@@ -85,8 +85,19 @@
         try {
             const response = await getChromeProfile(profileId);
             if (response.success && response.data) {
-                const serverCookies = response.data.cookies;
+                let serverCookies = response.data.cookies;
+                // Backend may return cookies as a JSON string instead of parsed array
+                if (typeof serverCookies === 'string') {
+                    try {
+                        serverCookies = JSON.parse(serverCookies);
+                    } catch (e) {
+                        console.warn('[CookieManager] Failed to parse cookies string:', e);
+                        serverCookies = [];
+                    }
+                }
                 cookies = Array.isArray(serverCookies) ? serverCookies : [];
+                // Apply loaded cookies to local Electron session so webview can use them
+                applyCookiesToLocalSession(Array.isArray(serverCookies) ? serverCookies : []);
             } else {
                 cookies = [];
                 loadError = response.error || 'Failed to load cookies';
@@ -118,6 +129,8 @@
 
             if (result.success) {
                 cookies = updatedCookies;
+                // Apply updated cookies to local Electron session so webview can use them
+                applyCookiesToLocalSession(updatedCookies);
                 return true;
             } else {
                 toastStore.error(result.error || 'Failed to save cookies to server');
@@ -133,17 +146,18 @@
     /**
      * Apply cookies to local Electron session (so webview can use them)
      */
-    async function applyCookiesToLocalSession() {
-        if (!partition || cookies.length === 0) return;
+    async function applyCookiesToLocalSession(cookiesToApply) {
+        const targetCookies = cookiesToApply || cookies;
+        if (!partition || targetCookies.length === 0) return;
 
         try {
-            for (const cookie of cookies) {
+            for (const cookie of targetCookies) {
                 if (!cookie.name || !cookie.domain) continue;
                 if (cookie.value === undefined || cookie.value === null) cookie.value = '';
                 try {
                     await window.api.db.setCookieToPartition(partition, cookie);
                 } catch (err) {
-                    console.warn('[CookieManager] Failed to apply cookie:', cookie.name, err);
+                    // Ignore individual cookie errors
                 }
             }
         } catch (error) {
@@ -229,21 +243,33 @@
     }
 
     /**
-     * Delete a single cookie from the backend
+     * Delete all cookies under a specific domain
      */
-    async function deleteCookie(cookie) {
-        if (!confirm(`Delete cookie "${cookie.name}"?`)) return;
+    async function deleteDomainCookies(domain) {
+        const domainCookies = cookiesByDomain()[domain] || [];
+        if (domainCookies.length === 0) return;
+        if (!confirm(`Delete all ${domainCookies.length} cookie(s) for "${domain}"?`)) return;
 
-        const idx = findCookieIndex(cookie);
-        if (idx === -1) {
-            toastStore.error('Cookie not found');
-            return;
+        // Remove all domain cookies from webview session
+        if (partition) {
+            for (const cookie of domainCookies) {
+                try {
+                    await window.api.db.deleteCookieFromPartition(partition, cookie.name, cookie.domain, cookie.path, cookie.secure);
+                } catch (err) {
+                    // Ignore if cookie not found in session
+                }
+            }
         }
 
-        const updatedCookies = cookies.filter((_, i) => i !== idx);
+        const updatedCookies = cookies.filter(c => {
+            const cDomain = c.domain.startsWith('.') ? c.domain.substring(1) : c.domain;
+            return cDomain !== domain && c.domain !== domain;
+        });
         const success = await saveCookiesToServer(updatedCookies);
         if (success) {
-            toastStore.success('Cookie deleted from server');
+            expandedDomains.delete(domain);
+            expandedDomains = new Set(expandedDomains);
+            toastStore.success(`All cookies for ${domain} deleted`);
         }
     }
 
@@ -299,6 +325,7 @@
                 toastStore.success(`${validCookies.length} cookie(s) imported to server`);
                 showImportModal = false;
                 importJson = "";
+
             }
         } catch (error) {
             console.error('Import cookie error:', error);
@@ -530,16 +557,18 @@
                         {#each domains as domain}
                             {@const domainCookies = cookiesByDomain()[domain]}
                             {@const isExpanded = expandedDomains.has(domain)}
+                            {@const DomainIcon = isExpanded ? ChevronDown : ChevronRight}
 
                             <div class="border border-gray-200 rounded-lg overflow-hidden">
                                 <!-- Domain Header -->
-                                <button
-                                    onclick={() => toggleDomain(domain)}
+                                <div
                                     class="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 flex items-center justify-between transition-colors"
                                 >
-                                    <div class="flex items-center gap-2">
-                                        <svelte:component
-                                            this={isExpanded ? ChevronDown : ChevronRight}
+                                    <button
+                                        onclick={() => toggleDomain(domain)}
+                                        class="flex items-center gap-2 flex-1 text-left"
+                                    >
+                                        <DomainIcon
                                             size={16}
                                             class="text-gray-600"
                                         />
@@ -548,8 +577,15 @@
                                         <span class="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded">
                                             {domainCookies.length}
                                         </span>
-                                    </div>
-                                </button>
+                                    </button>
+                                    <button
+                                        onclick={() => deleteDomainCookies(domain)}
+                                        class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all ml-2"
+                                        title="Delete all cookies for this domain"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
 
                                 <!-- Domain Cookies -->
                                 {#if isExpanded}
@@ -558,6 +594,7 @@
                                             {@const cookieId = getCookieId(cookie)}
                                             {@const isCookieExpanded = expandedCookies.has(cookieId)}
                                             {@const cookieIdx = findCookieIndex(cookie)}
+                                            {@const CookieIcon = isCookieExpanded ? ChevronDown : ChevronRight}
 
                                             <div class="border-b border-gray-100 last:border-b-0">
                                                 <!-- Cookie Name Header -->
@@ -566,8 +603,7 @@
                                                         onclick={() => toggleCookie(cookieId)}
                                                         class="flex-1 flex items-center gap-2 text-left"
                                                     >
-                                                        <svelte:component
-                                                            this={isCookieExpanded ? ChevronDown : ChevronRight}
+                                                        <CookieIcon
                                                             size={14}
                                                             class="text-gray-500"
                                                         />
@@ -593,13 +629,6 @@
                                                         title="Edit"
                                                     >
                                                         <Edit3 size={14} />
-                                                    </button>
-                                                    <button
-                                                        onclick={() => deleteCookie(cookie)}
-                                                        class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-                                                        title="Delete"
-                                                    >
-                                                        <Trash2 size={14} />
                                                     </button>
                                                 </div>
 

@@ -16,7 +16,7 @@ function createTray() {
             label: 'Show VisualBox',
             click: () => {
                 const mainWindow = getMainWindow();
-                if (mainWindow) {
+                if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.show();
                     mainWindow.focus();
                 }
@@ -26,7 +26,7 @@ function createTray() {
             label: 'Hide VisualBox',
             click: () => {
                 const mainWindow = getMainWindow();
-                if (mainWindow) {
+                if (mainWindow && !mainWindow.isDestroyed()) {
                     mainWindow.hide();
                 }
             }
@@ -46,7 +46,7 @@ function createTray() {
 
     tray.on('double-click', () => {
         const mainWindow = getMainWindow();
-        if (mainWindow) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
             if (mainWindow.isVisible()) {
                 mainWindow.hide();
             } else {

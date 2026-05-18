@@ -1,7 +1,8 @@
 <script>
-    import { Target, Cookie, ChevronLeft } from "lucide-svelte";
+    import { Target, Cookie, Bookmark, ChevronLeft } from "lucide-svelte";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { openPredefinedWindow } from "../../lib/utils/childWindow.js";
+    import { panelStore } from "../../lib/stores/panels.svelte.js";
     
     let { 
         onOpenTarget = () => {}
@@ -22,6 +23,10 @@
         } else {
             openPredefinedWindow('COOKIE_MANAGER');
         }
+    }
+
+    function handleBookmarks() {
+        panelStore.openBookmarks();
     }
     
     // Computed classes
@@ -51,6 +56,17 @@
             <Target size={22} class="text-gray-600 group-hover:text-white transition-all duration-300" strokeWidth={2} />
         </div>
         <span class="text-[10px] text-gray-500 group-hover:text-blue-600 font-medium mt-1 transition-colors">Target</span>
+    </button>
+
+    <!-- Sidebar Item - Bookmarks -->
+    <button
+        onclick={handleBookmarks}
+        class="sidebarItem relative flex flex-col items-center justify-center w-full py-3 px-2 border-b border-gray-200/50 transition-all duration-300 group hover:bg-purple-50/80"
+    >
+        <div class="p-2 rounded-xl bg-white group-hover:bg-purple-500 transition-all duration-300 shadow-sm group-hover:shadow-md group-hover:scale-110">
+            <Bookmark size={22} class="text-gray-600 group-hover:text-white transition-all duration-300" strokeWidth={2} />
+        </div>
+        <span class="text-[10px] text-gray-500 group-hover:text-purple-600 font-medium mt-1 transition-colors">Bookmarks</span>
     </button>
 
     <!-- Sidebar Item - Manage Cookies -->

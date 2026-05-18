@@ -51,12 +51,13 @@
 <!-- Toast Container -->
 <div class="fixed bottom-4 right-4 z-[10000] flex flex-col gap-2 pointer-events-none">
     {#each toasts as toast (toast.id)}
+        {@const ToastIcon = getIcon(toast.type)}
         <div
             in:fly={{ y: 20, duration: 200 }}
             out:fade={{ duration: 150 }}
             class="pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-lg border shadow-lg min-w-[300px] max-w-[400px] {getColors(toast.type)}"
         >
-            <svelte:component this={getIcon(toast.type)} size={20} class="{getIconColor(toast.type)} shrink-0" />
+            <ToastIcon size={20} class="{getIconColor(toast.type)} shrink-0" />
             <p class="flex-1 text-sm font-medium">{toast.message}</p>
             <button
                 onclick={() => toastStore.remove(toast.id)}

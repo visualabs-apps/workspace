@@ -254,7 +254,7 @@
             }
             scriptInputStore.isOpen = false;
         });
-        
+
         return cleanup;
     });
 
@@ -296,55 +296,35 @@
             }
         }
 
+        // Zoom: Ctrl+0 reset to 100%
         if ((e.ctrlKey || e.metaKey) && e.key === "0") {
             e.preventDefault();
             if (activeApp) {
-                const activeTab = appStateStore.getActiveTab(activeApp.id);
-                if (activeTab) {
-                    appStateStore.updateTab(activeApp.id, activeTab.id, {
-                        zoomLevel: 0,
-                    });
-                }
+                appStore.updateApp(activeApp.id, { zoomLevel: 0 });
             }
         }
 
+        // Zoom: Ctrl++ zoom in
         if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
             e.preventDefault();
             if (activeApp) {
-                const activeTab = appStateStore.getActiveTab(activeApp.id);
-                if (activeTab) {
-                    const currentZoom = activeTab.zoomLevel ?? 0;
-                    const currentPercent = Math.round(
-                        Math.pow(1.2, currentZoom) * 100,
-                    );
-                    let newPercent = currentPercent + 10;
-                    newPercent = Math.min(500, newPercent);
-                    const newZoomLevel =
-                        Math.log(newPercent / 100) / Math.log(1.2);
-                    appStateStore.updateTab(activeApp.id, activeTab.id, {
-                        zoomLevel: newZoomLevel,
-                    });
-                }
+                const currentZoom = activeApp.zoomLevel ?? 0;
+                const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
+                const newPercent = Math.min(500, currentPercent + 10);
+                const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
+                appStore.updateApp(activeApp.id, { zoomLevel: newZoomLevel });
             }
         }
 
+        // Zoom: Ctrl+- zoom out
         if ((e.ctrlKey || e.metaKey) && e.key === "-") {
             e.preventDefault();
             if (activeApp) {
-                const activeTab = appStateStore.getActiveTab(activeApp.id);
-                if (activeTab) {
-                    const currentZoom = activeTab.zoomLevel ?? 0;
-                    const currentPercent = Math.round(
-                        Math.pow(1.2, currentZoom) * 100,
-                    );
-                    let newPercent = currentPercent - 10;
-                    newPercent = Math.max(25, newPercent);
-                    const newZoomLevel =
-                        Math.log(newPercent / 100) / Math.log(1.2);
-                    appStateStore.updateTab(activeApp.id, activeTab.id, {
-                        zoomLevel: newZoomLevel,
-                    });
-                }
+                const currentZoom = activeApp.zoomLevel ?? 0;
+                const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
+                const newPercent = Math.max(25, currentPercent - 10);
+                const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
+                appStore.updateApp(activeApp.id, { zoomLevel: newZoomLevel });
             }
         }
 

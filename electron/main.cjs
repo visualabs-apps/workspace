@@ -3,13 +3,21 @@ const { app, BrowserWindow, ipcMain, session, nativeTheme } = require('electron'
 const path = require('path');
 const Aria2Manager = require('./aria2Manager.cjs');
 
-// Set app name BEFORE any other app operations
-if (process.platform === 'win32') {
-    app.setAppUserModelId('com.visualbox.app');
-}
-app.setName('VisualBox');
+// Prevent uncaught exceptions from crashing the process with showErrorBox
+process.on('uncaughtException', (error) => {
+    console.error('[Main] Uncaught Exception:', error);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[Main] Unhandled Rejection:', reason);
+});
 
 const isDevEnvironment = process.env.DEV_ENV === 'true';
+
+// Set app name BEFORE any other app operations
+if (process.platform === 'win32') {
+    app.setAppUserModelId(isDevEnvironment ? 'com.visualbox.app.dev' : 'com.visualbox.app');
+}
+app.setName(isDevEnvironment ? 'VisualBox Dev' : 'VisualBox');
 
 // Initialize aria2
 const aria2 = new Aria2Manager();
@@ -56,7 +64,7 @@ app.on('ready', async () => {
     // Reload app handler
     ipcMain.handle('reload-app', () => {
         const win = getMainWindow();
-        if (win) {
+        if (win && !win.isDestroyed()) {
             win.reload();
         }
     });
@@ -156,7 +164,7 @@ app.on('activate', () => {
         createWindow(isDevEnvironment, aria2);
     } else {
         const mainWindow = getMainWindow();
-        if (mainWindow) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.show();
             mainWindow.focus();
         }
@@ -187,14 +195,16 @@ app.on('certificate-error', (event, webContents, url, error, certificate, callba
     callback(true);
 });
 
-const gotTheLock = app.requestSingleInstanceLock();
+// Use separate lock for dev mode so it doesn't conflict with production
+const lockKey = isDevEnvironment ? 'com.visualbox.app.dev' : 'com.visualbox.app';
+const gotTheLock = app.requestSingleInstanceLock({ path: lockKey });
 
 if (!gotTheLock) {
     app.quit();
 } else {
     app.on('second-instance', (event, commandLine, workingDirectory) => {
         const mainWindow = getMainWindow();
-        if (mainWindow) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.focus();
         }
