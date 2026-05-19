@@ -417,6 +417,7 @@
 
         // IPC handlers for context menu actions
         const handleOpenLinkNewTab = (url) => {
+            if (!isActive) return; // Only the active tab should handle this
             if (!url) return;
             
             // Create new app/app

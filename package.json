@@ -4,7 +4,7 @@
   "description": "VisualBox - Multi-Service Management Platform with Enhanced SuperAdmin Interface",
   "license": "MIT",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.0.0",
   "author": "VisualBox Technology",
   "type": "module",
   "main": "electron/main.cjs",

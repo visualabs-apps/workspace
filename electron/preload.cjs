@@ -159,7 +159,33 @@ const api = {
 
     // Version check (manual, no auto-download)
     getAppVersion: () => ipcRenderer.invoke('get-app-version'),
-    onNewVersionAvailable: (callback) => ipcRenderer.on('new-version-available', (event, info) => callback(info)),
+    onNewVersionAvailable: (callback) => {
+        const handler = (event, info) => callback(info);
+        ipcRenderer.on('new-version-available', handler);
+        return () => ipcRenderer.removeListener('new-version-available', handler);
+    },
+
+    // Auto-Update API
+    update: {
+        checkNow: () => ipcRenderer.invoke('check-for-updates-now'),
+        startDownload: (opts) => ipcRenderer.invoke('start-auto-update', opts),
+        installAndQuit: (opts) => ipcRenderer.invoke('install-and-quit', opts),
+        onProgress: (callback) => {
+            const handler = (_, data) => callback(data);
+            ipcRenderer.on('update-download-progress', handler);
+            return () => ipcRenderer.removeListener('update-download-progress', handler);
+        },
+        onComplete: (callback) => {
+            const handler = (_, data) => callback(data);
+            ipcRenderer.on('update-download-complete', handler);
+            return () => ipcRenderer.removeListener('update-download-complete', handler);
+        },
+        onError: (callback) => {
+            const handler = (_, data) => callback(data);
+            ipcRenderer.on('update-download-error', handler);
+            return () => ipcRenderer.removeListener('update-download-error', handler);
+        },
+    },
 
     // Dropdown control - force close on window events
     onForceCloseDropdown: (callback) => ipcRenderer.on('force-close-dropdown', () => callback()),

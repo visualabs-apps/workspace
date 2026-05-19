@@ -9,6 +9,7 @@
     import Toast from "./components/ui/Toast.svelte";
     import OfflineWarning from "./components/ui/OfflineWarning.svelte";
     import Taskbar from "./components/layout/Taskbar.svelte";
+    import UpdateBanner from "./components/ui/UpdateBanner.svelte";
     import { appStore } from "./lib/stores/apps.svelte.js";
     import { authStore } from "./lib/stores/auth.svelte.js";
     import { workspaceStore } from "./lib/stores/workspaces.svelte.js";
@@ -662,3 +663,6 @@
 <Toast />
 
 <Taskbar />
+
+<!-- Auto-update notification (always rendered, manages own visibility) -->
+<UpdateBanner />

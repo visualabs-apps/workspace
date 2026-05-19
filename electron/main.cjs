@@ -41,6 +41,7 @@ const { createWindow, getMainWindow, setIsQuitting } = require('./window/createW
 const { handlePermissions } = require('./utils/permissions.cjs');
 const { checkForNewVersion } = require('./utils/versionCheck.cjs');
 const { registerSafeStorageHandlers } = require('./utils/safeStorage.cjs');
+const { registerAutoUpdateHandlers } = require('./handlers/autoUpdate.cjs');
 
 // IPC Handlers
 ipcMain.handle('get-app-version', () => app.getVersion());
@@ -60,6 +61,7 @@ app.on('ready', async () => {
     registerInjectorRoutes(getMainWindow);
     registerSafeStorageHandlers();
     registerChildWindowHandlers(isDevEnvironment, getMainWindow);
+    registerAutoUpdateHandlers(getMainWindow);
     
     // Reload app handler
     ipcMain.handle('reload-app', () => {

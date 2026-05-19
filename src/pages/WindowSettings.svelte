@@ -1,6 +1,6 @@
 <script>
     import ChildWindowControls from "../components/layout/ChildWindowControls.svelte";
-    import { Settings, User, Bell, Lock, Palette, Layers, Search, Code } from "lucide-svelte";
+    import { Settings, User, Bell, Lock, Palette, Layers, Search, Code, RefreshCw, CheckCircle, Download, AlertCircle } from "lucide-svelte";
     import { toastStore } from "../lib/managers/toast.svelte.js";
     import { tabLifetimeManager } from "../lib/managers/tabLifetime.svelte.js";
 
@@ -9,17 +9,78 @@
     let activeTab = $state("general");
     
     // Settings state
-    let tabLifetime = $state("30"); // minutes or "forever" for unlimited
+    let tabLifetime = $state("30");
     let defaultSearchEngine = $state("google");
     let showNotifications = $state(true);
     let autoStart = $state(false);
     let developerMode = $state(false);
+
+    // ── Update state ─────────────────────────────────────────────────────────
+    let currentVersion = $state('');
+    let updateStatus = $state('idle'); // idle | checking | upToDate | available | downloading | done | error
+    let updateInfo = $state({ version: '', notes: '', downloadUrl: null, assetName: null, assetSize: 0 });
+    let updateError = $state('');
+
+    async function checkUpdate() {
+        updateStatus = 'checking';
+        updateError = '';
+        try {
+            const result = await window.api.update.checkNow();
+            if (!result.success) {
+                updateError = result.error || 'Gagal memeriksa update';
+                updateStatus = 'error';
+            } else if (result.upToDate) {
+                updateStatus = 'upToDate';
+            } else {
+                updateInfo = {
+                    version:     result.latestVersion,
+                    notes:       result.notes,
+                    downloadUrl: result.downloadUrl,
+                    assetName:   result.assetName,
+                    assetSize:   result.assetSize,
+                };
+                updateStatus = 'available';
+            }
+        } catch (e) {
+            updateError = e.message;
+            updateStatus = 'error';
+        }
+    }
+
+    async function startUpdate() {
+        if (!updateInfo.downloadUrl) return;
+        updateStatus = 'downloading';
+        const result = await window.api.update.startDownload({
+            downloadUrl: updateInfo.downloadUrl,
+            assetName:   updateInfo.assetName,
+        });
+
+        if (result?.devMode) {
+            // Dev mode: download blocked, show info message
+            updateStatus = 'devMode';
+            return;
+        }
+        if (!result?.success) {
+            updateError = result?.error || 'Download gagal';
+            updateStatus = 'error';
+            return;
+        }
+        // Download started — close settings so user sees the UpdateBanner
+        window.api.close();
+    }
+
+    function formatBytes(bytes) {
+        if (!bytes) return '';
+        const mb = bytes / (1024 * 1024);
+        return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`;
+    }
     
     const tabs = [
         { id: "general", label: "General", icon: Settings },
         { id: "tabs", label: "Tabs", icon: Layers },
         { id: "search", label: "Search", icon: Search },
         { id: "developer", label: "Developer", icon: Code },
+        { id: "update", label: "Update", icon: RefreshCw },
         { id: "account", label: "Account", icon: User },
         { id: "notifications", label: "Notifications", icon: Bell },
         { id: "privacy", label: "Privacy", icon: Lock },
@@ -87,6 +148,8 @@
     // Load settings on mount
     $effect(() => {
         loadSettings();
+        // Load current version
+        window.api.getAppVersion?.().then(v => { currentVersion = v; }).catch(() => {});
     });
     
     async function loadSettings() {
@@ -353,6 +416,104 @@
                         </div>
                     </div>
                     
+                {:else if activeTab === "update"}
+                    <div class="space-y-6">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 mb-1">Update Aplikasi</h3>
+                            <p class="text-sm text-gray-500">Periksa dan install versi terbaru VisualBox</p>
+                        </div>
+
+                        <!-- Current version -->
+                        <div class="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+                            <div>
+                                <div class="text-xs text-gray-500 mb-0.5">Versi saat ini</div>
+                                <div class="text-sm font-semibold text-gray-900">
+                                    {currentVersion ? `v${currentVersion}` : 'Memuat...'}
+                                </div>
+                            </div>
+                            <button
+                                onclick={checkUpdate}
+                                disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
+                                class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+                            >
+                                <RefreshCw size={14} class={updateStatus === 'checking' ? 'animate-spin' : ''} />
+                                {updateStatus === 'checking' ? 'Memeriksa...' : 'Cek Update'}
+                            </button>
+                        </div>
+
+                        <!-- Result -->
+                        {#if updateStatus === 'upToDate'}
+                            <div class="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-xl">
+                                <CheckCircle size={20} class="text-green-500 shrink-0" />
+                                <div>
+                                    <div class="text-sm font-semibold text-green-800">Versi terbaru sudah terinstall</div>
+                                    <div class="text-xs text-green-600">VisualBox v{currentVersion} adalah versi terbaru.</div>
+                                </div>
+                            </div>
+
+                        {:else if updateStatus === 'available'}
+                            <div class="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
+                                <div class="flex items-start gap-3">
+                                    <Download size={20} class="text-blue-500 shrink-0 mt-0.5" />
+                                    <div class="flex-1">
+                                        <div class="text-sm font-semibold text-blue-900">
+                                            Ada versi baru tersedia — v{updateInfo.version}
+                                        </div>
+                                        <div class="text-xs text-blue-600 mt-0.5">
+                                            {updateInfo.assetName || 'Installer'}
+                                            {#if updateInfo.assetSize}
+                                                &nbsp;({formatBytes(updateInfo.assetSize)})
+                                            {/if}
+                                        </div>
+                                        {#if updateInfo.notes}
+                                            <pre class="mt-2 text-xs text-blue-700 whitespace-pre-wrap font-sans max-h-28 overflow-y-auto">{updateInfo.notes}</pre>
+                                        {/if}
+                                    </div>
+                                </div>
+                                <button
+                                    onclick={startUpdate}
+                                    class="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm"
+                                >
+                                    <Download size={15} />
+                                    Update Sekarang
+                                </button>
+                            </div>
+
+                        {:else if updateStatus === 'downloading'}
+                            <div class="flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+                                <RefreshCw size={20} class="text-indigo-500 shrink-0 animate-spin" />
+                                <div>
+                                    <div class="text-sm font-semibold text-indigo-800">Mengunduh update…</div>
+                                    <div class="text-xs text-indigo-600">Lihat progress di jendela utama.</div>
+                                </div>
+                            </div>
+
+                        {:else if updateStatus === 'error'}
+                            <div class="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+                                <AlertCircle size={20} class="text-red-500 shrink-0 mt-0.5" />
+                                <div>
+                                    <div class="text-sm font-semibold text-red-800">Gagal</div>
+                                    <div class="text-xs text-red-600 mt-0.5">{updateError}</div>
+                                    <button
+                                        onclick={() => { updateStatus = 'idle'; updateError = ''; }}
+                                        class="mt-2 text-xs text-red-700 underline hover:no-underline"
+                                    >Coba lagi</button>
+                                </div>
+                            </div>
+
+                        {:else if updateStatus === 'devMode'}
+                            <div class="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                                <AlertCircle size={20} class="text-amber-500 shrink-0 mt-0.5" />
+                                <div>
+                                    <div class="text-sm font-semibold text-amber-800">Mode Development</div>
+                                    <div class="text-xs text-amber-700 mt-0.5">
+                                        Download dinonaktifkan saat mode dev. Gunakan build produksi untuk melakukan update.
+                                    </div>
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+
                 {:else if activeTab === "account"}
                     <div class="space-y-6">
                         <div>
