@@ -32,8 +32,9 @@ const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 const VERSION_CHECK_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
 // GitHub Public Repo — Auto Update (no token needed for public repos)
-const GITHUB_OWNER = process.env.GITHUB_OWNER || '';
-const GITHUB_REPO  = process.env.GITHUB_REPO  || '';
+// Fallback values are hardcoded because .env is not present in production builds.
+const GITHUB_OWNER = process.env.GITHUB_OWNER || 'visualabs-id';
+const GITHUB_REPO  = process.env.GITHUB_REPO  || 'v-box-release';
 
 module.exports = {
     CHROME_UA,
