@@ -173,7 +173,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
         bind:this={windowElement}
-        class="fixed bg-white rounded-lg shadow-2xl border border-gray-300 flex flex-col overflow-hidden"
+        class="fixed bg-white rounded-lg shadow-2xl border border-gray-500/60 flex flex-col overflow-hidden"
         class:maximized={isMaximized}
         style="
             left: {isMaximized ? '0' : position.x + 'px'};

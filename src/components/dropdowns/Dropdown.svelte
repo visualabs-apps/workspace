@@ -72,8 +72,8 @@
     {#if isOpen}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div 
-            class="absolute top-full mt-2 {width} bg-white rounded-xl shadow-2xl border border-gray-200 py-2 {zIndex} {position === 'right' ? 'right-0' : 'left-0'}"
+        <div
+            class="absolute top-full mt-2 {width} bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 {zIndex} {position === 'right' ? 'right-0' : 'left-0'}"
             data-dropdown-menu={dropdownId}
             onclick={(e) => e.stopPropagation()}
         >

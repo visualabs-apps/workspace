@@ -78,16 +78,14 @@ function createNavigationStore() {
                             || urlObj.searchParams.get('continue');
                         
                         if (redirectUrl) {
-                            activeWebview.loadURL(redirectUrl);
+                            activeWebview.loadURL(redirectUrl).catch(() => {});
                             return;
                         }
 
-                        // No redirect param — navigate to the site root of the referrer
-                        // e.g. accounts.shopee.co.id → shopee.co.id
                         const parts = urlObj.hostname.split('.');
                         if (parts.length > 2 && parts[0] !== 'www') {
                             const rootDomain = parts.slice(1).join('.');
-                            activeWebview.loadURL(`https://${rootDomain}`);
+                            activeWebview.loadURL(`https://${rootDomain}`).catch(() => {});
                             return;
                         }
                     }
@@ -102,17 +100,16 @@ function createNavigationStore() {
 
         goHome(url) {
             if (activeWebview && url) {
-                activeWebview.src = url;
+                activeWebview.loadURL(url).catch(() => {});
             }
         },
 
         navigate(url) {
             if (activeWebview && url) {
-                // Add protocol if missing
                 if (!url.startsWith('http://') && !url.startsWith('https://')) {
                     url = 'https://' + url;
                 }
-                activeWebview.src = url;
+                activeWebview.loadURL(url).catch(() => {});
             }
         },
 

@@ -119,6 +119,13 @@ export const WINDOW_CONFIGS = {
         height: 700,
         route: 'window/cookie-manager',
     },
+    PASSWORD_MANAGER: {
+        id: 'password-manager-window',
+        title: 'Password Manager',
+        width: 900,
+        height: 700,
+        route: 'window/password-manager',
+    },
     SCRIPT_CONSOLE: {
         id: 'script-console-window',
         title: 'Script Console',
@@ -146,6 +153,20 @@ export const WINDOW_CONFIGS = {
         width: 500,
         height: 400,
         route: 'window/script-input',
+    },
+    ACCOUNT_SETTINGS: {
+        id: 'account-settings-window',
+        title: 'Account Settings',
+        width: 600,
+        height: 600,
+        route: 'window/account-settings',
+    },
+    STAFF_MONITORING: {
+        id: 'staff-monitoring-window',
+        title: 'Staff Profile Monitoring',
+        width: 900,
+        height: 700,
+        route: 'window/staff-monitoring',
     },
 };
 

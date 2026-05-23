@@ -1,12 +1,13 @@
 <script>
     let {
         url = '',
+        exactIconUrl = '',
         size = 16,
         class: className = '',
         alt = 'Favicon'
     } = $props();
     
-    const FALLBACK_ICON = `${import.meta.env.BASE_URL}VBOXICON.png`;
+    const FALLBACK_ICON = `${import.meta.env.BASE_URL}browser.png`;
     
     let faviconUrl = $state('');
     let hasError = $state(false);
@@ -14,7 +15,7 @@
     
     // Load favicon via main process (no CORS issues)
     $effect(() => {
-        if (url) {
+        if (url || exactIconUrl) {
             loadFavicon();
         }
     });
@@ -24,8 +25,15 @@
         hasError = false;
         
         try {
+            // If exactIconUrl is already a data: URI, use it directly — no IPC needed
+            if (exactIconUrl && exactIconUrl.startsWith('data:')) {
+                faviconUrl = exactIconUrl;
+                isLoading = false;
+                return;
+            }
+            
             // Call main process to fetch favicon (bypasses CORS)
-            const result = await window.api.getFavicon(url);
+            const result = await window.api.getFavicon(url, exactIconUrl);
             
             if (result) {
                 faviconUrl = result;
@@ -61,8 +69,8 @@
 
 <div class="inline-block {className}" style="width: {size}px; height: {size}px;">
     {#if isLoading}
-        <div 
-            class="w-full h-full bg-gray-200 rounded animate-pulse"
+        <div
+            class="w-full h-full bg-gray-200 dark:bg-gray-700 rounded animate-pulse"
         ></div>
     {:else}
         <img

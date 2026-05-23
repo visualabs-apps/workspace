@@ -71,6 +71,18 @@ function registerInjectorRoutes(getMainWindow) {
     ipcMain.handle('get-workspace-context', (event) => {
         return ContextController.getWorkspaceContext(event, getMainWindow);
     });
+
+    // Sync version for password capture (must complete before page unloads)
+    ipcMain.on('get-workspace-context-sync', async (event) => {
+        try {
+            const ctx = await ContextController.getWorkspaceContext(event, getMainWindow);
+            // Must serialize to plain object for event.returnValue (structured clone)
+            event.returnValue = ctx ? JSON.parse(JSON.stringify(ctx)) : null;
+        } catch (e) {
+            console.error('❌ [Routes] get-workspace-context-sync error:', e);
+            event.returnValue = null;
+        }
+    });
     
     // ─── Navigation (webview → main process) ─────────────────────
     

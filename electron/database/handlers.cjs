@@ -1,4 +1,4 @@
-const { ipcMain, app } = require('electron');
+const { ipcMain, app, nativeTheme } = require('electron');
 const { getDatabase } = require('./index.cjs');
 
 function registerDatabaseHandlers() {
@@ -53,6 +53,22 @@ function registerDatabaseHandlers() {
                 VALUES (?, ?, ?)
             `);
             stmt.run(key, JSON.stringify(value), Date.now());
+
+            // When theme setting changes, update Electron's nativeTheme immediately.
+            // This ensures window backgrounds, prefers-color-scheme, and scrollbars
+            // update across ALL windows (main + children + webviews).
+            if (key === 'theme') {
+                const themeValue = value === 'light' || value === 'dark' ? value : 'system';
+                nativeTheme.themeSource = themeValue;
+
+                // Broadcast to all running webContents (includes webviews) so they can
+                // live-update their prefers-color-scheme override without a reload.
+                const { webContents } = require('electron');
+                webContents.getAllWebContents().forEach(wc => {
+                    try { wc.send('webview-theme-changed', themeValue); } catch (_) {}
+                });
+            }
+
             return { success: true };
         } catch (error) {
             console.error('db-save-setting error:', error);
@@ -86,6 +102,50 @@ function registerDatabaseHandlers() {
         } catch (error) {
             console.error('db-delete-setting error:', error);
             return { success: false, error: error.message };
+        }
+    });
+
+    // Synchronous theme getter — used by webview preload to override
+    // prefers-color-scheme BEFORE the page's CSS is evaluated.
+    ipcMain.on('get-theme-sync', (event) => {
+        try {
+            if (!db) { event.returnValue = 'light'; return; }
+            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+            const row = stmt.get('theme');
+            if (!row) { event.returnValue = 'light'; return; }
+            try {
+                event.returnValue = JSON.parse(row.value);
+            } catch {
+                event.returnValue = row.value;
+            }
+        } catch (error) {
+            event.returnValue = 'light';
+        }
+    });
+
+    // Synchronous helper to determine if resolved theme is dark (handles 'system' setting automatically)
+    ipcMain.on('get-resolved-theme-is-dark', (event) => {
+        try {
+            if (!db) { event.returnValue = false; return; }
+            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+            const row = stmt.get('theme');
+            let themeValue = 'light';
+            if (row) {
+                try {
+                    themeValue = JSON.parse(row.value);
+                } catch {
+                    themeValue = row.value;
+                }
+            }
+            if (themeValue === 'dark') {
+                event.returnValue = true;
+            } else if (themeValue === 'system') {
+                event.returnValue = nativeTheme.shouldUseDarkColors;
+            } else {
+                event.returnValue = false;
+            }
+        } catch (error) {
+            event.returnValue = false;
         }
     });
 
@@ -321,15 +381,94 @@ function registerDatabaseHandlers() {
     ipcMain.handle('cleanup-orphan-downloads', async () => {
         try {
             if (!db) return { success: false, error: 'Database not initialized' };
-            
+
             const stmt = db.prepare('DELETE FROM downloads WHERE profile_id IS NULL');
             const result = stmt.run();
-            
-            if (result.changes > 0) {
-            }
+
             return { success: true, removed: result.changes };
         } catch (error) {
             console.error('cleanup-orphan-downloads error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Passwords - stored per profile
+    ipcMain.handle('db-get-passwords', async (event, profileId) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized', passwords: [] };
+            const stmt = db.prepare(`
+                SELECT id, profile_id, title, url, username, password_encrypted, notes, favicon,
+                       created_at as createdAt, updated_at as updatedAt
+                FROM passwords
+                WHERE profile_id = ?
+                ORDER BY title ASC
+            `);
+            const passwords = stmt.all(profileId);
+            return { success: true, passwords };
+        } catch (error) {
+            console.error('db-get-passwords error:', error);
+            return { success: false, error: error.message, passwords: [] };
+        }
+    });
+
+    ipcMain.handle('db-get-password', async (event, id) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized', password: null };
+            const stmt = db.prepare(`
+                SELECT id, profile_id, title, url, username, password_encrypted, notes, favicon,
+                       created_at as createdAt, updated_at as updatedAt
+                FROM passwords WHERE id = ?
+            `);
+            const row = stmt.get(id);
+            return { success: true, password: row || null };
+        } catch (error) {
+            console.error('db-get-password error:', error);
+            return { success: false, error: error.message, password: null };
+        }
+    });
+
+    ipcMain.handle('db-save-password', async (event, passwordData) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            const {
+                id = null, profile_id, title, url = '', username = '',
+                password_encrypted, notes = '', favicon = ''
+            } = passwordData;
+
+            if (id) {
+                // Update existing
+                const stmt = db.prepare(`
+                    UPDATE passwords
+                    SET title = ?, url = ?, username = ?, password_encrypted = ?, notes = ?, favicon = ?, updated_at = ?
+                    WHERE id = ? AND profile_id = ?
+                `);
+                stmt.run(title, url, username, password_encrypted, notes, favicon, Date.now(), id, profile_id);
+            } else {
+                // Insert new
+                const crypto = require('crypto');
+                const newId = crypto.randomUUID();
+                const now = Date.now();
+                const stmt = db.prepare(`
+                    INSERT INTO passwords (id, profile_id, title, url, username, password_encrypted, notes, favicon, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `);
+                stmt.run(newId, profile_id, title, url, username, password_encrypted, notes, favicon, now, now);
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('db-save-password error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('db-delete-password', async (event, id) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            const stmt = db.prepare('DELETE FROM passwords WHERE id = ?');
+            stmt.run(id);
+            return { success: true };
+        } catch (error) {
+            console.error('db-delete-password error:', error);
             return { success: false, error: error.message };
         }
     });

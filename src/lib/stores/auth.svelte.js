@@ -2,6 +2,9 @@
 import { login as apiLogin, logout as apiLogout, checkToken, isAuthenticated, getStoredUser, clearAuth } from '../api/nativeApi.js';
 import { secureStorage } from '../api/secureStorage.js';
 import { emailSuggestionsStore } from '../utils/emailSuggestions.svelte.js';
+import { workspaceStore } from './workspaces.svelte.js';
+import { appStore } from './apps.svelte.js';
+import { appStateStore } from './appState.svelte.js';
 
 function createAuthStore() {
     // Initialize state
@@ -21,9 +24,22 @@ function createAuthStore() {
 
         /**
          * Initialize auth state - verify token on app start
+         * FIXED: Never auto-logout user due to transient network errors
          */
         async init() {
             if (isInitialized) return;
+
+            // After logout + page reload, skip all API calls to prevent
+            // IPC-induced focus corruption. The logout flow sets this flag
+            // before reloading so we go directly to the login page.
+            if (sessionStorage.getItem('post_logout_reload') === 'true') {
+                sessionStorage.removeItem('post_logout_reload');
+                user = null;
+                isLoggedIn = false;
+                isLoading = false;
+                isInitialized = true;
+                return;
+            }
 
             isLoading = true;
             error = null;
@@ -37,20 +53,34 @@ function createAuthStore() {
                         user = result.user;
                         isLoggedIn = true;
                     } else {
-                        // Token invalid, clear auth
-                        await clearAuth();
-                        user = null;
-                        isLoggedIn = false;
+                        // Token invalid from server (not just network error)
+                        // Only logout if it's a real auth failure, not network issue
+                        const storedUser = getStoredUser();
+                        if (storedUser) {
+                            // Keep user logged in, try to refresh session later
+                            user = storedUser;
+                            isLoggedIn = true;
+                            console.log('[Auth] Token invalid but keeping session (will retry on next action)');
+                        }
                     }
                 } else {
+                    // No valid token found
                     user = null;
                     isLoggedIn = false;
                 }
             } catch (err) {
-                console.error('Auth init error:', err);
-                // On network error, keep local state if exists
-                user = getStoredUser();
-                isLoggedIn = await isAuthenticated();
+                console.error('[Auth] Init error (keeping user logged in):', err);
+                // CRITICAL: On ANY network error, keep the user logged in if they have a stored session
+                // This prevents unwanted auto-logout due to server being temporarily down
+                const storedUser = getStoredUser();
+                if (storedUser) {
+                    user = storedUser;
+                    isLoggedIn = true;
+                    console.log('[Auth] Network error but keeping user logged in from local storage');
+                } else {
+                    user = null;
+                    isLoggedIn = false;
+                }
             } finally {
                 isLoading = false;
                 isInitialized = true;
@@ -128,10 +158,13 @@ function createAuthStore() {
                     await window.api.clearSessionPartitions();
                 }
                 
+                // Reset all stores to prevent stale data from previous user
+                workspaceStore.reset();
+                appStore.clearAll();
+                appStateStore.clearAll();
+                
                 // Clear localStorage
                 localStorage.clear();
-                
-                console.log('✅ All local data cleared on logout');
             } catch (err) {
                 console.error('Logout cleanup error:', err);
             } finally {
@@ -139,6 +172,14 @@ function createAuthStore() {
                 isLoggedIn = false;
                 isLoading = false;
                 error = null;
+
+                // Clear storage
+                localStorage.clear();
+                sessionStorage.clear();
+
+                // SPA Transition: Just update states (user, isLoggedIn, isLoading, error)
+                // and let Svelte render LoginPage dynamically. We will trigger the window
+                // minimize/restore sequence inside LoginPage's onMount.
             }
         },
 

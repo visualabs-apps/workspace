@@ -17,7 +17,38 @@ function createWindow(isDevEnvironment, aria2) {
         app.commandLine.appendSwitch('disk-cache-size', '0');
     }
 
+    // ✅ FIX: Use real Chrome 131 User-Agent (not future version)
+    // IMPORTANT: Clear browser cache if you see old version (136)
+    app.commandLine.appendSwitch('disable-http-cache');
+    app.commandLine.appendSwitch('disable-cache');
+    app.commandLine.appendSwitch('disable-application-cache');
+    
+    // ✅ STEALTH: Disable automation detection
     app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+
+    // ✅ STEALTH: Additional switches to make Electron appear more like a regular Chrome browser.
+    // These prevent Google and other sites from detecting the Electron environment.
+    app.commandLine.appendSwitch('disable-features', 'AutomationControlled,InterestFeedContentSuggestions,CalculateNativeWinOcclusion');
+    
+    // ✅ STEALTH: Prevent "headless" detection via navigator.plugins / mimeTypes
+    app.commandLine.removeSwitch('headless');
+    
+    // ✅ STEALTH: Enable WebGL (required for proper fingerprinting)
+    app.commandLine.appendSwitch('enable-webgl');
+    app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+    
+    // ✅ STEALTH: Disable automation-related features
+    app.commandLine.appendSwitch('disable-dev-shm-usage');
+    app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+    
+    // ✅ STEALTH: Set proper window size to avoid headless detection
+    app.commandLine.appendSwitch('window-size', '1920,1080');
+
+    // nativeTheme.themeSource is already set in main.cjs before this runs.
+    // Use it to determine the window background color and prevent white flash.
+    // Color must match app.css --bg-primary: dark=#1f2937, light=#ffffff
+    const { nativeTheme } = require('electron');
+    const mainWindowBgColor = nativeTheme.shouldUseDarkColors ? '#1f2937' : '#ffffff';
 
     mainWindow = new BrowserWindow({
         width: 1300,
@@ -28,17 +59,26 @@ function createWindow(isDevEnvironment, aria2) {
             webviewTag: true,
             nodeIntegration: false,
             contextIsolation: true,
-            sandbox: false,
+            sandbox: true, // ✅ CHANGED: Enable sandbox for better stealth
             disableBlinkFeatures: 'Automation',
             enableRemoteModule: false,
         },
         frame: false, // Custom title bar
         show: false,
+        backgroundColor: mainWindowBgColor,
     });
 
     mainWindow.once('ready-to-show', () => {
         mainWindow.maximize();
         mainWindow.show();
+        mainWindow.focus(); // Force focus the window when shown
+    });
+
+    // Ensure webContents has focus when window gains focus
+    mainWindow.on('focus', () => {
+        if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isFocused()) {
+            mainWindow.webContents.focus();
+        }
     });
 
     // Close dropdowns when window is resized or moved
@@ -72,6 +112,30 @@ function createWindow(isDevEnvironment, aria2) {
         if (window) window.minimize();
     });
 
+    // Fix: Force OS to re-evaluate window drag regions and focus by invalidating webContents.
+    // Useful after SPA logout to fix unclickable inputs without visual window flashing.
+    ipcMain.on('reset-window-hit-test', (event) => {
+        console.log('[Main] Received reset-window-hit-test request');
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (window && !window.isDestroyed() && process.platform === 'win32') {
+            try {
+                // Toggling resizable changes WS_THICKFRAME style, forcing OS to clear drag region cache
+                const resizable = window.isResizable();
+                window.setResizable(!resizable);
+                window.setResizable(resizable);
+                
+                // Refresh window focus to force Chromium to re-bind keyboard input hooks
+                window.blur();
+                window.focus();
+                
+                window.webContents.invalidate();
+                console.log('[Main] Completed hit-test reset via resizable toggle and focus refresh');
+            } catch (err) {
+                console.error('[Main] Hit-test reset error:', err);
+            }
+        }
+    });
+
     ipcMain.on('window-maximize', (event) => {
         const window = BrowserWindow.fromWebContents(event.sender);
         if (window) {
@@ -90,6 +154,20 @@ function createWindow(isDevEnvironment, aria2) {
 
     ipcMain.on('open-external', (event, url) => {
         shell.openExternal(url);
+    });
+
+    // Request window focus from renderer
+    ipcMain.handle('request-window-focus', async (event) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (window && !window.isDestroyed()) {
+            window.focus();
+            if (window.webContents) {
+                window.webContents.focus();
+            }
+            return { success: true };
+        } else {
+            return { success: false, error: 'Window not found' };
+        }
     });
 
     // Context Menu Handler for webview
@@ -120,14 +198,14 @@ function createWindow(isDevEnvironment, aria2) {
                 click: async () => {
                     const imageUrl = params.srcURL;
                     if (!imageUrl) return;
-                    
+
                     try {
                         // Get the partition session for cookies
                         let targetSession = session.defaultSession;
                         if (params.partition) {
                             targetSession = session.fromPartition(params.partition);
                         }
-                        
+
                         // Extract filename from URL
                         let fileName = 'image.png';
                         const isDataOrBlob = imageUrl.startsWith('data:') || imageUrl.startsWith('blob:');
@@ -149,7 +227,7 @@ function createWindow(isDevEnvironment, aria2) {
                                 fileName = `image.${fmt}`;
                             }
                         }
-                        
+
                         // Show save dialog directly (no webview.downloadURL — avoids double dialog)
                         const downloadsPath = app.getPath('downloads');
                         const { filePath: savePath, canceled } = await dialog.showSaveDialog(mainWindow, {
@@ -157,12 +235,12 @@ function createWindow(isDevEnvironment, aria2) {
                             defaultPath: path.join(downloadsPath, fileName),
                             buttonLabel: 'Save'
                         });
-                        
+
                         if (canceled || !savePath) return;
-                        
+
                         const saveDir = path.dirname(savePath);
                         const actualFilename = path.basename(savePath);
-                        
+
                         // Get cookies from the session for authenticated downloads
                         let cookieHeader = '';
                         let referer = '';
@@ -174,25 +252,25 @@ function createWindow(isDevEnvironment, aria2) {
                                     cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
                                 }
                                 referer = urlObj.origin + '/';
-                            } catch (e) {}
+                            } catch (e) { }
                         }
-                        
+
                         const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-                        
+
                         // Delete existing file if user chose to replace
                         if (fs.existsSync(savePath)) {
                             await fs.remove(savePath);
                         }
-                        
+
                         // Get aria2 instance from the module-level reference
                         const aria2Downloads = getAria2Downloads();
                         const aria2 = getAria2Instance();
                         const isHttpUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
-                        
+
                         // data/blob URIs cannot be downloaded by aria2 — handle directly
                         if (!isHttpUrl) {
                             let buffer;
-                            
+
                             if (imageUrl.startsWith('data:')) {
                                 // Parse data URI directly: data:image/png;base64,<data>
                                 const matches = imageUrl.match(/^data:[^;]+;base64,(.+)$/);
@@ -215,9 +293,9 @@ function createWindow(isDevEnvironment, aria2) {
                             } else {
                                 throw new Error('Unsupported URL scheme');
                             }
-                            
+
                             await fs.writeFile(savePath, buffer);
-                            
+
                             const db = getDatabase();
                             const downloadId = uuidv4();
                             const now = Date.now();
@@ -227,7 +305,7 @@ function createWindow(isDevEnvironment, aria2) {
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 `).run(downloadId, actualFilename, imageUrl, savePath, buffer.byteLength, buffer.byteLength, 'complete', now, now, now, 1);
                             }
-                            
+
                             if (mainWindow && !mainWindow.isDestroyed()) {
                                 mainWindow.webContents.send('download-completed', {
                                     gid: null,
@@ -240,12 +318,12 @@ function createWindow(isDevEnvironment, aria2) {
                             }
                             return;
                         }
-                        
+
                         // HTTP/HTTPS URLs — ALWAYS use aria2
                         if (!aria2 || !aria2.isReady) {
                             throw new Error('Download manager is not ready. Please try again.');
                         }
-                        
+
                         const downloadId = uuidv4();
                         const aria2Options = {
                             filename: actualFilename,
@@ -262,9 +340,9 @@ function createWindow(isDevEnvironment, aria2) {
                             aria2Options.headers = aria2Options.headers || {};
                             aria2Options.headers['Referer'] = referer;
                         }
-                        
+
                         const gid = await aria2.addDownload(imageUrl, aria2Options);
-                        
+
                         aria2Downloads.set(gid, {
                             id: downloadId,
                             gid: gid,
@@ -273,7 +351,7 @@ function createWindow(isDevEnvironment, aria2) {
                             savePath: savePath,
                             startTime: Date.now()
                         });
-                        
+
                         if (mainWindow && !mainWindow.isDestroyed()) {
                             mainWindow.webContents.send('download-started', {
                                 id: downloadId,
@@ -286,7 +364,7 @@ function createWindow(isDevEnvironment, aria2) {
                                 mimeType: ''
                             });
                         }
-                        
+
                     } catch (error) {
                         console.error('Failed to save image:', error);
                         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -377,7 +455,21 @@ function createWindow(isDevEnvironment, aria2) {
         if (!isQuitting) {
             event.preventDefault();
             isQuitting = true;
-            app.quit();
+
+            // Force exit after 5 seconds if graceful shutdown hangs
+            // This prevents ghost processes in Task Manager
+            const forceExitTimer = setTimeout(() => {
+                console.warn('⚠️ Force exiting app (graceful shutdown timed out)');
+                app.exit(0);
+            }, 5000);
+
+            try {
+                app.quit();
+            } catch (err) {
+                console.error('Error during quit:', err);
+                clearTimeout(forceExitTimer);
+                app.exit(0);
+            }
         }
         return false;
     });
@@ -443,8 +535,8 @@ function setIsQuitting(value) {
 }
 
 
-module.exports = { 
-    createWindow, 
-    getMainWindow, 
+module.exports = {
+    createWindow,
+    getMainWindow,
     setIsQuitting
 };

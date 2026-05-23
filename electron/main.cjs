@@ -22,13 +22,11 @@ app.setName(isDevEnvironment ? 'VisualBox Dev' : 'VisualBox');
 // Initialize aria2
 const aria2 = new Aria2Manager();
 
-nativeTheme.themeSource = 'light';
-
 const { CHROME_UA, VERSION_CHECK_INTERVAL } = require('./config/constants.cjs');
 app.userAgentFallback = CHROME_UA;
 
 // Import modules
-const { initDatabase } = require('./database/index.cjs');
+const { initDatabase, getDatabase } = require('./database/index.cjs');
 const { registerDatabaseHandlers } = require('./database/handlers.cjs');
 const { registerFaviconHandler } = require('./handlers/favicon.cjs');
 const { registerSettingsHandlers } = require('./handlers/settings.cjs');
@@ -42,6 +40,8 @@ const { handlePermissions } = require('./utils/permissions.cjs');
 const { checkForNewVersion } = require('./utils/versionCheck.cjs');
 const { registerSafeStorageHandlers } = require('./utils/safeStorage.cjs');
 const { registerAutoUpdateHandlers } = require('./handlers/autoUpdate.cjs');
+const { registerPasswordHandlers } = require('./handlers/passwordHandlers.cjs');
+const { passwordService } = require('./services/passwordService.cjs');
 
 // IPC Handlers
 ipcMain.handle('get-app-version', () => app.getVersion());
@@ -50,6 +50,26 @@ ipcMain.handle('get-app-path', () => app.getAppPath());
 app.on('ready', async () => {
     // Initialize database first
     initDatabase(app);
+    
+    // Apply saved theme to Electron's nativeTheme BEFORE creating windows.
+    // This controls window background color, prefers-color-scheme in webviews,
+    // scrollbars, and other OS-level theme behaviors.
+    try {
+        const db = getDatabase();
+        if (db) {
+            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+            const row = stmt.get('theme');
+            let savedTheme = 'system';
+            if (row) {
+                try { savedTheme = JSON.parse(row.value); } catch { savedTheme = row.value; }
+            }
+            // 'light' | 'dark' | 'system'
+            nativeTheme.themeSource = savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : 'system';
+            console.log('[Main] Theme applied:', nativeTheme.themeSource);
+        }
+    } catch (e) {
+        nativeTheme.themeSource = 'system';
+    }
     
     // Register all IPC handlers
     registerDatabaseHandlers();
@@ -62,28 +82,29 @@ app.on('ready', async () => {
     registerSafeStorageHandlers();
     registerChildWindowHandlers(isDevEnvironment, getMainWindow);
     registerAutoUpdateHandlers(getMainWindow);
+    registerPasswordHandlers();
     
     // Reload app handler
     ipcMain.handle('reload-app', () => {
         const win = getMainWindow();
         if (win && !win.isDestroyed()) {
             win.reload();
+
+            if (process.platform === 'win32') {
+                setTimeout(() => {
+                    if (win && !win.isDestroyed()) {
+                        win.webContents.invalidate();
+                    }
+                }, 400); // Wait for page load/render to settle
+            }
         }
     });
 
-    // Clear all session partitions (cookies, localStorage, cache) on logout
-    ipcMain.handle('clear-session-partitions', async () => {
+    ipcMain.handle('clear-session-partitions', async (event) => {
         try {
             const { session } = require('electron');
             
-            // Clear default session
             await session.defaultSession.clearStorageData();
-            
-            // Clear all persist:workspace-* partitions
-            const ses = session.fromPartition('persist:workspace-');
-            // Electron doesn't enumerate partitions, so we clear known ones
-            // by iterating through common workspace IDs
-            // The default session clear above handles most cases
             await session.defaultSession.clearCache();
             await session.defaultSession.clearAuthCache();
             await session.defaultSession.cookies.flushStore();
@@ -106,6 +127,23 @@ app.on('ready', async () => {
             ) {
                 event.preventDefault();
             }
+
+            // Forward zoom shortcuts from webviews to main window
+            // so the app's custom zoom handler can process them
+            if (contents.getType() === 'webview' && (input.control || input.meta)) {
+                let zoomAction = null;
+                if (input.key === '0') zoomAction = 'reset';
+                else if (input.key === '+' || input.key === '=') zoomAction = 'in';
+                else if (input.key === '-') zoomAction = 'out';
+
+                if (zoomAction) {
+                    event.preventDefault();
+                    const mainWindow = getMainWindow();
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('webview-zoom-shortcut', { action: zoomAction });
+                    }
+                }
+            }
         });
     });
     
@@ -115,6 +153,12 @@ app.on('ready', async () => {
 
     defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
         details.requestHeaders['User-Agent'] = CHROME_UA;
+        
+        // Add Chrome Client Hints headers to match Chrome 131 (current stable)
+        details.requestHeaders['sec-ch-ua'] = '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"';
+        details.requestHeaders['sec-ch-ua-mobile'] = '?0';
+        details.requestHeaders['sec-ch-ua-platform'] = '"Windows"';
+        
         callback({ requestHeaders: details.requestHeaders });
     });
 
@@ -145,8 +189,15 @@ app.on('ready', async () => {
 
     app.on('web-contents-created', (event, contents) => {
         if (contents.getType() === 'webview') {
-            contents.on('new-window', (e, url) => {
-                e.preventDefault();
+            // Use setWindowOpenHandler (modern API) to intercept window.open and target="_blank"
+            contents.setWindowOpenHandler(({ url }) => {
+                // Send IPC to renderer to handle new tab creation
+                const mainWindow = getMainWindow();
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('webview-open-new-window', url);
+                }
+                // Deny the window open request (prevent new Electron window)
+                return { action: 'deny' };
             });
 
             const ses = contents.session;
@@ -157,6 +208,60 @@ app.on('ready', async () => {
                 }
                 handlePermissions(ses);
             }
+
+            // ── Password Manager: IPC from webview preload ──
+            // Two channels:
+            //   'password-capture-urgent' — fire-and-forget from submit/click handler.
+            //     Must complete before page navigates away. Main process handles
+            //     never-save check + capture + save prompt relay.
+            //   'password-show-save-prompt' — direct relay (used by vboxPassword bridge).
+            contents.on('ipc-message', async (event, channel, ...args) => {
+                if (channel === 'password-capture-urgent') {
+                    const data = args[0];
+                    if (!data) return;
+
+                    try {
+                        // Check never-save
+                        const isNever = await passwordService.isNeverSave(data.profileId, data.origin);
+                        if (isNever) return;
+
+                        // Check if credential already exists with same username AND password
+                        const existing = await passwordService.getCredentialByOriginAndUsername(
+                            data.profileId, data.origin, data.username
+                        );
+
+                        // Only show save prompt if credential doesn't exist OR password changed
+                        if (existing && existing.password === data.password) {
+                            // Credentials are the same - no need to show popup
+                            console.log(`🔐 [Main] Skipping save prompt: same username & password for ${data.origin}`);
+                            return;
+                        }
+
+                        // Relay save prompt to main window
+                        const mainWindow = getMainWindow();
+                        if (mainWindow && !mainWindow.isDestroy()) {
+                            mainWindow.webContents.send('password-show-save-prompt', {
+                                profileId: data.profileId,
+                                origin: data.origin,
+                                username: data.username,
+                                password: data.password,
+                                title: data.title || data.origin,
+                                url: data.url || data.origin,
+                                isUpdate: !!existing // true if updating existing, false if new
+                            });
+                        }
+                    } catch (err) {
+                        console.error('🔐 [Main] password-capture-urgent error:', err);
+                    }
+                }
+
+                if (channel === 'password-show-save-prompt') {
+                    const mainWindow = getMainWindow();
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('password-show-save-prompt', ...args);
+                    }
+                }
+            });
         }
     });
 });
@@ -173,8 +278,12 @@ app.on('activate', () => {
     }
 });
 
-app.on('window-all-closed', (e) => {
-    e.preventDefault();
+app.on('window-all-closed', () => {
+    // Quit app when all windows are closed (except macOS)
+    // This ensures the process is truly killed and the lock is released
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
 });
 
 app.on('before-quit', async () => {
@@ -189,6 +298,16 @@ app.on('before-quit', async () => {
         await aria2.stop();
     } catch (error) {
         console.error('Failed to stop aria2:', error);
+    }
+    
+    // Also kill any leftover aria2c processes on Windows
+    if (process.platform === 'win32') {
+        try {
+            const { execSync } = require('child_process');
+            execSync('taskkill /F /IM aria2c-64.exe 2>nul', { windowsHide: true });
+        } catch (e) {
+            // No leftover process, ignore
+        }
     }
 });
 

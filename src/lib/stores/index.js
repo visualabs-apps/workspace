@@ -17,3 +17,4 @@ export { appStore, predefinedApps } from './apps.svelte.js';
 export { appStateStore } from './appState.svelte.js';
 export { targetStore } from './targets.svelte.js';
 export { workspaceStore, workspaceColors } from './workspaces.svelte.js';
+export { passwordStore } from './passwordStore.svelte.js';

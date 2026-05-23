@@ -12,10 +12,10 @@
     } = $props();
 
     const variantClasses = {
-        primary: "bg-blue-600 hover:bg-blue-700 text-white",
-        secondary: "bg-gray-200 hover:bg-gray-300 text-gray-700",
-        danger: "bg-red-600 hover:bg-red-700 text-white",
-        ghost: "bg-transparent hover:bg-gray-100 text-gray-700"
+        primary: "bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white",
+        secondary: "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200",
+        danger: "bg-red-600 dark:bg-red-600 hover:bg-red-700 dark:hover:bg-red-500 text-white",
+        ghost: "bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
     };
 
     const sizeClasses = {
@@ -30,9 +30,9 @@
     {disabled}
     {onclick}
     class="rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2
-        {variantClasses[variant]} 
-        {sizeClasses[size]} 
-        {fullWidth ? 'w-full' : ''} 
+        {variantClasses[variant]}
+        {sizeClasses[size]}
+        {fullWidth ? 'w-full' : ''}
         {className}"
 >
     {#if loading}

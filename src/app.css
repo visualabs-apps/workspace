@@ -1,18 +1,59 @@
 @import "tailwindcss";
 
-/* Ensure white background for all windows */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* CSS Variables for theming */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-tertiary: #f3f4f6;
+  --bg-hover: #f3f4f6;
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  --border-primary: #e5e7eb;
+  --border-secondary: #d1d5db;
+}
+
+.dark {
+  --bg-primary: #1f2937;
+  --bg-secondary: #111827;
+  --bg-tertiary: #0f172a;
+  --bg-hover: #374151;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-tertiary: #9ca3af;
+  --border-primary: #374151;
+  --border-secondary: #4b5563;
+}
+
+/* Base styles */
 html, body {
   margin: 0;
   padding: 0;
-  background-color: #ffffff;
+  background-color: var(--bg-primary);
+  min-height: 100vh;
+  width: 100%;
+  color: var(--text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+#app {
+  background-color: var(--bg-primary);
   min-height: 100vh;
   width: 100%;
 }
 
-#app {
-  background-color: #ffffff;
-  min-height: 100vh;
-  width: 100%;
+/* Apply theme to all components */
+[role="toolbar"] {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Fix: Ensure inputs, textarea, buttons are not affected by drag regions */
+input, textarea, button, select {
+  -webkit-app-region: no-drag;
 }
 
 /* :root {

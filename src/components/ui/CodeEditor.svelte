@@ -133,6 +133,10 @@
         flex-direction: column;
     }
 
+    :global(.dark) .code-editor {
+        border-color: #374151;
+    }
+
     :global(.cm-editor) {
         font-size: 13px;
         font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -149,7 +153,7 @@
     :global(.cm-activeLineGutter) {
         background-color: #2d2d2d;
     }
-    
+
     :global(.cm-scroller) {
         overflow: auto !important;
     }

@@ -1,313 +1,166 @@
 <script>
     import { authStore } from "../../lib/stores/auth.svelte.js";
-    import { Loader2, Eye, EyeOff, AlertCircle, Mail, Lock } from "lucide-svelte";
+    import { Loader2, Eye, EyeOff } from "lucide-svelte";
     import WindowControls from "../layout/WindowControls.svelte";
-    import EmailSuggestionDropdown from "../dropdowns/EmailSuggestionDropdown.svelte";
+    import { onMount } from "svelte";
 
-    let email = $state('');
-    let password = $state('');
-    let showPassword = $state(false);
+    let email = $state("");
+    let password = $state("");
     let isLoading = $state(false);
-    let errorMessage = $state('');
-    let errorType = $state('error');
-    let showEmailSuggestions = $state(false);
-    let isEmailFocused = $state(false);
+    let errorMessage = $state("");
+    let showPassword = $state(false);
+    let emailInput = $state(null);
+
+    onMount(() => {
+        console.log('[LoginPage] Mounted. api exists:', !!window.api, 'resetWindowHitTest exists:', !!window.api?.resetWindowHitTest);
+        // Fix input clickability by forcing Electron/Windows OS to re-evaluate hit-test regions
+        window.api?.resetWindowHitTest?.();
+        
+        // Wait for rendering to completely settle, then focus the first input field
+        setTimeout(() => {
+            console.log('[LoginPage] Triggering secondary hit-test reset');
+            window.api?.resetWindowHitTest?.();
+            if (emailInput && !isLoading) {
+                emailInput.focus();
+                console.log('[LoginPage] Focused email input programmatically');
+            }
+        }, 400);
+    });
+
+    function forceFocus(event) {
+        console.log('[LoginPage] Forcing input focus via mousedown event');
+        // Let the default mousedown work but also call focus directly
+        setTimeout(() => {
+            event.target.focus();
+        }, 10);
+    }
 
     async function handleLogin(event) {
-        event?.preventDefault();
-        
-        errorMessage = '';
-        
+        event.preventDefault();
+        errorMessage = "";
+
         if (!email.trim()) {
-            showError('Email wajib diisi', 'warning');
+            errorMessage = "Email wajib diisi";
             return;
         }
-        
         if (!password.trim()) {
-            showError('Password wajib diisi', 'warning');
+            errorMessage = "Password wajib diisi";
             return;
         }
 
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email.trim())) {
-            showError('Masukkan alamat email yang valid', 'warning');
+            errorMessage = "Masukkan alamat email yang valid";
             return;
         }
 
         isLoading = true;
-
         try {
             const result = await authStore.login(email.trim(), password);
             if (!result.success) {
-                const error = result.error || 'Login gagal';
-                if (error.includes('Kredensial salah') || error.includes('wrong') || error.includes('invalid')) {
-                    showError('Email atau password salah. Silakan periksa kredensial Anda dan coba lagi.', 'error');
-                } else if (error.includes('network') || error.includes('connection')) {
-                    showError('Kesalahan koneksi. Silakan periksa koneksi internet Anda dan coba lagi.', 'error');
-                } else if (error.includes('timeout')) {
-                    showError('Permintaan timeout. Silakan coba lagi.', 'error');
-                } else {
-                    showError(error, 'error');
-                }
+                errorMessage = result.error || "Login gagal";
             }
         } catch (error) {
-            console.error('Login error:', error);
-            showError('Terjadi kesalahan yang tidak terduga. Silakan coba lagi.', 'error');
+            errorMessage = "Terjadi kesalahan yang tidak terduga";
         } finally {
             isLoading = false;
         }
     }
-
-    function showError(message, type = 'error') {
-        errorMessage = message;
-        errorType = type;
-        
-        if (type !== 'error') {
-            setTimeout(() => {
-                if (errorMessage === message) {
-                    errorMessage = '';
-                }
-            }, 5000);
-        }
-    }
-
-    function handleKeyPress(event) {
-        // Don't submit form if suggestions are open and user is navigating
-        if (showEmailSuggestions && ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
-            return; // Let EmailSuggestionDropdown handle these
-        }
-        
-        if (event.key === 'Enter') {
-            handleLogin();
-        }
-    }
-
-    function togglePasswordVisibility() {
-        showPassword = !showPassword;
-    }
-
-    function clearError() {
-        errorMessage = '';
-    }
-
-    // Email suggestion handlers
-    function handleEmailFocus() {
-        isEmailFocused = true;
-        showEmailSuggestions = true;
-    }
-
-    function handleEmailBlur() {
-        // Delay hiding to allow click on dropdown
-        setTimeout(() => {
-            isEmailFocused = false;
-            showEmailSuggestions = false;
-        }, 150);
-    }
-
-    function handleEmailInput() {
-        showEmailSuggestions = isEmailFocused;
-        clearError();
-    }
-
-    function handleEmailSelect(selectedEmail) {
-        email = selectedEmail;
-        showEmailSuggestions = false;
-        
-        // Focus password field after email selection
-        setTimeout(() => {
-            const passwordInput = document.getElementById('password');
-            if (passwordInput) {
-                passwordInput.focus();
-            }
-        }, 100);
-    }
-
-    function handleSuggestionsClose() {
-        showEmailSuggestions = false;
-    }
 </script>
 
-<div class="h-screen w-screen flex bg-gray-50 overflow-hidden">
-    <!-- Custom Title Bar -->
-    <div
-        class="absolute top-0 left-0 right-0 w-full h-[30px] shrink-0 flex items-center bg-transparent z-50 select-none"
-        style="-webkit-app-region: drag"
-    >
-        <div class="flex-1"></div>
-        <div style="-webkit-app-region: no-drag">
-            <WindowControls variant="light" />
-        </div>
+<div class="h-screen w-screen flex bg-gray-50 dark:bg-gray-900 relative overflow-hidden">
+    <!-- Draggable Header Region for frameless window -->
+    <div class="absolute top-0 left-0 right-0 h-10 z-40" style="-webkit-app-region: drag"></div>
+
+    <!-- Top-Right Window Controls -->
+    <div class="absolute top-2 right-2 z-50" style="-webkit-app-region: no-drag">
+        <WindowControls variant="dark" />
     </div>
 
     <!-- Left Side - Login Form -->
-    <div class="w-1/2 h-full flex items-center justify-center p-12 pt-20">
+    <div class="w-full md:w-1/2 h-full flex items-center justify-center p-12 relative z-10">
         <div class="w-full max-w-sm">
-            <!-- Header -->
-            <div class="mb-8">
-                <h1 class="text-2xl font-semibold text-gray-900 mb-8">
-                    Selamat Datang di VisualBox
-                </h1>
-            </div>
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-8">
+                Selamat Datang di VisualBox
+            </h1>
 
-            <!-- Error Message -->
             {#if errorMessage}
-                <div class="mb-6 rounded-lg p-4 text-sm flex items-start gap-3 {
-                    errorType === 'error' ? 'bg-red-50 border border-red-200 text-red-700' :
-                    errorType === 'warning' ? 'bg-yellow-50 border border-yellow-200 text-yellow-700' :
-                    'bg-blue-50 border border-blue-200 text-blue-700'
-                }">
-                    <AlertCircle class="w-4 h-4 mt-0.5 shrink-0" />
-                    <div class="flex-1">
-                        <p>{errorMessage}</p>
-                        {#if errorType === 'error'}
-                            <button 
-                                onclick={clearError}
-                                class="text-xs text-red-600 hover:text-red-700 mt-1 underline"
-                            >
-                                Tutup
-                            </button>
-                        {/if}
-                    </div>
+                <div
+                    class="mb-6 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg text-sm"
+                >
+                    {errorMessage}
                 </div>
             {/if}
 
-            <!-- Login Form -->
             <form class="space-y-6" onsubmit={handleLogin}>
-                <!-- Email Field -->
                 <div>
-                    <label for="email" class="block text-sm font-medium text-gray-700 mb-2">
-                        Email
-                    </label>
-                    <div class="relative">
-                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <Mail class="h-4 w-4 text-gray-400" />
-                        </div>
-                        <input
-                            id="email"
-                            type="email"
-                            bind:value={email}
-                            onkeypress={handleKeyPress}
-                            onfocus={handleEmailFocus}
-                            onblur={handleEmailBlur}
-                            oninput={handleEmailInput}
-                            disabled={isLoading}
-                            class="w-full pl-10 pr-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 text-sm"
-                            placeholder="Silahkan masukkan alamat email Anda"
-                            autocomplete="email"
-                            required
-                        />
-                        
-                        <!-- Email Suggestions Dropdown -->
-                        <EmailSuggestionDropdown 
-                            query={email}
-                            isVisible={showEmailSuggestions}
-                            onSelect={handleEmailSelect}
-                            onClose={handleSuggestionsClose}
-                        />
-                    </div>
+                    <label
+                        for="email"
+                        class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                        >Email</label
+                    >
+                    <input
+                        id="email"
+                        type="email"
+                        bind:this={emailInput}
+                        bind:value={email}
+                        disabled={isLoading}
+                        onmousedown={forceFocus}
+                        onclick={forceFocus}
+                        class="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                        placeholder="Email Anda"
+                    />
                 </div>
 
-                <!-- Password Field -->
                 <div>
-                    <label for="password" class="block text-sm font-medium text-gray-700 mb-2">
-                        Password
-                    </label>
+                    <label
+                        for="password"
+                        class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                        >Password</label
+                    >
                     <div class="relative">
-                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <Lock class="h-4 w-4 text-gray-400" />
-                        </div>
                         <input
                             id="password"
-                            type={showPassword ? 'text' : 'password'}
+                            type={showPassword ? "text" : "password"}
                             bind:value={password}
-                            onkeypress={handleKeyPress}
-                            oninput={clearError}
                             disabled={isLoading}
-                            class="w-full pl-10 pr-12 py-3 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 text-sm"
-                            placeholder="Silahkan masukkan password Anda"
-                            autocomplete="current-password"
-                            required
+                            onmousedown={forceFocus}
+                            onclick={forceFocus}
+                            class="w-full pl-4 pr-10 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                            placeholder="Password Anda"
                         />
                         <button
                             type="button"
-                            onclick={togglePasswordVisibility}
-                            disabled={isLoading}
-                            class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-                            aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+                            onclick={() => showPassword = !showPassword}
+                            class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                            aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
                         >
                             {#if showPassword}
-                                <EyeOff class="w-4 h-4" />
+                                <EyeOff size={18} />
                             {:else}
-                                <Eye class="w-4 h-4" />
+                                <Eye size={18} />
                             {/if}
                         </button>
                     </div>
                 </div>
 
-                <!-- Login Button -->
                 <button
                     type="submit"
-                    disabled={isLoading || !email.trim() || !password.trim()}
-                    class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+                    disabled={isLoading}
+                    class="w-full py-3 bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-500 text-white font-medium rounded-lg text-sm"
                 >
-                    {#if isLoading}
-                        <Loader2 class="w-4 h-4 animate-spin" />
-                        <span>Masuk...</span>
-                    {:else}
-                        <span>Masuk</span>
-                    {/if}
+                    {isLoading ? "Masuk..." : "Masuk"}
                 </button>
             </form>
         </div>
     </div>
 
     <!-- Right Side - Illustration -->
-    <div class="w-1/2 h-full relative overflow-hidden">
-        <div class="w-full h-full rounded-tl-[6rem] overflow-hidden relative">
-            <img
-                src={`${import.meta.env.BASE_URL}login_img.png`}
-                alt="Login illustration"
-                class="w-full h-full object-cover"
-            />
-            <!-- Smooth opacity overlay for bottom left -->
-            <div class="absolute bottom-0 left-0 w-48 h-48 pointer-events-none">
-                <div class="w-full h-full bg-gradient-radial-opacity"></div>
-            </div>
-        </div>
+    <div class="hidden md:block w-1/2 h-full">
+        <img
+            src={`${import.meta.env.BASE_URL}login_img.png`}
+            alt="Login illustration"
+            class="w-full h-full object-cover"
+        />
     </div>
 </div>
-
-<style>
-    /* Clean modern styling */
-    input {
-        transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-    
-    input:focus {
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
-    button[type="submit"] {
-        transition: background-color 0.2s ease, transform 0.1s ease;
-    }
-    
-    button[type="submit"]:hover:not(:disabled) {
-        transform: translateY(-1px);
-    }
-    
-    button[type="submit"]:active:not(:disabled) {
-        transform: translateY(0px);
-    }
-    
-    /* Custom radial gradient for smooth opacity effect */
-    .bg-gradient-radial-opacity {
-        background: radial-gradient(circle at bottom left, 
-            rgba(255, 255, 255, 0.9) 0%, 
-            rgba(255, 255, 255, 0.6) 30%, 
-            rgba(255, 255, 255, 0.3) 60%, 
-            transparent 100%);
-    }
-</style>
-
-
-

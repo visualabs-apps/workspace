@@ -4,12 +4,17 @@
     import { toastStore } from "../lib/managers/toast.svelte.js";
     import Toast from "../components/ui/Toast.svelte";
     import { getChromeProfile, updateChromeProfile } from "../lib/api/api.js";
+    import { onMount } from "svelte";
+    import { initTheme } from "../lib/utils/theme.js";
 
     const WINDOW_ID = 'cookie-manager-window';
 
     let partition = $state('');
     let profileId = $state(null);
     let isOpen = $state(false);
+
+    // Initialize theme
+    onMount(() => { initTheme(); });
 
     // Receive data from parent window via IPC
     $effect(() => {
@@ -145,12 +150,45 @@
 
     /**
      * Apply cookies to local Electron session (so webview can use them)
+     * Full sync: adds missing cookies, updates existing, removes deleted ones
      */
     async function applyCookiesToLocalSession(cookiesToApply) {
         const targetCookies = cookiesToApply || cookies;
-        if (!partition || targetCookies.length === 0) return;
+        if (!partition) return;
 
         try {
+            // Step 1: Get current local cookies to detect deletions
+            let localCookies = [];
+            try {
+                localCookies = await window.api.db.getCookiesFromPartition(partition) || [];
+            } catch (err) {
+                console.warn('[CookieManager] Failed to read local cookies:', err);
+            }
+
+            // Step 2: Build a set of server cookie keys for fast lookup
+            const serverCookieKeys = new Set(
+                targetCookies.map(c => `${c.name}|${c.domain}|${c.path || '/'}`)
+            );
+
+            // Step 3: Remove local cookies that no longer exist on server
+            for (const localCookie of localCookies) {
+                const key = `${localCookie.name}|${localCookie.domain}|${localCookie.path || '/'}`;
+                if (!serverCookieKeys.has(key)) {
+                    try {
+                        await window.api.db.deleteCookieFromPartition(
+                            partition,
+                            localCookie.name,
+                            localCookie.domain,
+                            localCookie.path,
+                            localCookie.secure
+                        );
+                    } catch (err) {
+                        // Cookie may already be gone, ignore
+                    }
+                }
+            }
+
+            // Step 4: Add/update all server cookies to local session
             for (const cookie of targetCookies) {
                 if (!cookie.name || !cookie.domain) continue;
                 if (cookie.value === undefined || cookie.value === null) cookie.value = '';
@@ -325,7 +363,11 @@
                 toastStore.success(`${validCookies.length} cookie(s) imported to server`);
                 showImportModal = false;
                 importJson = "";
-
+                
+                // ✅ FIX: Notify parent window to reload webview so cookies take effect
+                if (window.api?.sendToParent) {
+                    window.api.sendToParent('cookies-updated', { profileId });
+                }
             }
         } catch (error) {
             console.error('Import cookie error:', error);
@@ -463,20 +505,20 @@
     }
 </script>
 
-<div class="w-full h-screen flex flex-col bg-white">
+<div class="w-full h-screen flex flex-col bg-white dark:bg-gray-900">
     <!-- Custom Title Bar -->
-    <div class="h-10 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4" style="-webkit-app-region: drag">
+    <div class="h-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4" style="-webkit-app-region: drag">
         <div class="flex items-center gap-2">
-            <Cookie size={16} class="text-blue-600" />
-            <span class="text-sm font-medium text-gray-700">Cookie Manager</span>
+            <Cookie size={16} class="text-blue-600 dark:text-blue-400" />
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Cookie Manager</span>
             {#if profileId}
-                <span class="text-xs text-gray-400">•</span>
-                <Cloud size={14} class="text-green-500" />
-                <span class="text-xs text-gray-500">Server: {cookies.length} cookies</span>
+                <span class="text-xs text-gray-400 dark:text-gray-500">•</span>
+                <Cloud size={14} class="text-green-500 dark:text-green-400" />
+                <span class="text-xs text-gray-500 dark:text-gray-400">Server: {cookies.length} cookies</span>
             {/if}
         </div>
         <div style="-webkit-app-region: no-drag">
-            <ChildWindowControls variant="light" windowId={WINDOW_ID} />
+            <ChildWindowControls windowId={WINDOW_ID} />
         </div>
     </div>
 
@@ -486,24 +528,24 @@
             <!-- Search Bar -->
             <div class="mb-3">
                 <div class="relative">
-                    <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={18} />
                     <input
                         type="text"
                         bind:value={searchQuery}
                         placeholder="Search cookies by name, domain, or value..."
-                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                        class="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
                     />
                 </div>
             </div>
 
             <!-- Header Actions -->
-            <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
+            <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
                 <div class="flex items-center gap-2">
-                    <Cloud size={18} class="text-blue-600" />
-                    <span class="text-sm font-medium text-gray-700">
+                    <Cloud size={18} class="text-blue-600 dark:text-blue-400" />
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
                         {domains.length} Domain{domains.length !== 1 ? 's' : ''} • {filteredCookies().length} Cookie{filteredCookies().length !== 1 ? 's' : ''}
                     </span>
-                    <span class="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded">Server</span>
+                    <span class="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded">Server</span>
                 </div>
                 <div class="flex items-center gap-2">
                     <button
@@ -516,7 +558,7 @@
                     <button
                         onclick={loadCookiesFromServer}
                         disabled={isLoading}
-                        class="px-3 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+                        class="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
                     >
                         <RefreshCw size={14} class={isLoading ? 'animate-spin' : ''} />
                         Refresh
@@ -526,7 +568,7 @@
 
             <!-- Error banner (only shown when data fails to fetch) -->
             {#if loadError}
-                <div class="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-center gap-2">
+                <div class="mb-3 p-2.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 rounded-lg text-xs text-red-700 dark:text-red-400 flex items-center gap-2">
                     <CloudOff size={14} />
                     <span>Failed to fetch data from server. {loadError}</span>
                 </div>
@@ -536,19 +578,19 @@
             <div class="flex-1 overflow-y-auto">
                 {#if isLoading}
                     <div class="flex items-center justify-center py-12">
-                        <div class="flex items-center gap-2 text-gray-500">
+                        <div class="flex items-center gap-2 text-gray-500 dark:text-gray-400">
                             <RefreshCw size={18} class="animate-spin" />
                             <span>Loading cookies from server...</span>
                         </div>
                     </div>
                 {:else if !profileId}
-                    <div class="flex flex-col items-center justify-center py-12 text-gray-500">
-                        <CloudOff size={48} class="mb-4 text-gray-300" />
+                    <div class="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
+                        <CloudOff size={48} class="mb-4 text-gray-300 dark:text-gray-750" />
                         <p>No profile selected</p>
                     </div>
                 {:else if domains.length === 0}
-                    <div class="flex flex-col items-center justify-center py-12 text-gray-500">
-                        <Cookie size={48} class="mb-4 text-gray-300" />
+                    <div class="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400">
+                        <Cookie size={48} class="mb-4 text-gray-300 dark:text-gray-750" />
                         <p>{searchQuery ? 'No cookies match your search' : 'No cookies on server yet'}</p>
                         <p class="text-xs mt-1">Click "Import Cookie" to add cookies</p>
                     </div>
@@ -559,10 +601,10 @@
                             {@const isExpanded = expandedDomains.has(domain)}
                             {@const DomainIcon = isExpanded ? ChevronDown : ChevronRight}
 
-                            <div class="border border-gray-200 rounded-lg overflow-hidden">
+                            <div class="border border-gray-200 dark:border-gray-750 rounded-lg overflow-hidden">
                                 <!-- Domain Header -->
                                 <div
-                                    class="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 flex items-center justify-between transition-colors"
+                                    class="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-between transition-colors"
                                 >
                                     <button
                                         onclick={() => toggleDomain(domain)}
@@ -570,17 +612,17 @@
                                     >
                                         <DomainIcon
                                             size={16}
-                                            class="text-gray-600"
+                                            class="text-gray-600 dark:text-gray-400"
                                         />
-                                        <Cookie size={16} class="text-gray-600" />
-                                        <span class="font-medium text-gray-900">{domain}</span>
-                                        <span class="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded">
+                                        <Cookie size={16} class="text-gray-600 dark:text-gray-400" />
+                                        <span class="font-medium text-gray-900 dark:text-gray-100">{domain}</span>
+                                        <span class="text-xs text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded">
                                             {domainCookies.length}
                                         </span>
                                     </button>
                                     <button
                                         onclick={() => deleteDomainCookies(domain)}
-                                        class="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all ml-2"
+                                        class="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition-all ml-2"
                                         title="Delete all cookies for this domain"
                                     >
                                         <Trash2 size={14} />
@@ -589,27 +631,27 @@
 
                                 <!-- Domain Cookies -->
                                 {#if isExpanded}
-                                    <div class="bg-white">
+                                    <div class="bg-white dark:bg-gray-900">
                                         {#each domainCookies as cookie}
                                             {@const cookieId = getCookieId(cookie)}
                                             {@const isCookieExpanded = expandedCookies.has(cookieId)}
                                             {@const cookieIdx = findCookieIndex(cookie)}
                                             {@const CookieIcon = isCookieExpanded ? ChevronDown : ChevronRight}
 
-                                            <div class="border-b border-gray-100 last:border-b-0">
+                                            <div class="border-b border-gray-100 dark:border-gray-800 last:border-b-0">
                                                 <!-- Cookie Name Header -->
-                                                <div class="flex items-center justify-between p-3 hover:bg-gray-50 transition-colors">
+                                                <div class="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
                                                     <button
                                                         onclick={() => toggleCookie(cookieId)}
                                                         class="flex-1 flex items-center gap-2 text-left"
                                                     >
                                                         <CookieIcon
                                                             size={14}
-                                                            class="text-gray-500"
+                                                            class="text-gray-500 dark:text-gray-400"
                                                         />
                                                         <div class="flex-1">
-                                                            <div class="font-medium text-gray-900 text-sm">{cookie.name}</div>
-                                                            <div class="text-xs text-gray-500">
+                                                            <div class="font-medium text-gray-900 dark:text-gray-100 text-sm">{cookie.name}</div>
+                                                            <div class="text-xs text-gray-500 dark:text-gray-400">
                                                                 Path: {cookie.path || '/'}
                                                                 {#if cookie.expirationDate}
                                                                     • Expires: {new Date(cookie.expirationDate * 1000).toLocaleDateString()}
@@ -625,7 +667,7 @@
                                                     </button>
                                                     <button
                                                         onclick={() => startEditCookie(cookie)}
-                                                        class="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all"
+                                                        class="p-1.5 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-all"
                                                         title="Edit"
                                                     >
                                                         <Edit3 size={14} />
@@ -634,14 +676,14 @@
 
                                                 <!-- JSON View/Edit Accordion -->
                                                 {#if isCookieExpanded}
-                                                    <div class="px-3 pb-3 bg-gray-50">
+                                                    <div class="px-3 pb-3 bg-gray-50 dark:bg-gray-800/30">
                                                         {#if editingCookieIndex === cookieIdx}
                                                             <!-- Edit Mode -->
-                                                            <div class="p-3 bg-white rounded-lg border border-blue-200">
-                                                                <label class="block text-xs font-medium text-gray-600 mb-1">Edit Cookie JSON</label>
+                                                            <div class="p-3 bg-white dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-blue-900/50">
+                                                                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Edit Cookie JSON</label>
                                                                 <textarea
                                                                     bind:value={editingJson}
-                                                                    class="w-full h-48 p-2 text-xs font-mono bg-gray-50 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
+                                                                    class="w-full h-48 p-2 text-xs font-mono bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-gray-100"
                                                                     placeholder="Edit cookie JSON..."
                                                                 ></textarea>
                                                                 <div class="flex items-center gap-2 mt-2">
@@ -654,7 +696,7 @@
                                                                     </button>
                                                                     <button
                                                                         onclick={cancelEdit}
-                                                                        class="px-3 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 rounded transition-colors"
+                                                                        class="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-850 text-gray-700 dark:text-gray-300 rounded transition-colors"
                                                                     >
                                                                         Cancel
                                                                     </button>
@@ -662,8 +704,8 @@
                                                             </div>
                                                         {:else}
                                                             <!-- View Mode -->
-                                                            <div class="p-3 bg-white rounded-lg border border-gray-200">
-                                                                <pre class="text-xs font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">{JSON.stringify(cookie, null, 2)}</pre>
+                                                            <div class="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                                                                <pre class="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap overflow-x-auto">{JSON.stringify(cookie, null, 2)}</pre>
                                                             </div>
                                                         {/if}
                                                     </div>
@@ -682,47 +724,47 @@
         <!-- Import Modal -->
         {#if showImportModal}
             <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onclick={() => showImportModal = false}>
-                <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4" onclick={(e) => e.stopPropagation()}>
-                    <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-lg font-semibold text-gray-900">Import Cookies</h3>
-                        <p class="text-sm text-gray-500 mt-1">Cookies will be merged and saved directly to server</p>
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl border dark:border-gray-700 w-full max-w-2xl mx-4" onclick={(e) => e.stopPropagation()}>
+                    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Import Cookies</h3>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Cookies will be merged and saved directly to server</p>
                     </div>
                     <div class="p-6 space-y-4">
                         <!-- Drop Zone -->
                         <div
-                            class="relative rounded-lg border-2 border-dashed transition-colors {isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}"
+                            class="relative rounded-lg border-2 border-dashed transition-colors {isDragOver ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' : 'border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500'}"
                             ondragenter={handleDragEnter}
                             ondragover={handleDragOver}
                             ondragleave={handleDragLeave}
                             ondrop={handleDrop}
                         >
                             {#if isDragOver}
-                                <div class="absolute inset-0 flex items-center justify-center bg-blue-50/80 rounded-lg z-10 pointer-events-none">
+                                <div class="absolute inset-0 flex items-center justify-center bg-blue-50/80 dark:bg-blue-950/80 rounded-lg z-10 pointer-events-none">
                                     <div class="text-center">
                                         <svg class="mx-auto h-10 w-10 text-blue-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                                         </svg>
-                                        <p class="text-sm font-medium text-blue-700">Drop JSON file here</p>
+                                        <p class="text-sm font-medium text-blue-700 dark:text-blue-400">Drop JSON file here</p>
                                     </div>
                                 </div>
                             {/if}
                             <textarea
                                 bind:value={importJson}
-                                class="w-full h-48 p-3 text-sm font-mono bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-900 resize-none"
+                                class="w-full h-48 p-3 text-sm font-mono bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-900 dark:text-gray-100 resize-none"
                                 placeholder="Paste cookie JSON or drag & drop a .json file here..."
                             ></textarea>
                             <div class="absolute bottom-2 right-2 flex gap-2">
-                                <label class="px-2.5 py-1 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 cursor-pointer text-gray-600 shadow-sm">
+                                <label class="px-2.5 py-1 text-xs bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer text-gray-600 dark:text-gray-300 shadow-sm">
                                     📁 Browse file
                                     <input type="file" accept=".json,application/json" onchange={handleFileSelect} class="hidden" />
                                 </label>
                             </div>
                         </div>
                     </div>
-                    <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
+                    <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-end gap-2">
                         <button
                             onclick={() => { showImportModal = false; importJson = ""; }}
-                            class="px-4 py-2 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg transition-colors"
+                            class="px-4 py-2 text-sm border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
                         >
                             Cancel
                         </button>
@@ -740,11 +782,11 @@
     </div>
 
     <!-- Footer -->
-    <div class="border-t border-gray-200 px-6 py-4 bg-gray-50">
+    <div class="border-t border-gray-200 dark:border-gray-800 px-6 py-4 bg-gray-50 dark:bg-gray-900/40">
         <div class="flex justify-end items-center">
             <button
                 onclick={() => window.api.close()}
-                class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-colors"
+                class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
             >
                 Close
             </button>

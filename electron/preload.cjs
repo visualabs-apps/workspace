@@ -1,5 +1,15 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+// Early theme injection to prevent FOUC (flash of white screen)
+try {
+    const isDark = ipcRenderer.sendSync('get-resolved-theme-is-dark');
+    if (isDark && typeof document !== 'undefined' && document.documentElement) {
+        document.documentElement.classList.add('dark');
+    }
+} catch (e) {
+    console.error('[Preload] Failed to apply early theme:', e);
+}
+
 // ✅ SAFE: No need to load external stealth script
 // The real stealth comes from proper Electron configuration:
 // - nodeIntegration: false
@@ -34,22 +44,25 @@ const api = {
         saveProfileColor: (profileId, color) => ipcRenderer.invoke('db-save-profile-color', profileId, color),
         getProfileColor: (profileId) => ipcRenderer.invoke('db-get-profile-color', profileId),
         deleteProfileColor: (profileId) => ipcRenderer.invoke('db-delete-profile-color', profileId),
-        
+
         // App Settings
         saveSetting: (key, value) => ipcRenderer.invoke('db-save-setting', key, value),
         getSetting: (key) => ipcRenderer.invoke('db-get-setting', key),
         deleteSetting: (key) => ipcRenderer.invoke('db-delete-setting', key),
-        
+
+        // Synchronous theme getter — used by index.html to prevent FOUC (flash of light mode)
+        getThemeSync: () => ipcRenderer.sendSync('get-theme-sync'),
+
         // Tabs
         saveTabs: (profileId, tabs) => ipcRenderer.invoke('db-save-tabs', profileId, tabs),
         getTabs: (profileId) => ipcRenderer.invoke('db-get-tabs', profileId),
-        
+
         // Bookmarks
         addBookmark: (profileId, url, title, favicon) => ipcRenderer.invoke('db-add-bookmark', profileId, url, title, favicon),
         removeBookmark: (profileId, url) => ipcRenderer.invoke('db-remove-bookmark', profileId, url),
         getBookmarks: (profileId) => ipcRenderer.invoke('db-get-bookmarks', profileId),
         isBookmarked: (profileId, url) => ipcRenderer.invoke('db-is-bookmarked', profileId, url),
-        
+
         // Downloads
         saveDownload: (download) => ipcRenderer.invoke('db-save-download', download),
         getDownloads: (profileId) => ipcRenderer.invoke('db-get-downloads', profileId),
@@ -59,17 +72,75 @@ const api = {
         pauseDownload: (gid) => ipcRenderer.invoke('pause-download', gid),
         resumeDownload: (gid) => ipcRenderer.invoke('resume-download', gid),
         removeDownloadFile: (filePath) => ipcRenderer.invoke('remove-download-file', filePath),
-        
+
         // File operations
         fileExists: (filePath) => ipcRenderer.invoke('file-exists', filePath),
         openFileLocation: (filePath) => ipcRenderer.invoke('open-file-location', filePath),
         openFile: (filePath) => ipcRenderer.invoke('open-file', filePath),
         readTextFile: (filePath) => ipcRenderer.invoke('read-text-file', filePath),
-        
+
         // Cookie operations
         getCookiesFromPartition: (partition) => ipcRenderer.invoke('get-cookies-from-partition', partition),
         setCookieToPartition: (partition, cookie) => ipcRenderer.invoke('set-cookie-to-partition', partition, cookie),
         deleteCookieFromPartition: (partition, name, domain, path, secure) => ipcRenderer.invoke('delete-cookie-from-partition', partition, name, domain, path, secure),
+
+        // Password operations (encrypted with safeStorage)
+        getPasswords: (profileId) => ipcRenderer.invoke('db-get-passwords', profileId),
+        getPassword: (id) => ipcRenderer.invoke('db-get-password', id),
+        savePassword: (passwordData) => ipcRenderer.invoke('db-save-password', passwordData),
+        deletePassword: (id) => ipcRenderer.invoke('db-delete-password', id),
+    },
+
+    // Password Manager API (Chrome-like)
+    passwordManager: {
+        // Save a credential (auto-detect from form submit)
+        save: (credential) => ipcRenderer.invoke('password-save', credential),
+
+        // Get credentials for a specific domain (for auto-fill)
+        getForDomain: (profileId, origin) => ipcRenderer.invoke('password-get-for-domain', { profileId, origin }),
+
+        // Get all passwords for a profile (metadata only, no decrypted passwords)
+        getAll: (profileId) => ipcRenderer.invoke('password-get-all', profileId),
+
+        // Get single credential (decrypted)
+        getCredential: (credentialId) => ipcRenderer.invoke('password-get-credential', credentialId),
+
+        // Delete a credential
+        delete: (credentialId) => ipcRenderer.invoke('password-delete', credentialId),
+
+        // Update password for existing credential
+        updatePassword: (credentialId, newPassword) => ipcRenderer.invoke('password-update-password', { credentialId, newPassword }),
+
+        // Full credential update
+        update: (credentialId, data) => ipcRenderer.invoke('password-update', { credentialId, data }),
+
+        // Check if credential exists for origin
+        exists: (profileId, origin, username) => ipcRenderer.invoke('password-exists', { profileId, origin, username }),
+
+        // Get password statistics
+        getStats: (profileId) => ipcRenderer.invoke('password-stats', profileId),
+
+        // Password generator
+        generate: (options) => ipcRenderer.invoke('password-generate', options || {}),
+
+        // Password strength check
+        checkStrength: (password) => ipcRenderer.invoke('password-strength', password),
+
+        // Never save list
+        neverSave: (profileId, origin) => ipcRenderer.invoke('password-never-save', { profileId, origin }),
+        isNeverSave: (profileId, origin) => ipcRenderer.invoke('password-is-never-save', { profileId, origin }),
+        removeNeverSave: (profileId, origin) => ipcRenderer.invoke('password-remove-never-save', { profileId, origin }),
+
+        // Auto-fill orchestration
+        autofillLookup: (profileId, origin) => ipcRenderer.invoke('password-autofill-lookup', { profileId, origin }),
+        captureSubmit: (data) => ipcRenderer.invoke('password-capture-submit', data),
+    },
+
+    // Listen for save prompt from webview (shown in main window)
+    onPasswordSavePrompt: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('password-show-save-prompt', handler);
+        return () => ipcRenderer.removeListener('password-show-save-prompt', handler);
     },
 
     // Download dialog helpers
@@ -90,10 +161,14 @@ const api = {
         getAutoStart: () => ipcRenderer.invoke('settings-get-auto-start'),
         setDeveloperMode: (enabled) => ipcRenderer.invoke('settings-set-developer-mode', enabled),
         getDeveloperMode: () => ipcRenderer.invoke('settings-get-developer-mode'),
+        setDataSyncInterval: (seconds) => ipcRenderer.invoke('settings-data-sync-interval', seconds),
+        getDataSyncInterval: () => ipcRenderer.invoke('settings-get-data-sync-interval'),
+        setDataSyncEnabled: (enabled) => ipcRenderer.invoke('settings-data-sync-enabled', enabled),
+        getDataSyncEnabled: () => ipcRenderer.invoke('settings-get-data-sync-enabled'),
     },
-    
+
     // Favicon fetching (main process handles CORS)
-    getFavicon: (url) => ipcRenderer.invoke('get-favicon', url),
+    getFavicon: (url, exactIconUrl) => ipcRenderer.invoke('get-favicon', { url, exactIconUrl }),
 
     // Download handlers
     onDownloadStarted: (callback) => ipcRenderer.on('download-started', (event, data) => callback(data)),
@@ -114,7 +189,8 @@ const api = {
     minimize: () => ipcRenderer.send('window-minimize'),
     maximize: () => ipcRenderer.send('window-maximize'),
     close: () => ipcRenderer.send('window-close'),
-    
+    resetWindowHitTest: () => ipcRenderer.send('reset-window-hit-test'),
+
     // Child Windows (BrowserWindow)
     childWindow: {
         open: (options) => ipcRenderer.invoke('open-child-window', options),
@@ -124,7 +200,7 @@ const api = {
         minimize: (windowId) => ipcRenderer.invoke('minimize-child-window', windowId),
         restore: (windowId) => ipcRenderer.invoke('restore-child-window', windowId),
     },
-    
+
     // Window data communication
     onWindowData: (callback) => {
         const handler = (event, data) => callback(data);
@@ -137,7 +213,7 @@ const api = {
         ipcRenderer.on(channel, handler);
         return () => ipcRenderer.removeListener(channel, handler);
     },
-    
+
     // Taskbar events
     onWindowMinimized: (callback) => {
         const handler = (event, data) => callback(data);
@@ -148,6 +224,14 @@ const api = {
         const handler = (event, data) => callback(data);
         ipcRenderer.on('window-restored', handler);
         return () => ipcRenderer.removeListener('window-restored', handler);
+    },
+
+    // Zoom shortcut forwarded from webview (main process intercepts Ctrl+0/+/-
+    // in webview webContents and relays here so the renderer can handle it)
+    onWebviewZoomShortcut: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('webview-zoom-shortcut', handler);
+        return () => ipcRenderer.removeListener('webview-zoom-shortcut', handler);
     },
 
     // External URL opener (for deep link auth)
@@ -192,13 +276,27 @@ const api = {
 
     // Context Menu for webview
     showContextMenu: (params) => ipcRenderer.send('context-menu', params),
-    
+
     // Context menu action handlers
     onOpenLinkNewTab: (callback) => {
-        const handler = (event, url) => callback(url);
+        const handler = (event, url) => {
+            try {
+                callback(url);
+            } catch (err) {
+                console.error('[preload] onOpenLinkNewTab error:', err);
+            }
+        };
         ipcRenderer.on('open-link-new-tab', handler);
         return () => ipcRenderer.removeListener('open-link-new-tab', handler);
     },
+
+    // Request window focus from renderer process
+    requestFocus: () => {
+        ipcRenderer.invoke('request-window-focus').catch(err => {
+            console.error('[preload] requestFocus error:', err);
+        });
+    },
+
     onDownloadImage: (callback) => {
         const handler = (event, url) => callback(url);
         ipcRenderer.on('download-image', handler);
@@ -209,12 +307,20 @@ const api = {
         ipcRenderer.on('reload-webview', handler);
         return () => ipcRenderer.removeListener('reload-webview', handler);
     },
+    
+    // Listen for webview window.open / target="_blank" from main process
+    onWebviewOpenNewWindow: (callback) => {
+        const handler = (event, url) => callback(url);
+        ipcRenderer.on('webview-open-new-window', handler);
+        return () => ipcRenderer.removeListener('webview-open-new-window', handler);
+    },
+    
     onShowToast: (callback) => {
         const handler = (event, data) => callback(data);
         ipcRenderer.on('show-toast', handler);
         return () => ipcRenderer.removeListener('show-toast', handler);
     },
-    
+
     // Script input window
     onScriptInputOpen: (callback) => {
         const handler = (event, config) => {
@@ -226,20 +332,20 @@ const api = {
     sendScriptInputResponse: (data) => {
         ipcRenderer.send('script-input-response', data);
     },
-    
+
     // Webview console logs
     onWebviewConsoleLog: (callback) => {
         const handler = (event, data) => callback(data);
         ipcRenderer.on('webview-console-log', handler);
         return () => ipcRenderer.removeListener('webview-console-log', handler);
     },
-    
+
     // Execute script in active webview
     executeScript: (code) => ipcRenderer.invoke('execute-script', code),
-    
+
     // Generate PowerPoint
     generatePowerPoint: (pptData) => ipcRenderer.invoke('generate-powerpoint', pptData),
-    
+
     // Script Injector API
     scripts: {
         list: () => ipcRenderer.invoke('scripts-list'),
@@ -249,34 +355,34 @@ const api = {
         execute: (scriptId) => ipcRenderer.invoke('scripts-execute', scriptId),
         getDirectory: () => ipcRenderer.invoke('scripts-get-directory'),
         addToDownloads: (fileInfo) => ipcRenderer.invoke('script-add-to-downloads', fileInfo),
-        
+
         // Script input window
         openInput: (config) => ipcRenderer.invoke('script-open-input', config),
     },
-    
+
     // Listen for script console logs
     onScriptConsole: (callback) => {
         const listener = (event, data) => callback(data);
         ipcRenderer.on('script-console-log', listener);
         return () => ipcRenderer.removeListener('script-console-log', listener);
     },
-    
+
     // Send console log from renderer to main process
     sendConsoleLog: (data) => {
         ipcRenderer.send('webview-console-log', { level: data.level, args: [data.message] });
     },
-    
+
     // PowerPoint generation
     powerpoint: {
         generate: (pptData) => ipcRenderer.invoke('generate-powerpoint', pptData),
-        
+
         // Template processing
-        processTemplate: (templateName, variables, outputFilename) => 
+        processTemplate: (templateName, variables, outputFilename) =>
             ipcRenderer.invoke('ppt-process-template', { templateName, variables, outputFilename }),
         listTemplates: () => ipcRenderer.invoke('ppt-list-templates'),
         getTemplatesDir: () => ipcRenderer.invoke('ppt-get-templates-dir'),
     },
-    
+
     // Get app path for preload script
     getAppPath: () => ipcRenderer.invoke('get-app-path'),
 

@@ -200,3 +200,100 @@ export async function deleteChromeProfile(id) {
         };
     }
 }
+
+/**
+ * Get current user (me)
+ * @returns {Promise<Object>} Response with current user data
+ */
+export async function getCurrentUser() {
+    try {
+        const response = await nativeApi.get('/auth/profile');
+        return {
+            success: true,
+            data: response.data.data
+        };
+    } catch (error) {
+        console.error('Failed to fetch current user:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to fetch current user'
+        };
+    }
+}
+
+/**
+ * Update current user (me)
+ * @param {Object} payload - User data to update
+ * @returns {Promise<Object>} Response with updated user
+ */
+export async function updateCurrentUser(payload) {
+    try {
+        const response = await nativeApi.put('/auth/profile', payload);
+        return {
+            success: true,
+            data: response.data.data
+        };
+    } catch (error) {
+        console.error('Failed to update current user:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to update current user'
+        };
+    }
+}
+
+/**
+ * Change password for current user
+ * @param {Object} payload - { currentPassword, newPassword }
+ * @returns {Promise<Object>} Response
+ */
+export async function changePassword(payload) {
+    try {
+        const response = await nativeApi.post('/users/me/change-password', payload);
+        return {
+            success: true,
+            message: response.data.message
+        };
+    } catch (error) {
+        console.error('Failed to change password:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to change password'
+        };
+    }
+}
+
+/**
+ * Get all users (admin only)
+ * @param {Object} params - Query parameters
+ * @returns {Promise<Object>} Response with users data
+ */
+export async function getUsers(params = {}) {
+    try {
+        const queryParams = new URLSearchParams();
+        
+        if (params.page) queryParams.append('page', params.page);
+        if (params.limit) queryParams.append('limit', params.limit);
+        if (params.q) queryParams.append('q', params.q);
+        if (params.email) queryParams.append('email', params.email);
+        if (params.username) queryParams.append('username', params.username);
+        if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+        if (params.sortOrder) queryParams.append('sortOrder', params.sortOrder);
+        
+        const endpoint = `/users${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+        const response = await nativeApi.get(endpoint);
+        
+        return {
+            success: true,
+            data: response.data.data || [],
+            page: response.data.page || {}
+        };
+    } catch (error) {
+        console.error('Failed to fetch users:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to fetch users',
+            data: []
+        };
+    }
+}

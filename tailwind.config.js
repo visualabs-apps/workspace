@@ -5,6 +5,8 @@ export default {
         "./src/**/*.{html,svelte,js,ts,}",
         "./electron/**/*.{html,svelte,js,ts,}"
     ],
+    // Tailwind v4 uses CSS-first configuration
+    // Dark mode is enabled by default with .dark class
     theme: {
         extend: {
             colors: {

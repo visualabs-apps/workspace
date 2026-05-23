@@ -143,6 +143,7 @@ class Aria2Manager {
             return;
         }
 
+        const pid = this.process.pid;
 
         try {
             // Try graceful shutdown first
@@ -152,18 +153,29 @@ class Aria2Manager {
             await new Promise(resolve => setTimeout(resolve, 1000));
             
         } catch (error) {
+            // aria2 may already be down, that's fine
         }
 
-        // Force kill if still running
+        // Force kill if still running - use platform-appropriate method
         if (this.process && !this.process.killed) {
-            this.process.kill('SIGTERM');
-            
-            // Force kill after 2 seconds if still alive
-            setTimeout(() => {
-                if (this.process && !this.process.killed) {
-                    this.process.kill('SIGKILL');
+            try {
+                if (process.platform === 'win32') {
+                    // On Windows, use taskkill for reliable process termination
+                    // /T kills child processes, /F forces termination
+                    const { execSync } = require('child_process');
+                    execSync(`taskkill /PID ${pid} /T /F`, { windowsHide: true });
+                } else {
+                    this.process.kill('SIGTERM');
+                    // Force kill after 2 seconds if still alive
+                    setTimeout(() => {
+                        if (this.process && !this.process.killed) {
+                            this.process.kill('SIGKILL');
+                        }
+                    }, 2000);
                 }
-            }, 2000);
+            } catch (e) {
+                // Process may already be dead
+            }
         }
 
         this.process = null;

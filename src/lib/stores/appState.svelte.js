@@ -167,6 +167,12 @@ function createAppStateStore() {
             appTabs = rest;
         },
 
+        // Clear all tabs for all apps (used on logout for multi-user safety)
+        clearAll() {
+            appTabs = {};
+            globalIsDragging = false;
+        },
+
         // Reorder tabs
         reorderTabs(appId, newTabOrder) {
             const currentData = appTabs[appId];

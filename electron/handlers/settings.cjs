@@ -224,6 +224,82 @@ function registerSettingsHandlers(isDevEnvironment = false) {
             return { success: false, error: error.message, enabled: _isDevEnvironment };
         }
     });
+
+    // Data Sync Interval (seconds)
+    ipcMain.handle('settings-data-sync-interval', async (event, seconds) => {
+        try {
+            if (db) {
+                const stmt = db.prepare(`
+                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                `);
+                stmt.run('dataSyncInterval', JSON.stringify(seconds), Date.now());
+            }
+            return { success: true, seconds };
+        } catch (error) {
+            console.error('settings-data-sync-interval error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('settings-get-data-sync-interval', async (event) => {
+        try {
+            if (!db) return { success: true, seconds: 30 };
+            
+            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+            const row = stmt.get('dataSyncInterval');
+            
+            if (!row) return { success: true, seconds: 30 };
+            
+            try {
+                const seconds = JSON.parse(row.value);
+                return { success: true, seconds };
+            } catch {
+                return { success: true, seconds: 30 };
+            }
+        } catch (error) {
+            console.error('settings-get-data-sync-interval error:', error);
+            return { success: false, error: error.message, seconds: 30 };
+        }
+    });
+
+    // Data Sync Enabled
+    ipcMain.handle('settings-data-sync-enabled', async (event, enabled) => {
+        try {
+            if (db) {
+                const stmt = db.prepare(`
+                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                `);
+                stmt.run('dataSyncEnabled', JSON.stringify(enabled), Date.now());
+            }
+            return { success: true, enabled };
+        } catch (error) {
+            console.error('settings-data-sync-enabled error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('settings-get-data-sync-enabled', async (event) => {
+        try {
+            if (!db) return { success: true, enabled: false };
+            
+            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+            const row = stmt.get('dataSyncEnabled');
+            
+            if (!row) return { success: true, enabled: false };
+            
+            try {
+                const enabled = JSON.parse(row.value);
+                return { success: true, enabled };
+            } catch {
+                return { success: true, enabled: false };
+            }
+        } catch (error) {
+            console.error('settings-get-data-sync-enabled error:', error);
+            return { success: false, error: error.message, enabled: false };
+        }
+    });
 }
 
 module.exports = { registerSettingsHandlers, isDeveloperModeEnabled };

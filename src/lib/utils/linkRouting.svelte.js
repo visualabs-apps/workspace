@@ -20,7 +20,7 @@ function createLinkRoutingStore() {
 
     // State
     let rules = $state(storedRules.length > 0 ? storedRules : defaultRules);
-    let defaultAction = $state('current-tab'); // current-tab, new-tab, external
+    let defaultAction = $state('new-tab'); // new-tab is better default for target="_blank" links
 
     // Auto-save to localStorage
     $effect.root(() => {

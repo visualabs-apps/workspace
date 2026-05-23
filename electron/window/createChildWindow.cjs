@@ -1,4 +1,4 @@
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, nativeTheme } = require('electron');
 const path = require('path');
 const { isDeveloperModeEnabled } = require('../handlers/settings.cjs');
 
@@ -45,6 +45,10 @@ function createChildWindow(options) {
     // Extract window type from route (e.g., 'window/settings' -> 'SETTINGS')
     const windowType = route.split('/').pop()?.toUpperCase().replace(/-/g, '_') || 'UNKNOWN';
 
+    // nativeTheme.themeSource is set in main.cjs. Use it directly.
+    // Color must match app.css --bg-primary: dark=#1f2937, light=#ffffff
+    const backgroundColor = nativeTheme.shouldUseDarkColors ? '#1f2937' : '#ffffff';
+
     // Create new window
     const childWindow = new BrowserWindow({
         width,
@@ -56,12 +60,12 @@ function createChildWindow(options) {
             preload: path.join(__dirname, '..', 'preload.cjs'),
             nodeIntegration: false,
             contextIsolation: true,
-            sandbox: false,
+            sandbox: true, // ✅ CHANGED: Enable sandbox for better stealth
             backgroundThrottling: false, // Prevent throttling when minimized
         },
         frame: false, // Custom title bar
         show: false,
-        backgroundColor: '#ffffff',
+        backgroundColor: backgroundColor,
         paintWhenInitiallyHidden: true, // Paint even when hidden
         hasShadow: true,
     });

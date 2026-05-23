@@ -3,6 +3,7 @@
     import { FileInput } from "lucide-svelte";
     import { scriptInputStore } from "../lib/stores/scriptInputStore.svelte.js";
     import { onMount } from "svelte";
+    import { initTheme } from "../lib/utils/theme.js";
     
     const WINDOW_ID = 'script-input-window';
     
@@ -21,7 +22,12 @@
             }
         });
         
-        return cleanup;
+        const cleanupTheme = initTheme();
+        
+        return () => {
+            if (typeof cleanup === 'function') cleanup();
+            cleanupTheme?.then(fn => fn?.());
+        };
     });
     
     $effect(() => {
@@ -84,38 +90,38 @@
     }
 </script>
 
-<div class="w-full h-screen flex flex-col bg-white">
+<div class="w-full h-screen flex flex-col bg-white dark:bg-gray-900">
     <!-- Custom Title Bar -->
-    <div class="h-10 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4" style="-webkit-app-region: drag">
+    <div class="h-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4" style="-webkit-app-region: drag">
         <div class="flex items-center gap-2">
-            <FileInput size={16} class="text-blue-600" />
-            <span class="text-sm font-medium text-gray-700">Script Input</span>
+            <FileInput size={16} class="text-blue-600 dark:text-blue-400" />
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Script Input</span>
         </div>
         <div style="-webkit-app-region: no-drag">
-            <ChildWindowControls variant="light" windowId={WINDOW_ID} />
+            <ChildWindowControls variant="dark" windowId={WINDOW_ID} />
         </div>
     </div>
-    
+
     <!-- Content -->
     <div class="flex-1 overflow-y-auto p-6">
         <div class="space-y-4">
             {#each scriptInputStore.fields as field}
                 <div class="space-y-2">
-                    <label class="block text-sm font-semibold text-gray-900">
+                    <label class="block text-sm font-semibold text-gray-900 dark:text-gray-100">
                         {field.label}
                         {#if field.required}
-                            <span class="text-red-500">*</span>
+                            <span class="text-red-500 dark:text-red-400">*</span>
                         {/if}
                     </label>
-                    
+
                     {#if field.type === 'text'}
                         <input
                             type="text"
                             bind:value={formData[field.name]}
                             placeholder={field.placeholder || ''}
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 placeholder-gray-400 dark:placeholder-gray-500"
                         />
-                    
+
                     {:else if field.type === 'number'}
                         <input
                             type="number"
@@ -124,60 +130,60 @@
                             min={field.min}
                             max={field.max}
                             step={field.step || 1}
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
                         />
-                    
+
                     {:else if field.type === 'date'}
                         <input
                             type="date"
                             bind:value={formData[field.name]}
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
                         />
-                    
+
                     {:else if field.type === 'daterange'}
                         {#if formData[field.name]}
                             <div class="grid grid-cols-2 gap-2">
                                 <div>
-                                    <label class="block text-xs text-gray-500 mb-1">Start Date</label>
+                                    <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Date</label>
                                     <input
                                         type="date"
                                         bind:value={formData[field.name].start}
-                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
                                     />
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-gray-500 mb-1">End Date</label>
+                                    <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Date</label>
                                     <input
                                         type="date"
                                         bind:value={formData[field.name].end}
-                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                                        class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
                                     />
                                 </div>
                             </div>
                         {/if}
-                    
+
                     {:else if field.type === 'select'}
                         <select
                             bind:value={formData[field.name]}
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
                         >
                             <option value="">Select...</option>
                             {#each field.options || [] as option}
                                 <option value={option.value}>{option.label}</option>
                             {/each}
                         </select>
-                    
+
                     {:else if field.type === 'textarea'}
                         <textarea
                             bind:value={formData[field.name]}
                             placeholder={field.placeholder || ''}
                             rows={field.rows || 3}
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 placeholder-gray-400 dark:placeholder-gray-500"
                         ></textarea>
                     {/if}
-                    
+
                     {#if field.description}
-                        <p class="text-xs text-gray-500">{field.description}</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">{field.description}</p>
                     {/if}
                 </div>
             {/each}
@@ -185,17 +191,17 @@
     </div>
 
     <!-- Footer -->
-    <div class="border-t border-gray-200 px-6 py-4 bg-gray-50">
+    <div class="border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800">
         <div class="flex justify-end gap-2">
             <button
                 onclick={() => window.api?.window?.close()}
-                class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                class="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
                 Cancel
             </button>
             <button
                 onclick={handleSubmit}
-                class="px-4 py-2 bg-blue-500 text-white hover:bg-blue-600 rounded-lg transition-colors"
+                class="px-4 py-2 bg-blue-500 dark:bg-blue-600 text-white hover:bg-blue-600 dark:hover:bg-blue-500 rounded-lg transition-colors"
             >
                 Submit
             </button>

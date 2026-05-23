@@ -6,12 +6,15 @@
         Copy,
         Files,
         Pin,
+        Share2,
+        Cookie,
     } from "lucide-svelte";
     import { slide, fade } from 'svelte/transition';
     import { appStateStore } from "../../lib/stores/appState.svelte.js";
     import { appStore } from "../../lib/stores/apps.svelte.js";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
+    import { toastStore } from "../../lib/managers/toast.svelte.js";
     import Favicon from "../ui/Favicon.svelte";
     import { onMount } from "svelte";
 
@@ -57,12 +60,13 @@
         };
     });
 
-    // Get all apps from current workspace as tabs
-    let workspaceApps = $derived(
-        appStore.apps.filter(app => 
-            workspaceStore.activeWorkspace?.apps?.includes(app.id)
-        )
-    );
+    // Get all apps from current workspace as tabs, in workspace-defined order
+    let workspaceApps = $derived.by(() => {
+        const workspace = workspaceStore.activeWorkspace;
+        if (!workspace?.apps) return [];
+        const appMap = new Map(appStore.apps.map(a => [a.id, a]));
+        return workspace.apps.map(id => appMap.get(id)).filter(Boolean);
+    });
 
     // Convert apps to tab format
     let tabsData = $derived(
@@ -201,7 +205,7 @@
                 );
 
                 if (workspaceStore.activeWorkspace && newApp) {
-                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id);
+                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id, contextMenu.tabId);
                 }
             }
         }
@@ -274,6 +278,63 @@
         closeContextMenu();
     }
 
+    async function handleExportCookies() {
+        if (contextMenu.tabId) {
+            const app = workspaceApps.find((a) => a.id === contextMenu.tabId);
+            if (app && app.partition) {
+                try {
+                    // Get cookies from the app's partition via IPC
+                    const allCookies = await window.api.db.getCookiesFromPartition(app.partition);
+
+                    if (allCookies && allCookies.length > 0) {
+                        // Extract domain from the tab's URL
+                        let targetDomain = null;
+                        try {
+                            const url = new URL(app.url);
+                            targetDomain = url.hostname;
+                        } catch (e) {
+                            console.warn('Invalid URL:', app.url);
+                        }
+
+                        // Filter cookies by matching domain
+                        let filteredCookies = allCookies;
+                        if (targetDomain) {
+                            filteredCookies = allCookies.filter(cookie => {
+                                const cookieDomain = cookie.domain.startsWith('.')
+                                    ? cookie.domain.substring(1)
+                                    : cookie.domain;
+                                // Match exact domain or subdomains
+                                return targetDomain === cookieDomain ||
+                                       targetDomain.endsWith('.' + cookieDomain) ||
+                                       cookieDomain.endsWith('.' + targetDomain);
+                            });
+                        }
+
+                        if (filteredCookies.length > 0) {
+                            // Format cookies as JSON (same format as export in WindowCookieManager)
+                            const cookiesJson = JSON.stringify(filteredCookies, null, 2);
+
+                            // Copy to clipboard
+                            await navigator.clipboard.writeText(cookiesJson);
+
+                            toastStore.success(`Copied ${filteredCookies.length} cookies for ${targetDomain || 'all domains'}`);
+                        } else {
+                            toastStore.error(`No cookies found for ${targetDomain}`);
+                        }
+                    } else {
+                        toastStore.error('No cookies found for this tab');
+                    }
+                } catch (error) {
+                    console.error('Failed to export cookies:', error);
+                    toastStore.error('Failed to export cookies');
+                }
+            } else {
+                toastStore.error('This tab has no associated cookies');
+            }
+        }
+        closeContextMenu();
+    }
+
     function handleAddTab() {
         // Get search engine config based on user setting
         const searchEngine = searchEngines[defaultSearchEngine] || searchEngines.google;
@@ -292,9 +353,10 @@
             workspaceStore.activeWorkspace?.id,
         );
 
-        // Add to active workspace
+        // Add to active workspace — insert after the currently active tab
+        const activeTabAppId = appStore.activeAppId;
         if (workspaceStore.activeWorkspace && newApp) {
-            workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id);
+            workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id, activeTabAppId);
         }
 
         // Switch to the new app/app
@@ -430,7 +492,7 @@
 </script>
 
 <div
-    class="bg-white border-b border-gray-200 inline-flex items-center px-1.5 py-1.5 gap-1 overflow-x-auto overflow-y-hidden w-full"
+    class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 inline-flex items-center px-1.5 py-1.5 gap-1 overflow-x-auto overflow-y-hidden w-full"
 >
     {#if tabsData.length > 0}
         {@const tabCount = tabsData.length}
@@ -454,8 +516,8 @@
                 <div
                     class="group flex items-center gap-2 px-3 py-1.5 transition-all shrink-0 cursor-pointer rounded-t-lg
                         {isActive
-                        ? 'bg-white text-gray-900 border-t-2 border-blue-500 shadow-sm'
-                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-800 border-t-2 border-transparent'}
+                        ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-t-2 border-blue-500 shadow-sm'
+                        : 'bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 border-t-2 border-transparent'}
                         {isDraggedOver ? 'border-l-2 border-blue-500' : ''}
                         {isPinned && !isActive ? 'border-l-2 border-blue-500' : ''}"
                     style="max-width: {isPinned
@@ -484,17 +546,19 @@
                         <div class="w-4 h-4 shrink-0 relative flex items-center justify-center">
                             {#if tab.isLoading}
                                 <!-- Chrome-style loading spinner -->
-                                <div class="w-3 h-3 border border-gray-400 border-t-blue-500 rounded-full animate-spin"></div>
+                                <div class="absolute w-4 h-4 rounded-full border-2 border-gray-200 dark:border-gray-700"></div>
+                                <div class="absolute w-4 h-4 rounded-full border-2 border-blue-500 dark:border-blue-400 border-t-transparent animate-spin" style="animation: spin 0.65s cubic-bezier(0.4, 0, 0.2, 1) infinite;"></div>
                             {:else if tab.favicon || tab.url}
-                                <Favicon 
-                                    url={tab.url || tab.favicon}
+                                <Favicon
+                                    url={tab.url}
+                                    exactIconUrl={tab.favicon}
                                     size={16}
                                     class=""
                                     alt={tab.title}
                                 />
                             {:else}
                                 <div
-                                    class="w-4 h-4 rounded {isActive ? 'bg-blue-600' : 'bg-gray-600'}"
+                                    class="w-4 h-4 rounded {isActive ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-600 dark:bg-gray-500'}"
                                 ></div>
                             {/if}
                         </div>
@@ -502,25 +566,25 @@
                         {#if !isPinned}
                             <span
                                 class="text-sm truncate flex-1 min-w-0 font-medium
-                                    {isActive ? 'text-gray-900 font-semibold' : ''}"
+                                    {isActive ? 'text-gray-900 dark:text-gray-100 font-semibold' : ''}"
                             >
                                 {tab.title || "New Tab"}
                             </span>
                         {/if}
 
                         {#if isMuted}
-                            <VolumeX size={12} class="text-gray-500 shrink-0" />
+                            <VolumeX size={12} class="text-gray-500 dark:text-gray-400 shrink-0" />
                         {/if}
 
                         {#if isPinned}
-                            <Pin size={10} class="text-blue-600 shrink-0" />
+                            <Pin size={10} class="text-blue-600 dark:text-blue-400 shrink-0" />
                         {/if}
                     </div>
 
                     <!-- Close Button (right side) - clicking this won't trigger tab switch -->
                     {#if !isPinned}
                         <button
-                            class="p-0.5 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-700 transition-all shrink-0 opacity-0 group-hover:opacity-100"
+                            class="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-all shrink-0 opacity-0 group-hover:opacity-100"
                             onclick={(e) => handleCloseTab(e, tab.id)}
                             title="Close tab"
                         >
@@ -533,7 +597,7 @@
 
         <!-- New Tab Button -->
         <button
-            class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-800 transition-all shrink-0 flex items-center justify-center"
+            class="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-all shrink-0 flex items-center justify-center"
             onclick={handleAddTab}
             title="New Tab"
         >
@@ -542,7 +606,7 @@
     {:else}
         <!-- No tabs - show add button -->
         <button
-            class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-800 transition-all shrink-0 flex items-center justify-center"
+            class="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-all shrink-0 flex items-center justify-center"
             onclick={handleAddTab}
             title="New Tab"
         >
@@ -566,25 +630,25 @@
         oncontextmenu={(e) => e.preventDefault()}
     >
         <div
-            class="absolute bg-white backdrop-blur-sm rounded-lg shadow-2xl border border-gray-200 py-1 min-w-[220px] text-sm"
+            class="absolute bg-white dark:bg-gray-800 backdrop-blur-sm rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 py-1 min-w-[220px] text-sm"
             style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
             onclick={(e) => e.stopPropagation()}
         >
             <!-- Reload -->
             <button
-                class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center justify-between"
+                class="w-full px-4 py-2 text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-between"
                 onclick={handleReloadTab}
             >
                 <div class="flex items-center gap-3">
                     <RotateCw size={16} />
                     Reload
                 </div>
-                <span class="text-xs text-gray-500">Ctrl+R</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">Ctrl+R</span>
             </button>
 
             <!-- Duplicate -->
             <button
-                class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
                 onclick={handleDuplicateTab}
             >
                 <Files size={16} />
@@ -593,19 +657,28 @@
 
             <!-- Pin -->
             <button
-                class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
                 onclick={handlePinTab}
             >
                 <Pin size={16} />
                 {currentTab?.isPinned ? "Unpin" : "Pin"}
             </button>
 
-            <div class="h-px bg-gray-200 my-1"></div>
+            <!-- Export Cookies -->
+            <button
+                class="w-full px-4 py-2 text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
+                onclick={handleExportCookies}
+            >
+                <Cookie size={16} />
+                Export Cookies
+            </button>
+
+            <div class="h-px bg-gray-200 dark:bg-gray-700 my-1"></div>
 
             {#if tabsData.length > 1}
                 <!-- Close other tabs -->
                 <button
-                    class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                    class="w-full px-4 py-2 text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
                     onclick={handleCloseOtherTabs}
                 >
                     <X size={16} />
@@ -615,7 +688,7 @@
                 <!-- Close tabs to the right -->
                 {#if currentIndex < tabsData.length - 1}
                     <button
-                        class="w-full px-4 py-2 text-left text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                        class="w-full px-4 py-2 text-left text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
                         onclick={handleCloseTabsToRight}
                     >
                         <X size={16} />
@@ -623,12 +696,12 @@
                     </button>
                 {/if}
 
-                <div class="h-px bg-gray-200 my-1"></div>
+                <div class="h-px bg-gray-200 dark:bg-gray-700 my-1"></div>
             {/if}
 
             <!-- Close -->
             <button
-                class="w-full px-4 py-2 text-left text-red-600 hover:bg-red-50 flex items-center justify-between"
+                class="w-full px-4 py-2 text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center justify-between"
                 onclick={(e) => {
                     handleCloseTab(e, contextMenu.tabId);
                     closeContextMenu();
@@ -638,7 +711,7 @@
                     <X size={16} />
                     Close
                 </div>
-                <span class="text-xs text-red-500">Ctrl+W</span>
+                <span class="text-xs text-red-500 dark:text-red-400">Ctrl+W</span>
             </button>
         </div>
     </div>
@@ -647,31 +720,41 @@
 
 
 <style>
+    /* Custom smooth spin animation */
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
     /* Drag and drop visual feedback */
     .group[draggable="true"]:hover {
         cursor: grab;
     }
-    
+
     .group[draggable="true"]:active {
         cursor: grabbing;
     }
-    
+
     /* Smooth transitions for drag feedback */
     .group {
         transition: all 0.2s ease;
     }
-    
+
     /* Active tab gets a subtle elevation */
     .bg-white.border-t-2.border-blue-500 {
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         transform: translateY(-1px);
     }
-    
+
     /* Inactive tabs have subtle shadow */
     .bg-gray-50 {
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
     }
-    
+
     /* Hover effect for inactive tabs */
     .bg-gray-50:hover {
         transform: translateY(-0.5px);

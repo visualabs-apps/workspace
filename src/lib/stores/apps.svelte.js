@@ -146,23 +146,21 @@ function createAppStore() {
                 url: customUrl || template.url,
                 icon: template.icon,
                 color: template.color || '#333',
-                groupName: groupName || customName || template.name, // Group name for display
-                partition: workspaceId ? `persist:workspace-${workspaceId}` : `persist:service-${id}`, // Workspace-level partition!
-                workspaceId: workspaceId, // Track which workspace this belongs to
+                groupName: groupName || customName || template.name,
+                partition: workspaceId ? `persist:workspace-${workspaceId}` : `persist:service-${id}`,
+                workspaceId: workspaceId,
                 isMuted: false,
-                userAgent: '', // Default
+                userAgent: '',
                 zoom: 1.0,
                 unreadCount: 0,
-                isLoading: true, // initially loading
-                isUnloaded: false // not unloaded initially
+                isLoading: true,
+                isUnloaded: false
             };
+
             apps = [...apps, app];
             activeAppId = id;
 
-            // Initialize tabs for this app
             appStateStore.initAppTabs(id, app.url, app.name);
-            
-            // Mark app as active in lifetime manager
             tabLifetimeManager.markActive(id);
 
             return app;
@@ -207,6 +205,14 @@ function createAppStore() {
                 // Use the exact same app objects, just reordered
                 apps = newOrder;
             }
+        },
+
+        // Clear all apps (used on logout for multi-user safety)
+        clearAll() {
+            apps = [];
+            appsMap = new Map();
+            activeAppId = null;
+            localStorage.removeItem('rambox_services');
         }
     };
 }

@@ -15,6 +15,12 @@
         HelpCircle,
         Star,
         Target,
+        RefreshCw,
+        Cloud,
+        CloudOff,
+        CheckCircle2,
+        AlertTriangle,
+        Key,
     } from "lucide-svelte";
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
     import { appStore } from "../../lib/stores/apps.svelte.js";
@@ -27,6 +33,7 @@
     import { getClientsForAdmin } from "../../lib/api/api.js";
     import { panelStore } from "../../lib/stores/panels.svelte.js";
     import { openPredefinedWindow } from "../../lib/utils/childWindow.js";
+    import { dataSyncManager } from "../../lib/managers/dataSync.svelte.js";
     import WindowControls from "./WindowControls.svelte";
     import AutocompleteDropdown from "../dropdowns/AutocompleteDropdown.svelte";
     import HistoryPanel from "../panels/HistoryPanel.svelte";
@@ -46,6 +53,7 @@
     let isInjectScriptModalOpen = $state(false);
     let showAutocomplete = $state(false);
     let showBrowserMenu = $state(false);
+    let showReloadMenu = $state(false);
     let showUserDropdown = $state(false);
     let useBrowserWindow = $state(true); // Toggle between BrowserWindow and Svelte overlay
     let isBookmarked = $state(false);
@@ -110,7 +118,6 @@
             const result = await window.api.settings.getDefaultSearchEngine();
             if (result.success) {
                 defaultSearchEngine = result.engine;
-                console.log('📍 Default search engine:', defaultSearchEngine);
             }
         } catch (error) {
             console.error('Failed to load search engine setting:', error);
@@ -133,9 +140,13 @@
 
     // Single source of truth for the displayed URL
     let displayUrl = $derived(() => {
+        // ✅ FIX: Prioritize navigationStore.currentUrl for active tab
+        // navigationStore is updated immediately on navigation events
+        if (currentUrl && activeTab) {
+            return currentUrl;
+        }
         if (activeTab) {
-            // Priority: the tab's current URL, falling back to navigationStore, or empty
-            return activeTab.url || currentUrl || "";
+            return activeTab.url || "";
         }
         if (app) {
             return app.url || "";
@@ -299,6 +310,7 @@
                 workspaceStore.addAppToWorkspace(
                     workspaceStore.activeWorkspace.id,
                     newApp.id,
+                    app?.id || null,
                 );
             }
         }
@@ -375,6 +387,11 @@
                     openPredefinedWindow('SETTINGS');
                 }
                 break;
+            case 'passwords':
+                openPredefinedWindow('PASSWORD_MANAGER', {
+                    profileId: activeWorkspace?.id || null
+                });
+                break;
             case 'inject-script':
                 if (useBrowserWindow) {
                     openPredefinedWindow('INJECT_SCRIPT');
@@ -425,7 +442,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-    class="bg-white border-b border-gray-200 flex items-center shrink-0 h-12 px-1 gap-2"
+    class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex items-center shrink-0 h-12 px-1 gap-2"
     style="-webkit-app-region: drag"
     role="toolbar"
     aria-label="Browser toolbar"
@@ -437,9 +454,9 @@
         style="-webkit-app-region: no-drag"
     >
         <button
-            class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors {canGoBack
-                ? 'text-gray-700 hover:text-gray-900'
-                : 'text-gray-400 cursor-not-allowed'}"
+            class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors {canGoBack
+                ? 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                : 'text-gray-400 dark:text-gray-600 cursor-not-allowed'}"
             title="Back"
             onclick={() => navigationStore.goBack()}
             disabled={!canGoBack}
@@ -447,41 +464,67 @@
             <ChevronLeft size={18} />
         </button>
         <button
-            class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors {canGoForward
-                ? 'text-gray-700 hover:text-gray-900'
-                : 'text-gray-400 cursor-not-allowed'}"
+            class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors {canGoForward
+                ? 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                : 'text-gray-400 dark:text-gray-600 cursor-not-allowed'}"
             title="Forward"
             onclick={() => navigationStore.goForward()}
             disabled={!canGoForward}
         >
             <ChevronRight size={18} />
         </button>
+        <!-- Reload/Stop button — single button, same size to prevent layout shift -->
         {#if isLoading}
             <button
-                class="p-1.5 rounded-lg hover:bg-gray-100 text-red-600 hover:text-red-700 transition-colors"
+                class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
+                style="-webkit-app-region: no-drag"
                 title="Stop"
                 onclick={() => navigationStore.stop()}
             >
-                <Square size={14} />
+                <Square size={16} />
             </button>
         {:else}
-            <button
-                class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-700 hover:text-gray-900 transition-colors"
-                title="Reload"
-                onclick={() => navigationStore.reload()}
+            <Dropdown
+                isOpen={showReloadMenu}
+                onClose={() => showReloadMenu = false}
+                dropdownId="reload-menu"
+                width="w-56"
+                position="left"
+                zIndex="z-[9999]"
             >
-                <RotateCw size={16} />
-            </button>
-            <button
-                class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-700 hover:text-gray-900 transition-colors"
-                title="Hard Reload"
-                onclick={() => navigationStore.hardReload()}
-            >
-                <RotateCw size={16} class="text-orange-500" />
-            </button>
+                {#snippet trigger()}
+                    <button
+                        class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+                        title="Reload (right-click for Hard Reload)"
+                        onclick={() => navigationStore.reload()}
+                        oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); showReloadMenu = !showReloadMenu; }}
+                    >
+                        <RotateCw size={16} />
+                    </button>
+                {/snippet}
+
+                {#snippet children()}
+                    <button
+                        class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3 whitespace-nowrap"
+                        onclick={() => { showReloadMenu = false; navigationStore.reload(); }}
+                    >
+                        <RotateCw size={16} />
+                        Reload
+                        <span class="ml-auto text-xs text-gray-400 dark:text-gray-500">Ctrl+R</span>
+                    </button>
+                    <button
+                        class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3 whitespace-nowrap"
+                        onclick={() => { showReloadMenu = false; navigationStore.hardReload(); }}
+                    >
+                        <RotateCw size={16} class="text-orange-500" />
+                        Hard Reload
+                        <span class="ml-auto text-xs text-gray-400 dark:text-gray-500">Clear cache</span>
+                    </button>
+                {/snippet}
+            </Dropdown>
         {/if}
         <button
-            class="p-1.5 rounded-lg hover:bg-gray-100 text-gray-700 hover:text-gray-900 transition-colors"
+            class="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
             title="Home"
             onclick={() => app && navigationStore.goHome(app.url)}
         >
@@ -491,18 +534,12 @@
 
     <!-- URL Input -->
     <div
-        class="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg min-w-[300px] flex-1 relative {isUrlFocused
-            ? 'ring-2 ring-blue-500/50 bg-gray-50'
+        class="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg min-w-[300px] flex-1 relative {isUrlFocused
+            ? 'ring-2 ring-blue-500/50 bg-gray-50 dark:bg-gray-700'
             : ''}"
         style="-webkit-app-region: no-drag"
     >
-        {#if isLoading}
-            <div
-                class="w-3.5 h-3.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0"
-            ></div>
-        {:else}
-            <Search size={14} class="text-gray-500 shrink-0" />
-        {/if}
+        <Search size={14} class="text-gray-500 dark:text-gray-400 shrink-0" />
         <input
             type="text"
             bind:value={urlInput}
@@ -511,7 +548,7 @@
             oninput={handleInputChange}
             onkeydown={handleUrlSubmit}
             placeholder="Search Google or type a URL"
-            class="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-500 outline-none w-full"
+            class="flex-1 bg-transparent text-sm text-gray-800 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 outline-none w-full"
         />
         
         <!-- Autocomplete Dropdown -->
@@ -527,7 +564,7 @@
     <button
         type="button"
         onclick={toggleBookmark}
-        class="p-2 rounded-lg hover:bg-gray-100 transition-colors {isBookmarked ? 'text-yellow-500' : 'text-gray-600'}"
+        class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors {isBookmarked ? 'text-yellow-500' : 'text-gray-600 dark:text-gray-400'}"
         style="-webkit-app-region: no-drag"
         title={isBookmarked ? 'Remove bookmark' : 'Add bookmark'}
     >
@@ -536,11 +573,41 @@
 
     <div class="flex-1"></div>
 
+    <!-- Data Sync Indicator — only visible during/shortly after syncing -->
+    {#if dataSyncManager.showIndicator}
+        <div
+            class="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all duration-300 cursor-default {dataSyncManager.syncStatus === 'syncing'
+                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                : dataSyncManager.syncStatus === 'error'
+                    ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800'
+                    : 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800'}"
+            style="-webkit-app-region: no-drag"
+            title={dataSyncManager.syncStatus === 'syncing'
+                ? 'Syncing data from server...'
+                : dataSyncManager.syncStatus === 'error'
+                    ? `Sync error: ${dataSyncManager.lastError || 'Unknown'}`
+                    : dataSyncManager.lastSyncTime
+                        ? `Synced at ${new Date(dataSyncManager.lastSyncTime).toLocaleTimeString()}`
+                        : 'Sync complete'}
+        >
+            {#if dataSyncManager.syncStatus === 'syncing'}
+                <RefreshCw size={12} class="animate-spin" />
+                <span>Syncing</span>
+            {:else if dataSyncManager.syncStatus === 'error'}
+                <AlertTriangle size={12} />
+                <span>Sync Error</span>
+            {:else}
+                <CheckCircle2 size={12} />
+                <span>Synced</span>
+            {/if}
+        </div>
+    {/if}
+
     <!-- Update Available Badge -->
     {#if updateInfo}
         <button
             type="button"
-            class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-700 text-xs font-medium cursor-pointer hover:bg-emerald-200 transition-colors"
+            class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 text-xs font-medium cursor-pointer hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors"
             style="-webkit-app-region: no-drag"
             title={updateInfo.notes || "New version available"}
             onclick={openDownloadPage}
@@ -561,11 +628,11 @@
         {#snippet trigger()}
             <button
                 onclick={(e) => { e.stopPropagation(); showUserDropdown = !showUserDropdown; }}
-                class="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+                class="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 style="-webkit-app-region: no-drag"
             >
-                <User size={16} class="text-gray-500" />
-                <span class="text-sm font-medium text-gray-700 max-w-[140px] truncate">
+                <User size={16} class="text-gray-500 dark:text-gray-400" />
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300 max-w-[140px] truncate">
                     {authStore.user?.name || authStore.user?.email || 'User'}
                 </span>
             </button>
@@ -573,8 +640,15 @@
 
         {#snippet children()}
             <button
+                onclick={() => { showUserDropdown = false; openPredefinedWindow('ACCOUNT_SETTINGS'); }}
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
+            >
+                <User size={16} />
+                Account Settings
+            </button>
+            <button
                 onclick={() => { showUserDropdown = false; handleBrowserMenuClick('logout'); }}
-                class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-3"
             >
                 <LogOut size={16} />
                 Logout
@@ -593,7 +667,7 @@
                     downloadStore.markAllViewed();
                 }
             }}
-            class="p-2 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors relative"
+            class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors relative"
             title="Unduhan (Ctrl+J)"
         >
             <DownloadIcon size={20} />
@@ -628,7 +702,7 @@
         {#snippet browserTrigger()}
             <button
                 onclick={toggleBrowserMenu}
-                class="p-2.5 rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-800 transition-colors"
+                class="p-2.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
                 title="Settings and more"
             >
                 <Settings 
@@ -640,82 +714,89 @@
 
         {#snippet children()}
             <!-- Profile-scoped items -->
-            <div class="px-4 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div class="px-4 py-1.5 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                 Profil
             </div>
             <button
                 onclick={() => handleBrowserMenuClick('target')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
             >
                 <Target size={16} />
                 Target Dashboard
             </button>
             <button
                 onclick={() => handleBrowserMenuClick('history')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
             >
                 <Clock size={16} />
                 Riwayat Penjelajahan
-                <span class="ml-auto text-xs text-gray-400">Ctrl+H</span>
+                <span class="ml-auto text-xs text-gray-400 dark:text-gray-500">Ctrl+H</span>
             </button>
             <button
                 onclick={() => handleBrowserMenuClick('bookmarks')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
             >
                 <Bookmark size={16} />
                 Bookmarks
-                <span class="ml-auto text-xs text-gray-400">Ctrl+Shift+O</span>
+                <span class="ml-auto text-xs text-gray-400 dark:text-gray-500">Ctrl+Shift+O</span>
             </button>
             <button
                 onclick={() => handleBrowserMenuClick('downloads')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
             >
                 <DownloadIcon size={16} />
                 Unduhan
-                <span class="ml-auto text-xs text-gray-400">Ctrl+J</span>
+                <span class="ml-auto text-xs text-gray-400 dark:text-gray-500">Ctrl+J</span>
+            </button>
+            <button
+                onclick={() => handleBrowserMenuClick('passwords')}
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
+            >
+                <Key size={16} />
+                Password Manager
             </button>
             
-            <hr class="my-2 border-gray-100" />
+            <hr class="my-2 border-gray-100 dark:border-gray-800" />
             
             <!-- Global items -->
-            <div class="px-4 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div class="px-4 py-1.5 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                 Aplikasi
             </div>
             <button
                 onclick={() => handleBrowserMenuClick('reload-app')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
             >
                 <RotateCw size={16} />
                 Segarkan Aplikasi
             </button>
             <button
                 onclick={() => handleBrowserMenuClick('settings')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
             >
                 <Settings size={16} />
                 Pengaturan
             </button>
             <button
                 onclick={() => handleBrowserMenuClick('inject-script')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
                 Script Injector Manager
             </button>
             <button
                 onclick={() => handleBrowserMenuClick('help')}
-                class="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3"
             >
                 <HelpCircle size={16} />
                 Bantuan
             </button>
-            
-            <hr class="my-2 border-gray-100" />
-            
+
+            <hr class="my-2 border-gray-100 dark:border-gray-800" />
+
             <!-- Logout -->
             <button
                 onclick={() => handleBrowserMenuClick('logout')}
-                class="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+                class="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-3"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                 Logout

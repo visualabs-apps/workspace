@@ -6,6 +6,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'" />
   <title>VisualBox</title>
+  <!-- Prevent FOUC: apply dark background BEFORE any paint.
+       Colors match app.css CSS variables: --bg-primary light=#ffffff, dark=#1f2937 -->
+  <style>
+    html { background-color: #ffffff; }
+    html.dark { background-color: #1f2937; }
+    html.dark body { background-color: #1f2937; }
+    /* Disable transition on first paint to prevent color flash */
+    html.no-transition, html.no-transition body {
+      transition: none !important;
+    }
+  </style>
+  <script>
+    try {
+      // Disable transitions during initial theme apply to prevent color flash
+      document.documentElement.classList.add('no-transition');
+      var theme = window.api && window.api.db && window.api.db.getThemeSync ? window.api.db.getThemeSync() : 'light';
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else if (theme === 'system') {
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.classList.add('dark');
+        }
+      }
+      // Re-enable transitions after first paint
+      requestAnimationFrame(function() {
+        requestAnimationFrame(function() {
+          document.documentElement.classList.remove('no-transition');
+        });
+      });
+    } catch (e) {}
+  </script>
 </head>
 
 <body>

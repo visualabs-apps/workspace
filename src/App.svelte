@@ -10,6 +10,8 @@
     import OfflineWarning from "./components/ui/OfflineWarning.svelte";
     import Taskbar from "./components/layout/Taskbar.svelte";
     import UpdateBanner from "./components/ui/UpdateBanner.svelte";
+    import PasswordPrompt from "./lib/components/PasswordPrompt.svelte";
+    import PasswordPopup from "./components/layout/PasswordPopup.svelte";
     import { appStore } from "./lib/stores/apps.svelte.js";
     import { authStore } from "./lib/stores/auth.svelte.js";
     import { workspaceStore } from "./lib/stores/workspaces.svelte.js";
@@ -23,11 +25,23 @@
     import { panelStore } from "./lib/stores/panels.svelte.js";
     import { taskbarStore } from "./lib/stores/taskbar.svelte.js";
     import { scriptInputStore } from "./lib/stores/scriptInputStore.svelte.js";
+    import { dataSyncManager } from "./lib/managers/dataSync.svelte.js";
+    import { passwordStore } from "./lib/stores/passwordStore.svelte.js";
     import { openPredefinedWindow } from "./lib/utils/childWindow.js";
     import { onMount } from "svelte";
     import { Loader2, Plus, Rocket } from "lucide-svelte";
 
     let isOnline = $state(navigator.onLine);
+
+    // Password Manager popup state
+    let passwordPopupData = $state({
+        visible: false, // Only show when triggered by login
+        origin: '',
+        username: '',
+        password: '',
+        title: '',
+        isUpdate: false
+    });
 
     let isTabDragging = $derived(appStateStore.isAnyTabDragging);
 
@@ -63,30 +77,23 @@
         "Mempersiapkan lingkungan kerja"
     ];
     
-    // Listen for window minimize/restore events
     $effect(() => {
         if (window.api?.onWindowMinimized) {
             const cleanup1 = window.api.onWindowMinimized((data) => {
-                console.log('[App] Window minimized:', data);
                 taskbarStore.addWindow(data.windowId, data.windowType);
             });
-            
             const cleanup2 = window.api.onWindowRestored((data) => {
-                console.log('[App] Window restored:', data);
                 taskbarStore.removeWindow(data.windowId);
             });
-            
-            return () => {
-                cleanup1?.();
-                cleanup2?.();
-            };
+            return () => { cleanup1?.(); cleanup2?.(); };
         }
     });
     
     // Close all windows and clear taskbar when logged out
     $effect(() => {
         if (!isLoggedIn) {
-            console.log('[App] User logged out, closing all windows');
+            // Stop data sync
+            dataSyncManager.destroy();
             
             // Close all child windows
             if (window.api?.childWindow?.closeAll) {
@@ -97,6 +104,17 @@
             
             // Clear taskbar
             taskbarStore.clearAll();
+            
+            // Clean up orphaned webviews from previous user session
+            // This prevents memory leaks and stale sessions
+            setTimeout(() => {
+                if (globalThis.webviewRegistry) {
+                    globalThis.webviewRegistry.clear();
+                }
+                if (globalThis.reloadTracker) {
+                    globalThis.reloadTracker.clear();
+                }
+            }, 500);
         }
     });
     
@@ -106,11 +124,12 @@
     let activeAppId = $derived(appStore.activeAppId);
     let isAddModalOpen = $derived(appStore.isAddModalOpen);
 
-    let workspaceApps = $derived(
-        apps.filter((app) =>
-            activeWorkspace?.apps?.includes(app.id),
-        ),
-    );
+    let workspaceApps = $derived.by(() => {
+        const workspace = activeWorkspace;
+        if (!workspace?.apps) return [];
+        const appMap = new Map(apps.map(a => [a.id, a]));
+        return workspace.apps.map(id => appMap.get(id)).filter(Boolean);
+    });
 
     let activeApp = $derived(
         workspaceApps.find((s) => s.id === activeAppId),
@@ -120,19 +139,118 @@
         notificationStore.isNotificationCenterOpen,
     );
 
+    // Apply theme function
+    function applyTheme(theme) {
+        const root = document.documentElement;
+        if (theme === 'system') {
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            root.classList.toggle('dark', prefersDark);
+        } else {
+            root.classList.toggle('dark', theme === 'dark');
+        }
+    }
+
+    // ── Password Manager: Handle save prompt from webview ──
+    async function handlePasswordSave(data) {
+        try {
+            const profileId = activeWorkspace?.id;
+            if (!profileId) {
+                toastStore.error('No active workspace');
+                return;
+            }
+
+            const result = await passwordStore.saveCredential({
+                profileId,
+                origin: data.origin,
+                username: data.username,
+                password: data.password,
+                title: data.title || data.origin,
+                url: data.url || data.origin
+            });
+
+            if (result.success) {
+                toastStore.success(data.isUpdate ? 'Password updated' : 'Password saved');
+            } else {
+                toastStore.error(result.error || 'Failed to save password');
+            }
+        } catch (error) {
+            toastStore.error('Failed to save password');
+        }
+    }
+
+    function handlePasswordNever(origin) {
+        const profileId = activeWorkspace?.id;
+        if (profileId && origin) {
+            passwordStore.neverSave(profileId, origin);
+            toastStore.info('Password will not be saved for this site');
+        }
+    }
+
     onMount(async () => {
         window.addEventListener("online", () => (isOnline = true));
         window.addEventListener("offline", () => (isOnline = false));
 
+        // Handle zoom shortcuts forwarded from webview (Ctrl+0/Ctrl++/Ctrl+-)
+        // When focus is inside a webview, the main process intercepts these
+        // shortcuts and relays them here so we can update the active app's zoom.
+        const removeZoomListener = window.api?.onWebviewZoomShortcut?.(({ action }) => {
+            if (!activeApp) return;
+            if (action === 'reset') {
+                appStore.updateApp(activeApp.id, { zoomLevel: 0 });
+            } else if (action === 'in') {
+                const currentZoom = activeApp.zoomLevel ?? 0;
+                const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
+                const newPercent = Math.min(500, currentPercent + 10);
+                const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
+                appStore.updateApp(activeApp.id, { zoomLevel: newZoomLevel });
+            } else if (action === 'out') {
+                const currentZoom = activeApp.zoomLevel ?? 0;
+                const currentPercent = Math.round(Math.pow(1.2, currentZoom) * 100);
+                const newPercent = Math.max(25, currentPercent - 10);
+                const newZoomLevel = Math.log(newPercent / 100) / Math.log(1.2);
+                appStore.updateApp(activeApp.id, { zoomLevel: newZoomLevel });
+            }
+        });
+
         await authStore.init();
+        
+        // Initialize data sync manager (loads settings, starts if enabled)
+        dataSyncManager.init();
+
+        // Listen for password save prompts from webview
+        if (window.api?.onPasswordSavePrompt) {
+            window.api.onPasswordSavePrompt((data) => {
+                // Show popup
+                passwordPopupData = {
+                    visible: true,
+                    origin: data.origin || '',
+                    username: data.username || '',
+                    password: data.password || '',
+                    title: data.title || '',
+                    isUpdate: data.isUpdate || false
+                };
+            });
+        }
         
         // Cleanup orphaned downloads (no profile_id) on app start
         if (window.api?.cleanupOrphanDownloads) {
             window.api.cleanupOrphanDownloads();
         }
         
-        // Expose scriptInputStore to window for VBox API
+        // Expose stores to window for VBox API (ContextController needs these)
         window.scriptInputStore = scriptInputStore;
+        window.workspaceStore = workspaceStore;
+        window.appStore = appStore;
+        
+        // Load and apply theme
+        try {
+            const themeResult = await window.api.db.getSetting('theme');
+            if (themeResult.success && themeResult.value) {
+                applyTheme(themeResult.value);
+            }
+        } catch (error) {
+            console.error('Failed to load theme:', error);
+        }
         
         // Load default search engine setting
         try {
@@ -143,6 +261,32 @@
         } catch (error) {
             console.error('Failed to load search engine setting:', error);
         }
+        
+        const handleThemeChangeFromChild = (data) => {
+            applyTheme(data.theme);
+        };
+        const cleanupThemeListener = window.api?.onParentMessage?.('theme-changed', handleThemeChangeFromChild);
+
+        const handleThemeChange = (event) => {
+            applyTheme(event.detail.theme);
+        };
+        
+        window.addEventListener('theme-changed', handleThemeChange);
+        
+        // Listen for system theme changes when theme is set to 'system'
+        const systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const handleSystemThemeChange = async () => {
+            try {
+                const themeResult = await window.api.db.getSetting('theme');
+                if (themeResult.success && themeResult.value === 'system') {
+                    applyTheme('system');
+                }
+            } catch (error) {
+                console.error('Failed to handle system theme change:', error);
+            }
+        };
+        
+        systemThemeQuery.addEventListener('change', handleSystemThemeChange);
         
         // Listen for settings updates
         const handleSettingsUpdate = async () => {
@@ -184,7 +328,11 @@
         return () => {
             clearInterval(loadingInterval);
             window.removeEventListener('settings-updated', handleSettingsUpdate);
+            window.removeEventListener('theme-changed', handleThemeChange);
+            systemThemeQuery.removeEventListener('change', handleSystemThemeChange);
             if (typeof removeShowToastListener === 'function') removeShowToastListener();
+            if (typeof cleanupThemeListener === 'function') cleanupThemeListener();
+            if (typeof removeZoomListener === 'function') removeZoomListener();
         };
     });
 
@@ -242,12 +390,6 @@
     onMount(() => {
         authStore.init();
 
-        if (window.api?.onAuthError) {
-            window.api.onAuthError(({ error }) => {
-                console.error("❌ Authentication error:", error);
-            });
-        }
-        
         const cleanup = window.api?.onParentMessage?.('script-input-response', (response) => {
             if (scriptInputStore.resolveCallback) {
                 scriptInputStore.resolveCallback(response);
@@ -256,7 +398,21 @@
             scriptInputStore.isOpen = false;
         });
 
-        return cleanup;
+        // ✅ FIX: Listen for cookies-updated event from Cookie Manager
+        const cleanupCookies = window.api?.onParentMessage?.('cookies-updated', (data) => {
+            // Reload active webview to apply new cookies
+            if (data.profileId && workspaceStore.activeWorkspace?.id === data.profileId) {
+                toastStore.success('Cookies updated! Reloading page...');
+                setTimeout(() => {
+                    navigationStore.reload();
+                }, 500);
+            }
+        });
+
+        return () => {
+            cleanup?.();
+            cleanupCookies?.();
+        };
     });
 
     $effect(() => {
@@ -412,7 +568,7 @@
         );
 
         if (activeWorkspace && newApp) {
-            workspaceStore.addAppToWorkspace(activeWorkspace.id, newApp.id);
+            workspaceStore.addAppToWorkspace(activeWorkspace.id, newApp.id, appStore.activeAppId);
         }
     }
 </script>
@@ -422,13 +578,13 @@
 <!-- Show loading screen while checking auth -->
 {#if !isAuthInitialized}
     <div
-        class="flex h-screen w-screen items-center justify-center bg-gradient-to-r from-gray-50 via-white to-gray-100"
+        class="flex h-screen w-screen items-center justify-center bg-gradient-to-r from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900"
     >
         <div class="text-center">
             <Loader2
-                class="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4"
+                class="w-12 h-12 text-blue-600 dark:text-blue-400 animate-spin mx-auto mb-4"
             />
-            <p class="text-gray-600">Loading...</p>
+            <p class="text-gray-600 dark:text-gray-400">Loading...</p>
         </div>
     </div>
 {:else if !isLoggedIn}
@@ -437,10 +593,25 @@
 {:else}
     <!-- Show workspace if authenticated -->
     <div
-        class="flex flex-col h-screen w-screen overflow-hidden bg-gradient-to-r from-gray-50 via-white to-gray-100 text-gray-900 font-sans selection:bg-blue-500 selection:text-white"
+        class="flex flex-col h-screen w-screen overflow-hidden bg-gradient-to-r from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 text-gray-900 dark:text-gray-100 font-sans selection:bg-blue-500 selection:text-white"
     >
-        <!-- Top Toolbar -->
-        <TopToolbar app={activeApp} />
+        <!-- Top Toolbar + Password Popup Container -->
+        <div class="relative">
+            <TopToolbar app={activeApp} />
+
+            <!-- Password Save Popup (floating at top, like Chrome toast) -->
+            <PasswordPopup
+                visible={passwordPopupData.visible}
+                origin={passwordPopupData.origin}
+                username={passwordPopupData.username}
+                password={passwordPopupData.password}
+                title={passwordPopupData.title}
+                isUpdate={passwordPopupData.isUpdate}
+                onSave={handlePasswordSave}
+                onNever={handlePasswordNever}
+                onCancel={() => { passwordPopupData.visible = false; }}
+            />
+        </div>
 
         <!-- Main Content Area: Sidebar + (TabBar + Content) -->
         <div class="flex-1 flex relative h-full w-full overflow-hidden">
@@ -465,17 +636,17 @@
                                 <!-- Icon -->
                                 <div class="mb-4 flex justify-center">
                                     <Loader2
-                                        class="w-16 h-16 text-blue-600 animate-spin"
+                                        class="w-16 h-16 text-blue-600 dark:text-blue-400 animate-spin"
                                     />
                                 </div>
 
                                 <!-- Text -->
                                 <h2
-                                    class="text-xl font-semibold text-gray-900 mb-2"
+                                    class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2"
                                 >
                                     {currentLoadingMessage}
                                 </h2>
-                                <p class="text-gray-500 text-sm">
+                                <p class="text-gray-500 dark:text-gray-400 text-sm">
                                     Mohon tunggu sebentar...
                                 </p>
                             </div>
@@ -489,10 +660,10 @@
                                 <!-- Icon -->
                                 <div class="mb-4 flex justify-center">
                                     <div
-                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center shadow-lg"
+                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-100 to-cyan-100 dark:from-blue-900/40 dark:to-cyan-900/40 flex items-center justify-center shadow-lg"
                                     >
                                         <svg
-                                            class="w-10 h-10 text-blue-600"
+                                            class="w-10 h-10 text-blue-600 dark:text-blue-400"
                                             viewBox="0 0 24 24"
                                             fill="none"
                                             stroke="currentColor"
@@ -511,11 +682,11 @@
 
                                 <!-- Text -->
                                 <h2
-                                    class="text-xl font-semibold text-gray-900 mb-2"
+                                    class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2"
                                 >
                                     Selamat Datang di VisualBox
                                 </h2>
-                                <p class="text-gray-600 mb-6">
+                                <p class="text-gray-600 dark:text-gray-400 mb-6">
                                     Buat profil pertama Anda untuk mengatur proyek dan aplikasi
                                 </p>
 
@@ -547,10 +718,10 @@
                                 <!-- Icon -->
                                 <div class="mb-4 flex justify-center">
                                     <div
-                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-100 to-cyan-100 flex items-center justify-center shadow-lg"
+                                        class="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-100 to-cyan-100 dark:from-blue-900/40 dark:to-cyan-900/40 flex items-center justify-center shadow-lg"
                                     >
                                         <svg
-                                            class="w-10 h-10 text-blue-600"
+                                            class="w-10 h-10 text-blue-600 dark:text-blue-400"
                                             viewBox="0 0 24 24"
                                             fill="none"
                                             stroke="currentColor"
@@ -574,7 +745,7 @@
 
                                 <!-- Text -->
                                 <h2
-                                    class="text-xl font-semibold text-gray-900 mb-6"
+                                    class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-6"
                                 >
                                     Siap untuk memulai?
                                 </h2>
@@ -603,22 +774,24 @@
                         
                         {#each allAppIds as appId (appId)}
                             {@const app = appMap.get(appId)}
-                            {@const isInActiveWorkspace =
-                                activeWorkspace?.apps?.includes(app.id)}
-                            {@const isActiveApp =
-                                activeAppId === app.id}
-                            {@const isVisible =
-                                isInActiveWorkspace && isActiveApp}
+                            {#if app}
+                                {@const isInActiveWorkspace =
+                                    activeWorkspace?.apps?.includes(app.id)}
+                                {@const isActiveApp =
+                                    activeAppId === app.id}
+                                {@const isVisible =
+                                    isInActiveWorkspace && isActiveApp}
 
-                            <div
-                                class="absolute inset-0 w-full h-full"
-                                style:z-index={isVisible ? 10 : 0}
-                                style:visibility={isVisible ? "visible" : "hidden"}
-                                style:pointer-events={isVisible ? "auto" : "none"}
-                                data-app-id={app.id}
-                            >
-                                <ServiceView app={app} isActive={isVisible} />
-                            </div>
+                                <div
+                                    class="absolute inset-0 w-full h-full"
+                                    style:z-index={isVisible ? 10 : 0}
+                                    style:visibility={isVisible ? "visible" : "hidden"}
+                                    style:pointer-events={isVisible ? "auto" : "none"}
+                                    data-app-id={app.id}
+                                >
+                                    <ServiceView app={app} isActive={isVisible} />
+                                </div>
+                            {/if}
                         {/each}
                     {/if}
 

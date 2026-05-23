@@ -62,8 +62,25 @@ class NativeApiService {
                     return this.request(method, endpoint, data, { ...options, _retry: true });
                 } catch (refreshError) {
                     console.error('[API] Token refresh failed:', refreshError.message);
-                    await this.clearAuth();
-                    window.dispatchEvent(new CustomEvent('auth:logout'));
+
+                    // Check if it's a network error (not a real auth failure)
+                    const isNetworkError =
+                        refreshError.message?.includes('network') ||
+                        refreshError.message?.includes('fetch') ||
+                        refreshError.message?.includes('ECONNREFUSED') ||
+                        refreshError.message?.includes('timeout') ||
+                        refreshError.message?.includes('Failed to fetch') ||
+                        refreshError.message?.includes('net::');
+
+                    if (!isNetworkError) {
+                        // Only clear auth for real auth failures (e.g., token invalid)
+                        // Don't clear for network errors - keep user logged in
+                        await this.clearAuth();
+                        window.dispatchEvent(new CustomEvent('auth:logout'));
+                    } else {
+                        console.log('[API] Network error during token refresh - keeping session alive');
+                    }
+
                     throw refreshError;
                 }
             }
@@ -167,9 +184,11 @@ export const login = async (email, password) => {
 export const logout = async () => {
     try {
         await nativeApi.post('/auth/logout');
-    } finally {
-        await clearAuth();
+    } catch (err) {
+        console.error('[API] Logout request failed:', err.message);
     }
+    
+    await clearAuth();
 };
 
 export const checkToken = async () => {

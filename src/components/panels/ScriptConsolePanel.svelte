@@ -125,22 +125,22 @@
     );
 </script>
 
-<div class="h-full flex flex-col bg-[#012456]">
+<div class="h-full flex flex-col bg-[#012456] dark:bg-gray-900">
     <!-- Toolbar -->
     {#if showHeader}
-        <div class="p-3 border-b border-[#013a6b] flex items-center gap-3">
+        <div class="p-3 border-b border-[#013a6b] dark:border-gray-700 flex items-center gap-3">
             <div class="relative flex-1">
-                <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                 <input
                     type="text"
                     bind:value={searchQuery}
                     placeholder="Search logs..."
-                    class="w-full pl-10 pr-4 py-2 bg-[#001a3d] border border-[#013a6b] rounded-lg text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                    class="w-full pl-10 pr-4 py-2 bg-[#001a3d] dark:bg-gray-800 border border-[#013a6b] dark:border-gray-700 rounded-lg text-white dark:text-gray-100 text-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 />
             </div>
             <button
                 onclick={copyAllLogs}
-                class="p-2 hover:bg-[#013a6b] rounded transition-colors text-gray-400 hover:text-white"
+                class="p-2 hover:bg-[#013a6b] dark:hover:bg-gray-700 rounded transition-colors text-gray-400 dark:text-gray-500 hover:text-white dark:hover:text-gray-200"
                 title="Copy all logs"
                 disabled={logs.length === 0}
             >
@@ -152,7 +152,7 @@
             </button>
             <button
                 onclick={clearLogs}
-                class="p-2 hover:bg-[#013a6b] rounded transition-colors text-gray-400 hover:text-white"
+                class="p-2 hover:bg-[#013a6b] dark:hover:bg-gray-700 rounded transition-colors text-gray-400 dark:text-gray-500 hover:text-white dark:hover:text-gray-200"
                 title="Clear logs"
                 disabled={logs.length === 0}
             >
@@ -162,12 +162,12 @@
     {/if}
 
     <!-- Logs container -->
-    <div 
+    <div
         id="console-logs"
         class="flex-1 overflow-y-auto p-4 font-mono text-sm space-y-1"
     >
         {#if filteredLogs.length === 0}
-            <div class="flex items-center justify-center h-full text-gray-400">
+            <div class="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
                 <div class="text-center">
                     <Terminal size={48} class="mx-auto mb-3 opacity-30" />
                     {#if logs.length === 0}
@@ -181,16 +181,16 @@
             </div>
         {:else}
             {#each filteredLogs as log (log.id)}
-                <div class="hover:bg-[#013a6b] p-2 rounded group">
+                <div class="hover:bg-[#013a6b] dark:hover:bg-gray-800 p-2 rounded group">
                     <div class="flex items-start gap-2">
-                        <span class="text-gray-400 text-xs shrink-0 font-normal">{log.timestamp}</span>
+                        <span class="text-gray-400 dark:text-gray-500 text-xs shrink-0 font-normal">{log.timestamp}</span>
                         <span class="shrink-0">{getLevelIcon(log.level)}</span>
                         <div class="flex-1 {getLevelColor(log.level)}">
                             {#each log.data as item, i}
                                 {#if isExpandable(item)}
                                     <button
                                         onclick={() => toggleExpand(log.id + '-' + i)}
-                                        class="inline-flex items-center gap-1 hover:bg-[#013a6b] px-1 rounded"
+                                        class="inline-flex items-center gap-1 hover:bg-[#013a6b] dark:hover:bg-gray-700 px-1 rounded"
                                     >
                                         {#if expandedLogs.has(log.id + '-' + i)}
                                             <ChevronDown size={14} />
@@ -200,19 +200,19 @@
                                         <span class="text-cyan-300">{formatValue(item)}</span>
                                     </button>
                                     {#if expandedLogs.has(log.id + '-' + i)}
-                                        <pre class="ml-6 mt-1 text-gray-300 text-xs">{renderObject(item)}</pre>
+                                        <pre class="ml-6 mt-1 text-gray-300 dark:text-gray-400 text-xs">{renderObject(item)}</pre>
                                     {/if}
                                 {:else}
                                     <span>{formatValue(item)}</span>
                                 {/if}
                                 {#if i < log.data.length - 1}
-                                    <span class="text-gray-400"> </span>
+                                    <span class="text-gray-400 dark:text-gray-500"> </span>
                                 {/if}
                             {/each}
                         </div>
                         <button
                             onclick={() => copyLog(log)}
-                            class="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#001a3d] rounded transition-all text-gray-400 hover:text-white shrink-0"
+                            class="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#001a3d] dark:hover:bg-gray-700 rounded transition-all text-gray-400 dark:text-gray-500 hover:text-white dark:hover:text-gray-200 shrink-0"
                             title="Copy log"
                         >
                             {#if copiedIndex === log.id}

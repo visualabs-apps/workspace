@@ -171,7 +171,7 @@
         );
 
         if (currentWorkspace && newApp) {
-            workspaceStore.addAppToWorkspace(currentWorkspace.id, newApp.id);
+            workspaceStore.addAppToWorkspace(currentWorkspace.id, newApp.id, appStore.activeAppId);
             appStore.setActive(newApp.id);
         }
 
@@ -237,22 +237,22 @@
     <!-- Panel - No backdrop, just the panel with slide animation -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div 
-        class="fixed right-0 top-0 h-full w-96 bg-white shadow-2xl border-l border-gray-200 flex flex-col z-50"
+    <div
+        class="fixed right-0 top-0 h-full w-96 bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-700 flex flex-col z-50"
         data-history-panel
         transition:slide={{ duration: 300, axis: 'x' }}
         onclick={(e) => e.stopPropagation()}
     >
             <!-- Header -->
-            <div class="p-4 border-b border-gray-200">
+            <div class="p-4 border-b border-gray-200 dark:border-gray-700">
                 <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                         <Clock size={20} />
                         Browsing History
                     </h2>
                     <button
                         onclick={onClose}
-                        class="p-1 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                        class="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     >
                         ✕
                     </button>
@@ -260,31 +260,31 @@
 
                 <!-- Search -->
                 <div class="relative mb-3">
-                    <Search size={16} class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                    <Search size={16} class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                     <input
                         type="text"
                         bind:value={searchQuery}
                         oninput={handleSearchChange}
                         placeholder="Search history..."
-                        class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        class="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
                     />
                 </div>
 
                 <!-- View Mode Tabs -->
-                <div class="flex gap-1 border-b border-gray-200">
+                <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
                     <button
                         onclick={() => handleViewModeChange('date')}
-                        class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {viewMode === 'date' 
-                            ? 'border-blue-500 text-blue-600' 
-                            : 'border-transparent text-gray-600 hover:text-gray-900'}"
+                        class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {viewMode === 'date'
+                            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                            : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
                     >
                         By Date
                     </button>
                     <button
                         onclick={() => handleViewModeChange('group')}
-                        class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {viewMode === 'group' 
-                            ? 'border-blue-500 text-blue-600' 
-                            : 'border-transparent text-gray-600 hover:text-gray-900'}"
+                        class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {viewMode === 'group'
+                            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                            : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
                     >
                         By Group
                     </button>
@@ -294,13 +294,13 @@
             <!-- Content -->
             <div class="flex-1 overflow-y-auto">
                 {#if !currentWorkspace}
-                    <div class="p-8 text-center text-gray-500">
-                        <Clock size={48} class="mx-auto mb-4 text-gray-300" />
+                    <div class="p-8 text-center text-gray-500 dark:text-gray-400">
+                        <Clock size={48} class="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
                         <p>No profile selected</p>
                     </div>
                 {:else if filteredHistory.length === 0}
-                    <div class="p-8 text-center text-gray-500">
-                        <Clock size={48} class="mx-auto mb-4 text-gray-300" />
+                    <div class="p-8 text-center text-gray-500 dark:text-gray-400">
+                        <Clock size={48} class="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
                         <p class="mb-2">No browsing history</p>
                         <p class="text-sm">Start browsing to see your history here</p>
                     </div>
@@ -308,41 +308,41 @@
                     {#if viewMode === 'date'}
                         <!-- By Date View -->
                         {#each groupedHistory as [dateString, entries]}
-                            <div class="border-b border-gray-100 last:border-b-0">
-                                <div class="sticky top-0 bg-white/95 backdrop-blur-sm px-4 py-2 border-b border-gray-100">
-                                    <h3 class="text-sm font-medium text-gray-700 flex items-center gap-2">
+                            <div class="border-b border-gray-100 dark:border-gray-800 last:border-b-0">
+                                <div class="sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm px-4 py-2 border-b border-gray-100 dark:border-gray-800">
+                                    <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
                                         <Calendar size={14} />
                                         {formatDate(dateString)}
                                     </h3>
                                 </div>
-                                
+
                                 {#each entries as entry}
                                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                                     <div
-                                        class="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0 group"
+                                        class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-50 dark:border-gray-800 last:border-b-0 group"
                                         onclick={() => handleEntryClick(entry)}
                                     >
                                         <div class="flex items-start gap-3">
                                             {#if entry.favicon}
-                                                <img 
-                                                    src={entry.favicon} 
-                                                    alt="" 
+                                                <img
+                                                    src={entry.favicon}
+                                                    alt=""
                                                     class="w-4 h-4 mt-0.5 object-contain shrink-0"
                                                     onerror={(e) => e.target.style.display = 'none'}
                                                 />
                                             {:else}
-                                                <div class="w-4 h-4 mt-0.5 bg-gray-300 rounded shrink-0"></div>
+                                                <div class="w-4 h-4 mt-0.5 bg-gray-300 dark:bg-gray-600 rounded shrink-0"></div>
                                             {/if}
 
                                             <div class="flex-1 min-w-0">
-                                                <div class="text-sm font-medium text-gray-900 truncate">
+                                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                                     {entry.title || 'Untitled'}
                                                 </div>
-                                                <div class="text-xs text-gray-500 truncate mt-0.5">
+                                                <div class="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
                                                     {entry.url}
                                                 </div>
-                                                <div class="text-xs text-gray-400 mt-1">
+                                                <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                                     {formatTime(entry.timestamp)}
                                                     {#if entry.visitCount > 1}
                                                         • {entry.visitCount} visits
@@ -353,7 +353,7 @@
                                             {#if false}
                                             <button
                                                 onclick={(e) => handleRemoveEntry(entry, e)}
-                                                class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-red-600 transition-all shrink-0"
+                                                class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all shrink-0"
                                                 title="Remove from history"
                                             >
                                                 <Trash2 size={14} />
@@ -367,46 +367,46 @@
                     {:else}
                         <!-- By Group View (Domain) -->
                         {#each groupedByDomain as group}
-                            <div class="border-b border-gray-100 last:border-b-0">
-                                <div class="sticky top-0 bg-blue-50/95 backdrop-blur-sm px-4 py-3 border-b border-blue-100">
+                            <div class="border-b border-gray-100 dark:border-gray-800 last:border-b-0">
+                                <div class="sticky top-0 bg-blue-50/95 dark:bg-blue-900/30 backdrop-blur-sm px-4 py-3 border-b border-blue-100 dark:border-blue-900">
                                     <div class="flex items-center gap-3">
                                         {#if group.favicon}
-                                            <img 
-                                                src={group.favicon} 
-                                                alt="" 
+                                            <img
+                                                src={group.favicon}
+                                                alt=""
                                                 class="w-5 h-5 object-contain"
                                                 onerror={(e) => e.target.style.display = 'none'}
                                             />
                                         {:else}
-                                            <div class="w-5 h-5 bg-blue-300 rounded"></div>
+                                            <div class="w-5 h-5 bg-blue-300 dark:bg-blue-700 rounded"></div>
                                         {/if}
                                         <div class="flex-1">
-                                            <h3 class="text-sm font-medium text-blue-900">
+                                            <h3 class="text-sm font-medium text-blue-900 dark:text-blue-300">
                                                 {group.domain}
                                             </h3>
-                                            <p class="text-xs text-blue-600">
+                                            <p class="text-xs text-blue-600 dark:text-blue-400">
                                                 {group.visitCount} visits • {group.entries.length} pages
                                             </p>
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 {#each group.entries as entry}
                                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                                     <div
-                                        class="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0 group"
+                                        class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-50 dark:border-gray-800 last:border-b-0 group"
                                         onclick={() => handleEntryClick(entry)}
                                     >
                                         <div class="flex items-start gap-3 pl-8">
                                             <div class="flex-1 min-w-0">
-                                                <div class="text-sm font-medium text-gray-900 truncate">
+                                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                                     {entry.title || 'Untitled'}
                                                 </div>
-                                                <div class="text-xs text-gray-500 truncate mt-0.5">
+                                                <div class="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
                                                     {entry.url}
                                                 </div>
-                                                <div class="text-xs text-gray-400 mt-1">
+                                                <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                                     {formatTime(entry.timestamp)}
                                                     {#if entry.visitCount > 1}
                                                         • {entry.visitCount} visits
@@ -417,7 +417,7 @@
                                             {#if false}
                                             <button
                                                 onclick={(e) => handleRemoveEntry(entry, e)}
-                                                class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-red-600 transition-all shrink-0"
+                                                class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all shrink-0"
                                                 title="Remove from history"
                                             >
                                                 <Trash2 size={14} />

@@ -387,22 +387,22 @@
     <!-- Panel - Full height from right with slide animation -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div 
-        class="fixed right-0 top-0 h-full w-96 bg-white shadow-2xl border-l border-gray-200 flex flex-col z-50"
+    <div
+        class="fixed right-0 top-0 h-full w-96 bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-700 flex flex-col z-50"
         data-download-panel
         transition:slide={{ duration: 300, axis: 'x' }}
         onclick={(e) => e.stopPropagation()}
     >
         <!-- Header -->
-        <div class="p-4 border-b border-gray-200">
+        <div class="p-4 border-b border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                     <Download size={20} />
                     Downloads
                 </h2>
                 <button
                     onclick={() => isOpen = false}
-                    class="p-1 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                    class="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
                     ✕
                 </button>
@@ -410,31 +410,31 @@
 
             <!-- Search -->
             <div class="relative mb-3">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
                 <input
                     type="text"
                     bind:value={searchQuery}
                     oninput={handleSearchChange}
                     placeholder="Search downloads..."
-                    class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    class="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
                 />
             </div>
 
             <!-- Filter Tabs -->
-            <div class="flex gap-1 border-b border-gray-200">
+            <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
                 <button
                     onclick={() => { filterMode = 'profile'; loadDownloads(); }}
-                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {filterMode === 'profile' 
-                        ? 'border-blue-500 text-blue-600' 
-                        : 'border-transparent text-gray-600 hover:text-gray-900'}"
+                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {filterMode === 'profile'
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                        : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
                 >
                     This Profile
                 </button>
                 <button
                     onclick={() => { filterMode = 'global'; loadDownloads(); }}
-                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {filterMode === 'global' 
-                        ? 'border-blue-500 text-blue-600' 
-                        : 'border-transparent text-gray-600 hover:text-gray-900'}"
+                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {filterMode === 'global'
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                        : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
                 >
                     All Profiles
                 </button>
@@ -444,8 +444,8 @@
         <!-- Content -->
         <div class="flex-1 overflow-y-auto">
             {#if downloads.length === 0}
-                <div class="p-8 text-center text-gray-500">
-                    <Download size={48} class="mx-auto mb-4 text-gray-300" />
+                <div class="p-8 text-center text-gray-500 dark:text-gray-400">
+                    <Download size={48} class="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
                     <p class="mb-2">No downloads yet</p>
                     <p class="text-sm">Downloaded files will appear here</p>
                 </div>
@@ -454,59 +454,59 @@
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <div
-                        class="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0 group"
+                        class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-50 dark:border-gray-800 last:border-b-0 group"
                         onclick={() => handleOpenFile(download)}
                     >
                         <div class="flex items-start gap-3">
                             <!-- File Icon -->
                             <div class="text-2xl shrink-0 mt-0.5">
                                 {#if download.state === 'progressing'}
-                                    <Download size={20} class="text-blue-600" />
+                                    <Download size={20} class="text-blue-600 dark:text-blue-400" />
                                 {:else if download.state === 'paused'}
-                                    <Pause size={20} class="text-orange-600" />
+                                    <Pause size={20} class="text-orange-600 dark:text-orange-400" />
                                 {:else if download.state === 'completed'}
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-600"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-600 dark:text-green-400"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                                 {:else if download.state === 'cancelled' || download.state === 'failed'}
-                                    <XCircle size={20} class="text-red-600" />
+                                    <XCircle size={20} class="text-red-600 dark:text-red-400" />
                                 {:else}
-                                    <FileText size={20} class="text-gray-400" />
+                                    <FileText size={20} class="text-gray-400 dark:text-gray-500" />
                                 {/if}
                             </div>
 
                             <!-- Content -->
                             <div class="flex-1 min-w-0">
-                                <div class="text-sm font-medium text-gray-900 truncate">
+                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                     {download.displayFilename || download.filename}
                                 </div>
-                                
+
                                 <!-- File path -->
                                 {#if download.save_path}
-                                    <div class="text-xs text-gray-500 truncate mt-0.5">
+                                    <div class="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
                                         {download.save_path}
                                     </div>
                                 {/if}
-                                
+
                                 <!-- File info -->
-                                <div class="text-xs text-gray-500 mt-0.5">
+                                <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     {#if download.state === 'progressing' || download.state === 'paused'}
                                         {formatFileSize(download.received_bytes)} / {formatFileSize(download.total_bytes)}
                                         • {download.total_bytes > 0 ? Math.round((download.received_bytes / download.total_bytes) * 100) : 0}%
                                         {#if download.state === 'progressing' && download.download_speed}
-                                            • <span class="text-blue-600">{formatSpeed(download.download_speed)}</span>
+                                            • <span class="text-blue-600 dark:text-blue-400">{formatSpeed(download.download_speed)}</span>
                                         {/if}
                                     {:else}
                                         {formatFileSize(download.total_bytes)}
                                     {/if}
                                 </div>
 
-                                <div class="text-xs text-gray-400 mt-1">
+                                <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                     {formatDate(download.start_time)}
                                     • <span class="{getStateColor(download.state)}">{getStateText(download.state)}</span>
                                 </div>
 
                                 <!-- File status warning -->
                                 {#if download.state === 'completed' && !download.fileExists}
-                                    <div class="flex items-center gap-1.5 text-xs text-orange-600 mt-1">
+                                    <div class="flex items-center gap-1.5 text-xs text-orange-600 dark:text-orange-400 mt-1">
                                         <AlertCircle size={12} />
                                         <span>File deleted or moved</span>
                                     </div>
@@ -514,9 +514,9 @@
 
                                 <!-- Progress bar for active downloads -->
                                 {#if download.state === 'progressing' || download.state === 'paused'}
-                                    <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+                                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-2">
                                         <div
-                                            class="bg-blue-600 h-1.5 rounded-full transition-all"
+                                            class="bg-blue-600 dark:bg-blue-500 h-1.5 rounded-full transition-all"
                                             style="width: {download.total_bytes > 0 ? (download.received_bytes / download.total_bytes) * 100 : 0}%"
                                         ></div>
                                     </div>
@@ -527,13 +527,13 @@
                                     {#if download.state === 'progressing' || download.state === 'paused'}
                                         <button
                                             onclick={(e) => handlePauseResume(download, e)}
-                                            class="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 hover:bg-blue-50 rounded transition-colors"
+                                            class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 px-2 py-1 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors"
                                         >
                                             {download.state === 'paused' ? 'Resume' : 'Pause'}
                                         </button>
                                         <button
                                             onclick={(e) => handleCancelDownload(download, e)}
-                                            class="text-xs text-red-600 hover:text-red-700 px-2 py-1 hover:bg-red-50 rounded transition-colors"
+                                            class="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 px-2 py-1 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors"
                                         >
                                             Cancel
                                         </button>
@@ -541,20 +541,20 @@
                                     {#if download.fileExists && download.state === 'completed'}
                                         <button
                                             onclick={(e) => { e.stopPropagation(); handleShowInFolder(download); }}
-                                            class="text-xs text-blue-600 hover:text-blue-700 px-2 py-1 hover:bg-blue-50 rounded transition-colors"
+                                            class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 px-2 py-1 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors"
                                         >
                                             Show in folder
                                         </button>
                                         <button
                                             onclick={(e) => handleRemoveFile(download, e)}
-                                            class="text-xs text-orange-600 hover:text-orange-700 px-2 py-1 hover:bg-orange-50 rounded transition-colors"
+                                            class="text-xs text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 px-2 py-1 hover:bg-orange-50 dark:hover:bg-orange-900/30 rounded transition-colors"
                                         >
                                             Remove file
                                         </button>
                                     {/if}
                                     <button
                                         onclick={(e) => handleDeleteDownload(download, e)}
-                                        class="text-xs text-gray-600 hover:text-gray-700 px-2 py-1 hover:bg-gray-100 rounded transition-colors"
+                                        class="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                                     >
                                         Remove from list
                                     </button>
@@ -568,10 +568,10 @@
 
         <!-- Footer with Clear All -->
         {#if downloads.length > 0}
-            <div class="p-4 border-t border-gray-200">
+            <div class="p-4 border-t border-gray-200 dark:border-gray-700">
                 <button
                     onclick={handleClearAll}
-                    class="w-full px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    class="w-full px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors flex items-center justify-center gap-2"
                 >
                     <Trash2 size={16} />
                     Clear All Downloads

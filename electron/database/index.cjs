@@ -57,7 +57,57 @@ function initDatabase(app) {
                 UNIQUE(profile_id, url)
             )
         `);
-        
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS passwords (
+                id TEXT PRIMARY KEY,
+                profile_id INTEGER NOT NULL,
+                origin TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                url TEXT DEFAULT '',
+                username TEXT DEFAULT '',
+                password_encrypted TEXT,
+                notes TEXT DEFAULT '',
+                favicon TEXT DEFAULT '',
+                stored_in_keytar INTEGER DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+        `);
+
+        // Migration: Add new columns if they don't exist
+        try {
+            db.exec(`ALTER TABLE passwords ADD COLUMN origin TEXT NOT NULL DEFAULT ''`);
+        } catch (e) {
+            // Column already exists, ignore
+        }
+
+        try {
+            db.exec(`ALTER TABLE passwords ADD COLUMN stored_in_keytar INTEGER DEFAULT 0`);
+        } catch (e) {
+            // Column already exists, ignore
+        }
+
+        db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_passwords_profile_id ON passwords(profile_id);
+            CREATE INDEX IF NOT EXISTS idx_passwords_origin ON passwords(origin);
+        `);
+
+        // Never-save list (domains where user clicked "Never save")
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS password_never_save (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id INTEGER NOT NULL,
+                origin TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(profile_id, origin)
+            )
+        `);
+
+        db.exec(`
+            CREATE INDEX IF NOT EXISTS idx_never_save_profile ON password_never_save(profile_id);
+        `);
+
         db.exec(`
             CREATE TABLE IF NOT EXISTS favicons (
                 domain TEXT PRIMARY KEY,
@@ -113,6 +163,7 @@ function initDatabase(app) {
             CREATE INDEX IF NOT EXISTS idx_bookmarks_profile_id ON bookmarks(profile_id);
             CREATE INDEX IF NOT EXISTS idx_downloads_profile_id ON downloads(profile_id);
             CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
+            CREATE INDEX IF NOT EXISTS idx_passwords_profile_id ON passwords(profile_id);
         `);
         
         // Cleanup orphaned downloads (downloads that were interrupted by app close)

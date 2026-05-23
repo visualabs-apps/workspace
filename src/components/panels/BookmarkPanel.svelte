@@ -143,7 +143,7 @@
         );
 
         if (activeWorkspace && newApp) {
-            workspaceStore.addAppToWorkspace(activeWorkspace.id, newApp.id);
+            workspaceStore.addAppToWorkspace(activeWorkspace.id, newApp.id, appStore.activeAppId);
             appStore.setActive(newApp.id);
         }
 
@@ -210,22 +210,22 @@
     <!-- Panel - Full height side panel with slide animation -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div 
-        class="fixed right-0 top-0 h-full w-96 bg-white shadow-2xl border-l border-gray-200 flex flex-col z-50"
+    <div
+        class="fixed right-0 top-0 h-full w-96 bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-700 flex flex-col z-50"
         data-bookmark-panel
         transition:slide={{ duration: 300, axis: 'x' }}
         onclick={(e) => e.stopPropagation()}
     >
         <!-- Header -->
-        <div class="p-4 border-b border-gray-200">
+        <div class="p-4 border-b border-gray-200 dark:border-gray-700">
             <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                     <Star size={20} class="text-yellow-500" fill="currentColor" />
                     Bookmarks
                 </h2>
                 <button
                     onclick={handleClose}
-                    class="p-1 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                    class="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
                     ✕
                 </button>
@@ -233,31 +233,31 @@
 
             <!-- Search -->
             <div class="relative mb-3">
-                <Search size={16} class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <Search size={16} class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                 <input
                     type="text"
                     bind:value={searchQuery}
                     oninput={handleSearchChange}
                     placeholder="Search bookmarks..."
-                    class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    class="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
                 />
             </div>
 
             <!-- View Mode Tabs -->
-            <div class="flex gap-1 border-b border-gray-200">
+            <div class="flex gap-1 border-b border-gray-200 dark:border-gray-700">
                 <button
                     onclick={() => handleViewModeChange('date')}
-                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {viewMode === 'date' 
-                        ? 'border-blue-500 text-blue-600' 
-                        : 'border-transparent text-gray-600 hover:text-gray-900'}"
+                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {viewMode === 'date'
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                        : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
                 >
                     By Date
                 </button>
                 <button
                     onclick={() => handleViewModeChange('domain')}
-                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {viewMode === 'domain' 
-                        ? 'border-blue-500 text-blue-600' 
-                        : 'border-transparent text-gray-600 hover:text-gray-900'}"
+                    class="px-4 py-2 text-sm font-medium transition-colors border-b-2 {viewMode === 'domain'
+                        ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                        : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
                 >
                     By Domain
                 </button>
@@ -267,13 +267,13 @@
         <!-- Content -->
         <div class="flex-1 overflow-y-auto">
             {#if !activeWorkspace}
-                <div class="p-8 text-center text-gray-500">
-                    <Star size={48} class="mx-auto mb-4 text-gray-300" />
+                <div class="p-8 text-center text-gray-500 dark:text-gray-400">
+                    <Star size={48} class="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
                     <p>No profile selected</p>
                 </div>
             {:else if filteredBookmarks.length === 0}
-                <div class="p-8 text-center text-gray-500">
-                    <Star size={48} class="mx-auto mb-4 text-gray-300" />
+                <div class="p-8 text-center text-gray-500 dark:text-gray-400">
+                    <Star size={48} class="mx-auto mb-4 text-gray-300 dark:text-gray-600" />
                     <p class="mb-2">No bookmarks</p>
                     <p class="text-sm">
                         {searchQuery ? 'No bookmarks match your search' : 'Click the star icon in the address bar to save bookmarks'}
@@ -283,48 +283,48 @@
                 {#if viewMode === 'date'}
                     <!-- By Date View -->
                     {#each groupedByDate as [dateString, bookmarks]}
-                        <div class="border-b border-gray-100 last:border-b-0">
-                            <div class="sticky top-0 bg-white/95 backdrop-blur-sm px-4 py-2 border-b border-gray-100">
-                                <h3 class="text-sm font-medium text-gray-700 flex items-center gap-2">
+                        <div class="border-b border-gray-100 dark:border-gray-800 last:border-b-0">
+                            <div class="sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm px-4 py-2 border-b border-gray-100 dark:border-gray-800">
+                                <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
                                     <Calendar size={14} />
                                     {formatDate(dateString)}
                                 </h3>
                             </div>
-                            
+
                             {#each bookmarks as bookmark}
                                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                                 <div
-                                    class="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0 group"
+                                    class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-50 dark:border-gray-800 last:border-b-0 group"
                                     onclick={() => handleBookmarkClick(bookmark)}
                                 >
                                     <div class="flex items-start gap-3">
                                         {#if bookmark.favicon || getFaviconUrl(bookmark)}
-                                            <img 
-                                                src={getFaviconUrl(bookmark)} 
-                                                alt="" 
+                                            <img
+                                                src={getFaviconUrl(bookmark)}
+                                                alt=""
                                                 class="w-4 h-4 mt-0.5 object-contain shrink-0"
                                                 onerror={(e) => e.target.style.display = 'none'}
                                             />
                                         {:else}
-                                            <div class="w-4 h-4 mt-0.5 bg-gray-300 rounded shrink-0"></div>
+                                            <div class="w-4 h-4 mt-0.5 bg-gray-300 dark:bg-gray-600 rounded shrink-0"></div>
                                         {/if}
 
                                         <div class="flex-1 min-w-0">
-                                            <div class="text-sm font-medium text-gray-900 truncate">
+                                            <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                                 {bookmark.title || 'Untitled'}
                                             </div>
-                                            <div class="text-xs text-gray-500 truncate mt-0.5">
+                                            <div class="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
                                                 {bookmark.url}
                                             </div>
-                                            <div class="text-xs text-gray-400 mt-1">
+                                            <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                                 {formatTime(bookmark.createdAt)}
                                             </div>
                                         </div>
 
                                         <button
                                             onclick={(e) => handleDeleteBookmark(bookmark, e)}
-                                            class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-red-600 transition-all shrink-0"
+                                            class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all shrink-0"
                                             title="Remove bookmark"
                                         >
                                             <Trash2 size={14} />
@@ -337,53 +337,53 @@
                 {:else}
                     <!-- By Domain View -->
                     {#each groupedByDomain as group}
-                        <div class="border-b border-gray-100 last:border-b-0">
-                            <div class="sticky top-0 bg-yellow-50/95 backdrop-blur-sm px-4 py-3 border-b border-yellow-100">
+                        <div class="border-b border-gray-100 dark:border-gray-800 last:border-b-0">
+                            <div class="sticky top-0 bg-yellow-50/95 dark:bg-yellow-900/30 backdrop-blur-sm px-4 py-3 border-b border-yellow-100 dark:border-yellow-900">
                                 <div class="flex items-center gap-3">
                                     {#if group.favicon}
-                                        <img 
-                                            src={group.favicon} 
-                                            alt="" 
+                                        <img
+                                            src={group.favicon}
+                                            alt=""
                                             class="w-5 h-5 object-contain"
                                             onerror={(e) => e.target.style.display = 'none'}
                                         />
                                     {:else}
-                                        <div class="w-5 h-5 bg-yellow-300 rounded"></div>
+                                        <div class="w-5 h-5 bg-yellow-300 dark:bg-yellow-700 rounded"></div>
                                     {/if}
                                     <div class="flex-1">
-                                        <h3 class="text-sm font-medium text-yellow-900">
+                                        <h3 class="text-sm font-medium text-yellow-900 dark:text-yellow-300">
                                             {group.domain}
                                         </h3>
-                                        <p class="text-xs text-yellow-600">
+                                        <p class="text-xs text-yellow-600 dark:text-yellow-500">
                                             {group.count} bookmark{group.count > 1 ? 's' : ''}
                                         </p>
                                     </div>
                                 </div>
                             </div>
-                            
+
                             {#each group.bookmarks as bookmark}
                                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                                 <div
-                                    class="px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-b-0 group"
+                                    class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-50 dark:border-gray-800 last:border-b-0 group"
                                     onclick={() => handleBookmarkClick(bookmark)}
                                 >
                                     <div class="flex items-start gap-3 pl-8">
                                         <div class="flex-1 min-w-0">
-                                            <div class="text-sm font-medium text-gray-900 truncate">
+                                            <div class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                                                 {bookmark.title || 'Untitled'}
                                             </div>
-                                            <div class="text-xs text-gray-500 truncate mt-0.5">
+                                            <div class="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
                                                 {bookmark.url}
                                             </div>
-                                            <div class="text-xs text-gray-400 mt-1">
+                                            <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                                                 {formatTime(bookmark.createdAt)}
                                             </div>
                                         </div>
 
                                         <button
                                             onclick={(e) => handleDeleteBookmark(bookmark, e)}
-                                            class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-red-600 transition-all shrink-0"
+                                            class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-all shrink-0"
                                             title="Remove bookmark"
                                         >
                                             <Trash2 size={14} />

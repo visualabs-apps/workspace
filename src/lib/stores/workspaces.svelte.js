@@ -76,6 +76,10 @@ function createWorkspaceStore() {
     let activeWorkspaceId = $state(null);
     let isLoading = $state(false);
     let isInitialized = $state(false);
+    
+    // Monitoring state
+    let monitoringUserId = $state(null); // null = viewing own profiles, number = viewing other user's profiles
+    let originalUserId = $state(null); // Store original user ID when monitoring
 
     return {
         get workspaces() { 
@@ -84,6 +88,8 @@ function createWorkspaceStore() {
         get activeWorkspaceId() { return activeWorkspaceId; },
         get isLoading() { return isLoading; },
         get isInitialized() { return isInitialized; },
+        get monitoringUserId() { return monitoringUserId; },
+        get isMonitoring() { return monitoringUserId !== null; },
 
         // Get active workspace object
         get activeWorkspace() {
@@ -225,7 +231,8 @@ function createWorkspaceStore() {
         },
 
         // Add app/service to workspace
-        async addAppToWorkspace(workspaceId, serviceId) {
+        // afterAppId: optional — if provided, insert the new app right after this app ID
+        async addAppToWorkspace(workspaceId, serviceId, afterAppId = null) {
             const workspaceList = Array.isArray(workspaces) ? workspaces : [];
             const workspace = workspaceList.find(w => w.id === workspaceId);
             if (workspace) {
@@ -233,7 +240,24 @@ function createWorkspaceStore() {
                     workspace.apps = [];
                 }
                 if (!workspace.apps.includes(serviceId)) {
-                    workspace.apps = [...workspace.apps, serviceId];
+                    let newApps;
+                    if (afterAppId) {
+                        const afterIndex = workspace.apps.indexOf(afterAppId);
+                        if (afterIndex !== -1) {
+                            // Insert right after the specified app
+                            newApps = [
+                                ...workspace.apps.slice(0, afterIndex + 1),
+                                serviceId,
+                                ...workspace.apps.slice(afterIndex + 1)
+                            ];
+                        } else {
+                            // Fallback: append at end if afterAppId not found
+                            newApps = [...workspace.apps, serviceId];
+                        }
+                    } else {
+                        newApps = [...workspace.apps, serviceId];
+                    }
+                    workspace.apps = newApps;
                     
                     // Save to SQLite - convert to plain array
                     try {
@@ -350,6 +374,92 @@ function createWorkspaceStore() {
         // Alias for backward compatibility
         async removeWorkspace(id) {
             return await this.deleteWorkspace(id);
+        },
+
+        // Start monitoring another user's profiles
+        async startMonitoring(userId) {
+            const user = (globalThis._mockAuthStore || authStore)?.user;
+            if (!user?.id) return false;
+            
+            // Store original user ID if not already monitoring
+            if (monitoringUserId === null) {
+                originalUserId = user.id;
+            }
+            
+            monitoringUserId = userId;
+            
+            // Fetch profiles for the monitored user
+            isLoading = true;
+            try {
+                const response = await (globalThis._mockGetChromeProfiles || getChromeProfiles)({ 
+                    userId: userId,
+                    limit: 100 
+                });
+
+                if (response && response.success) {
+                    const profiles = response.data || [];
+                    workspaces = await Promise.all(profiles.map(profileToWorkspace));
+                    
+                    // Set active workspace to first one
+                    if (workspaces.length > 0) {
+                        activeWorkspaceId = workspaces[0]?.id || null;
+                    } else {
+                        activeWorkspaceId = null;
+                    }
+                }
+                
+                return true;
+            } catch (error) {
+                console.error('Failed to start monitoring:', error);
+                return false;
+            } finally {
+                isLoading = false;
+            }
+        },
+
+        // Stop monitoring and return to own profiles
+        async stopMonitoring() {
+            if (monitoringUserId === null) return;
+            
+            monitoringUserId = null;
+            const userIdToLoad = originalUserId;
+            originalUserId = null;
+            
+            // Reload own profiles
+            isLoading = true;
+            try {
+                const response = await (globalThis._mockGetChromeProfiles || getChromeProfiles)({ 
+                    userId: userIdToLoad,
+                    limit: 100 
+                });
+
+                if (response && response.success) {
+                    const profiles = response.data || [];
+                    workspaces = await Promise.all(profiles.map(profileToWorkspace));
+                    
+                    // Restore active workspace
+                    try {
+                        if (window.api?.db?.getSetting) {
+                            const result = await window.api.db.getSetting('active_workspace_id');
+                            if (result.success && result.value) {
+                                const lastActive = workspaces.find(w => w.id === result.value);
+                                activeWorkspaceId = lastActive ? lastActive.id : workspaces[0]?.id || null;
+                            } else {
+                                activeWorkspaceId = workspaces[0]?.id || null;
+                            }
+                        } else {
+                            activeWorkspaceId = workspaces[0]?.id || null;
+                        }
+                    } catch (error) {
+                        console.error('Failed to restore active workspace:', error);
+                        activeWorkspaceId = workspaces[0]?.id || null;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to stop monitoring:', error);
+            } finally {
+                isLoading = false;
+            }
         }
     };
 

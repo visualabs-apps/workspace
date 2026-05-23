@@ -5,14 +5,50 @@
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { linkRoutingStore } from "../../lib/utils/linkRouting.svelte.js";
     import { historyStore } from "../../lib/stores/history.svelte.js";
-    import { Rocket, Plus } from "lucide-svelte";
+    import { getErrorInfo, getCrashError } from "../../lib/utils/errorPages.js";
+    import { generateErrorPage } from "../../lib/utils/generateErrorPage.js";
+
+
+    /**
+     * Detect OAuth / login popup URLs that require the webview's session.
+     * These must be navigated within the current webview (not opened in a
+     * new window) so that authentication cookies are stored in the correct
+     * session partition.
+     */
+    function isOAuthLoginUrl(url) {
+        try {
+            const parsed = new URL(url);
+            const host = parsed.hostname;
+            const pathname = parsed.pathname;
+
+            // Google accounts / login
+            if (host === 'accounts.google.com') return true;
+            if (host.endsWith('.google.com') && pathname.startsWith('/signin')) return true;
+            if (host.endsWith('.google.com') && pathname.startsWith('/login')) return true;
+            if (host.endsWith('.google.com') && pathname.includes('ServiceLogin')) return true;
+
+            // Microsoft login
+            if (host === 'login.microsoftonline.com') return true;
+            if (host === 'login.live.com') return true;
+
+            // Facebook login
+            if (host === 'www.facebook.com' && pathname.startsWith('/login')) return true;
+            if (host === 'www.facebook.com' && pathname.startsWith('/v')) return true; // OAuth dialog
+
+            // Twitter/X login
+            if (host === 'twitter.com' && pathname.startsWith('/oauth')) return true;
+            if (host === 'api.twitter.com' && pathname.startsWith('/oauth')) return true;
+
+            // Generic OAuth indicators in URL
+            if (parsed.searchParams.has('client_id') && (parsed.searchParams.has('redirect_uri') || parsed.searchParams.has('redirect_url'))) return true;
+            if (pathname.includes('/oauth') || pathname.includes('/authorize') || pathname.includes('/auth')) return true;
+        } catch (_) {}
+        return false;
+    }
 
     let { app, isActive } = $props();
 
-    // Global webview registry - persistent across component lifecycle
     const webviewRegistry = globalThis.webviewRegistry || (globalThis.webviewRegistry = new Map());
-
-    // Reload tracking - detect unwanted rapid reloads
     const reloadTracker = globalThis.reloadTracker || (globalThis.reloadTracker = new Map());
 
     // Local state
@@ -24,6 +60,15 @@
     let zoomIndicatorTimeout = null;
     let preloadPath = $state('');
     
+    // Destroyed flag — prevents stale/zombie IPC handlers from firing
+    // after this component instance has been unmounted
+    let isDestroyed = false;
+    
+    // IPC listener cleanup refs — stored at component scope so onDestroy can access them
+    let _removeOpenLinkListener = null;
+    let _removeDownloadImageListener = null;
+    let _removeReloadWebviewListener = null;
+
     // Track if webview should be unloaded (removed from DOM)
     let shouldUnload = $derived(app.isUnloaded === true && !isActive);
 
@@ -52,32 +97,37 @@
     }
 
     $effect(() => {
-        if (isActive && webview && domReadyState) {
+        if (isActive && webview) {
             try {
                 navigationStore.setActiveWebview(webview);
                 updateNavigationState();
-            } catch (e) {
-                // Ignore errors
-            }
+            } catch (e) {}
         } else if (!isActive) {
-            // When tab becomes inactive, clear loading state from navigation store
-            // This ensures loading indicator disappears when switching to non-loading tabs
             navigationStore.updateState({ isLoading: false });
         }
     });
 
+    // Separate effect for zoom - applies immediately when webview is available
     $effect(() => {
-        if (webview && domReadyState) {
-            const zoomLevel = app.zoomLevel ?? 0;
-
+        const zoomLevel = app.zoomLevel ?? 0;
+        if (webview) {
             try {
                 if (webview.getWebContentsId) {
                     webview.setZoomLevel(zoomLevel);
-                    webview.setAudioMuted(app.isMuted || false);
                 }
-            } catch (e) {
-                // Webview not ready yet, will retry on next effect
-            }
+            } catch (e) {}
+        }
+    });
+
+    // Effect for audio mute (still needs domReadyState for other operations)
+    $effect(() => {
+        const isMuted = app.isMuted || false;
+        if (webview && domReadyState) {
+            try {
+                if (webview.getWebContentsId) {
+                    webview.setAudioMuted(isMuted);
+                }
+            } catch (e) {}
         }
     });
 
@@ -114,144 +164,158 @@
 
     function setupWebviewListeners(webviewElement) {
         const handleDomReady = async () => {
+            if (!app?.id) return;
             domReadyState = true;
             loadingState = false;
-            if (isActive) {
-                updateNavigationState();
-            }
-
-            // Apply zoom level after webview is ready
-            const zoomLevel = app.zoomLevel ?? 0;
+            if (isActive) updateNavigationState();
             try {
-                webviewElement.setZoomLevel(zoomLevel);
+                webviewElement.setZoomLevel(app.zoomLevel ?? 0);
                 webviewElement.setAudioMuted(app.isMuted || false);
-            } catch (e) {
-                // Ignore errors
-            }
+            } catch (e) {}
         };
 
         const handleDidStartLoading = () => {
-            loadingState = true;
-            if (isActive) {
-                navigationStore.updateState({ isLoading: true });
+            if (!app?.id) return;
+            if (!domReadyState) {
+                loadingState = true;
+                if (isActive) {
+                    navigationStore.updateState({ isLoading: true });
+                }
             }
         };
 
         const handleDidReload = () => {
-            // Track reload events to detect unwanted rapid reloads
+            if (!app?.id) return;
             const now = Date.now();
             const appId = app.id;
-            
             if (!reloadTracker.has(appId)) {
                 reloadTracker.set(appId, { timestamps: [], url: app.url, suppressed: false });
             }
-            
             const tracker = reloadTracker.get(appId);
             tracker.timestamps.push(now);
             tracker.url = webviewElement.getURL?.() || app.url;
-            
-            // Keep only last 30 seconds of data
             tracker.timestamps = tracker.timestamps.filter(t => now - t < 30000);
-            
-            // Count reloads in last 10 seconds
-            const recentReloads = tracker.timestamps.filter(t => now - t < 10000);
-            
-            if (recentReloads.length >= 5) {
-                console.error(
-                    `[RELOAD-DETECT] ⚠️ EXCESSIVE RELOADS detected on "${app.name}" (id: ${appId})\n` +
-                    `  URL: ${tracker.url}\n` +
-                    `  ${recentReloads.length} reloads in last 10 seconds\n` +
-                    `  This may indicate an infinite reload loop. Check for:\n` +
-                    `  - Security verification pages (Cloudflare, etc.)\n` +
-                    `  - JavaScript redirects that trigger on load\n` +
-                    `  - Service workers or meta refresh tags`
-                );
-                tracker.suppressed = true;
-            } else if (recentReloads.length >= 3) {
-                console.warn(
-                    `[RELOAD-DETECT] Frequent reloads on "${app.name}" (id: ${appId}): ` +
-                    `${recentReloads.length} reloads in 10s — URL: ${tracker.url}`
-                );
-            }
         };
 
         const handleDidStopLoading = () => {
+            if (!app?.id) return;
             loadingState = false;
+            
+            // ✅ FIX: Update URL bar saat loading selesai
             if (isActive) {
-                updateNavigationState();
+                try {
+                    const currentUrl = webviewElement.getURL?.();
+                    const canGoBack = webviewElement.canGoBack?.() || false;
+                    const canGoForward = webviewElement.canGoForward?.() || false;
+                    
+                    navigationStore.updateState({
+                        isLoading: false,
+                        currentUrl: currentUrl || app.url,
+                        canGoBack,
+                        canGoForward
+                    });
+                } catch (e) {
+                    navigationStore.updateState({ isLoading: false });
+                }
+            }
+
+            // If the page has no <title>, page-title-updated never fires.
+            // Fall back to the URL (hostname + path) so the tab isn't stuck on "New Tab".
+            if (app.name === 'New Tab' || !app.name) {
+                try {
+                    const currentUrl = webviewElement.getURL?.();
+                    if (currentUrl && !currentUrl.startsWith('data:')) {
+                        const urlObj = new URL(currentUrl);
+                        const fallbackName = urlObj.hostname +
+                            (urlObj.pathname && urlObj.pathname !== '/' ? urlObj.pathname : '');
+                        appStore.updateApp(app.id, { name: fallbackName });
+                    }
+                } catch (e) {}
             }
         };
 
         const handleDidNavigate = async (e) => {
+            if (!app?.id) return;
             let url = null;
-            try {
-                url = webviewElement.getURL?.();
-            } catch (err) {
-                // Webview not ready yet
-            }
-            if (url) {
-                appStore.updateApp(app.id, { url });
+            try { url = webviewElement.getURL?.(); } catch (err) {}
 
-                // Track navigation for redirect loop detection
-                const now = Date.now();
-                const appId = app.id;
-                if (!reloadTracker.has(appId)) {
-                    reloadTracker.set(appId, { timestamps: [], navigations: [], url: app.url, suppressed: false });
-                }
-                const tracker = reloadTracker.get(appId);
-                if (!tracker.navigations) tracker.navigations = [];
-                tracker.navigations.push({ url, time: now });
-                // Keep only last 30 seconds
-                tracker.navigations = tracker.navigations.filter(n => now - n.time < 30000);
-                
-                // Detect rapid navigation to same URL (redirect loop)
-                const recentNavs = tracker.navigations.filter(n => now - n.time < 10000);
-                const sameUrlNavs = recentNavs.filter(n => n.url === url);
-                if (sameUrlNavs.length >= 5) {
-                    console.error(
-                        `[NAV-LOOP] ⚠️ REDIRECT LOOP detected on "${app.name}" (id: ${appId})\n` +
-                        `  URL: ${url}\n` +
-                        `  ${sameUrlNavs.length} navigations to same URL in 10 seconds\n` +
-                        `  This suggests the page is redirecting to itself`
-                    );
-                }
-                
-                // Add to history when navigation completes
-                if (workspaceStore.activeWorkspace) {
-                    historyStore.addEntry(
-                        workspaceStore.activeWorkspace.id,
-                        url,
-                        app.name,
-                        app.icon
-                    );
-                }
+            if (url && url.startsWith('data:')) {
+                loadingState = false;
+                domReadyState = true;
+                return;
             }
-            updateNavigationState();
+
+            domReadyState = false;
+            loadingState = true;
+
+            if (url) {
+                // Set provisional name from URL hostname immediately.
+                // page-title-updated will override this if the page has a <title>.
+                // If no <title> exists, the hostname stays as the tab name.
+                let provisionalName = url;
+                try {
+                    const urlObj = new URL(url);
+                    provisionalName = urlObj.hostname +
+                        (urlObj.pathname && urlObj.pathname !== '/' ? urlObj.pathname : '');
+                } catch (_) {}
+
+                appStore.updateApp(app.id, { url, name: provisionalName });
+
+                if (workspaceStore.activeWorkspace) {
+                    historyStore.addEntry(workspaceStore.activeWorkspace.id, url, provisionalName, app.icon);
+                }
+                
+                // ✅ FIX: Update navigationStore AFTER appStore update
+                if (isActive) {
+                    const canGoBack = webviewElement.canGoBack?.() || false;
+                    const canGoForward = webviewElement.canGoForward?.() || false;
+                    
+                    navigationStore.updateState({ 
+                        isLoading: true,
+                        currentUrl: url,
+                        canGoBack,
+                        canGoForward
+                    });
+                }
+            } else if (isActive) {
+                // No URL but still update loading state
+                navigationStore.updateState({ isLoading: true });
+            }
         };
 
         const handlePageTitleUpdated = (e) => {
-            // Update app name so it shows in sidebar and TabBar
-            appStore.updateApp(app.id, { name: e.title });
+            if (!app?.id) return;
+            try {
+                const currentUrl = webviewElement.getURL?.();
+                if (currentUrl && currentUrl.startsWith('data:')) return;
+            } catch (err) {}
 
-            if (isActive) {
-                navigationStore.updateState({ currentTitle: e.title });
+            let title = e.title;
+            if (!title || !title.trim()) {
+                try {
+                    const url = webviewElement.getURL?.();
+                    if (url) {
+                        const urlObj = new URL(url);
+                        title = urlObj.hostname + urlObj.pathname;
+                    }
+                } catch (err) {}
             }
 
-            // Update history with new title
+            if (title) {
+                appStore.updateApp(app.id, { name: title });
+            }
+
+            if (isActive && title) {
+                navigationStore.updateState({ currentTitle: title });
+            }
+
             if (workspaceStore.activeWorkspace) {
                 try {
                     const currentUrl = webviewElement.getURL?.();
                     if (currentUrl) {
-                        historyStore.addEntry(
-                            workspaceStore.activeWorkspace.id,
-                            currentUrl,
-                            e.title,
-                            app.icon
-                        );
+                        historyStore.addEntry(workspaceStore.activeWorkspace.id, currentUrl, e.title, app.icon);
                     }
-                } catch (err) {
-                    // Ignore errors
-                }
+                } catch (err) {}
             }
 
             // Check for unread count in title (e.g., "(3) WhatsApp")
@@ -265,54 +329,33 @@
         };
 
         const handlePageFaviconUpdated = (e) => {
-            // Update app icon so it shows in sidebar
-            if (e.favicons && e.favicons.length > 0) {
-                appStore.updateApp(app.id, {
-                    icon: e.favicons[0]
-                });
+            if (!app?.id) return;
+            if (e.favicons?.length > 0) {
+                appStore.updateApp(app.id, { icon: e.favicons[0] });
             }
         };
 
-        const handleNewWindow = (e) => {
-            e.preventDefault();
-            const url = e.url;
-
-            // Use smart link routing
-            const routing = linkRoutingStore.getRoutingAction(url);
-
-            if (routing.action === "external") {
-                window.open(url, "_blank");
-            } else if (routing.action === "new-tab") {
-                // Create new app/app
-                const newApp = appStore.addApp(
-                    {
-                        name: "New Tab",
-                        url: url,
-                        icon: null,
-                        color: "#4285f4",
-                    },
-                    null,
-                    null,
-                    null,
-                    workspaceStore.activeWorkspace?.id,
-                );
-
-                if (workspaceStore.activeWorkspace && newApp) {
-                    workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id);
-                }
-            } else {
-                window.open(url, "_blank", "width=1000,height=800");
+        const handleWebviewOpenNewWindow = (url) => {
+            if (!isActive || !app?.id || !url) return;
+            
+            // Create new tab in v-box
+            const newApp = appStore.addApp(
+                { name: "New Tab", url, icon: null, color: "#4285f4" },
+                null, null, null,
+                workspaceStore.activeWorkspace?.id,
+            );
+            if (workspaceStore.activeWorkspace && newApp) {
+                workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id, app?.id);
             }
         };
 
         const handleContextMenu = (e) => {
+            if (!app?.id) return;
             e.preventDefault();
-            // Include partition and webContentsId for context menu actions
-            const webContentsId = webviewElement.getWebContentsId?.();
             window.api.showContextMenu({
                 ...e.params,
                 partition: app.partition,
-                webContentsId
+                webContentsId: webviewElement.getWebContentsId?.()
             });
         };
         
@@ -324,6 +367,51 @@
             }
         };
 
+        const handleDidFailLoad = (e) => {
+            if (!app?.id) return;
+            if (e.errorCode === -3) return;
+            if (e.isMainFrame === false) return;
+
+            const errorInfo = getErrorInfo(e.errorCode);
+            const failedUrl = e.validatedURL || app.url;
+
+            const html = generateErrorPage({
+                icon: errorInfo.icon,
+                title: errorInfo.title,
+                description: errorInfo.description,
+                errorCode: e.errorCode,
+                url: failedUrl,
+                theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+            });
+
+            webviewElement.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)).catch(() => {});
+
+            loadingState = false;
+            domReadyState = false;
+            if (isActive) {
+                updateNavigationState();
+            }
+        };
+
+        const handleCrashed = (e) => {
+            if (!app?.id) return;
+            const crashInfo = getCrashError();
+            const failedUrl = webviewElement.getURL?.() || app.url;
+
+            const html = generateErrorPage({
+                icon: crashInfo.icon,
+                title: crashInfo.title,
+                description: crashInfo.description,
+                errorCode: 'crashed',
+                url: failedUrl,
+                theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+            });
+
+            webviewElement.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)).catch(() => {});
+
+            loadingState = false;
+        };
+
         webviewElement.addEventListener("dom-ready", handleDomReady);
         webviewElement.addEventListener("did-start-loading", handleDidStartLoading);
         webviewElement.addEventListener("did-stop-loading", handleDidStopLoading);
@@ -331,10 +419,11 @@
         webviewElement.addEventListener("did-navigate-in-page", handleDidNavigate);
         webviewElement.addEventListener("page-title-updated", handlePageTitleUpdated);
         webviewElement.addEventListener("page-favicon-updated", handlePageFaviconUpdated);
-        webviewElement.addEventListener("new-window", handleNewWindow);
         webviewElement.addEventListener("did-reload", handleDidReload);
         webviewElement.addEventListener("context-menu", handleContextMenu);
         webviewElement.addEventListener("console-message", handleConsoleMessage);
+        webviewElement.addEventListener("did-fail-load", handleDidFailLoad);
+        webviewElement.addEventListener("crashed", handleCrashed);
 
         return () => {
             webviewElement.removeEventListener("dom-ready", handleDomReady);
@@ -344,61 +433,60 @@
             webviewElement.removeEventListener("did-navigate-in-page", handleDidNavigate);
             webviewElement.removeEventListener("page-title-updated", handlePageTitleUpdated);
             webviewElement.removeEventListener("page-favicon-updated", handlePageFaviconUpdated);
-            webviewElement.removeEventListener("new-window", handleNewWindow);
             webviewElement.removeEventListener("did-reload", handleDidReload);
             webviewElement.removeEventListener("context-menu", handleContextMenu);
             webviewElement.removeEventListener("console-message", handleConsoleMessage);
-            webviewElement.removeEventListener("context-menu", handleContextMenu);
+            webviewElement.removeEventListener("did-fail-load", handleDidFailLoad);
+            webviewElement.removeEventListener("crashed", handleCrashed);
         };
     }
 
-    // Webview Registry Pattern Implementation
     onMount(async () => {
         const appPath = await window.api.getAppPath();
-        preloadPath = appPath + '/electron/webview-preload.cjs';
-        
+        preloadPath = appPath + '/electron/webview-preload.bundle.cjs';
+
         let webviewElement = webviewRegistry.get(app.id);
-        
+        let isNewWebview = false;
+
         if (!webviewElement) {
+            isNewWebview = true;
             webviewElement = document.createElement('webview');
-            webviewElement.src = app.url;
             webviewElement.partition = app.partition;
             webviewElement.allowpopups = true;
-            webviewElement.setAttribute('nativeWindowOpen', '');
             webviewElement.preload = preloadPath;
+            // Use Chrome 131 User-Agent (stable version)
             webviewElement.useragent = app.userAgent ||
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
             webviewElement.style.width = '100%';
             webviewElement.style.height = '100%';
             webviewElement.setAttribute('data-webview', 'true');
-            
-            // Store in registry
+            // ✅ Enable WebAuthn/Passkeys support
+            webviewElement.setAttribute('webpreferences', 'enableWebAuthn=yes');
             webviewRegistry.set(app.id, webviewElement);
-            
-            // Setup listeners
-            const cleanup = setupWebviewListeners(webviewElement);
-            webviewElement._cleanup = cleanup;
-            
             loadingState = true;
             domReadyState = false;
         } else {
             domReadyState = true;
             loadingState = false;
         }
-        
-        // Attach to container if not unloaded
+
+        // Re-setup listeners each mount; clean up old ones first if reusing webview
+        if (webviewElement._cleanup) webviewElement._cleanup();
+        webviewElement._cleanup = setupWebviewListeners(webviewElement);
+
         if (container && webviewElement && !shouldUnload) {
-            // Check if webview is already attached somewhere else
             if (webviewElement.parentNode && webviewElement.parentNode !== container) {
                 webviewElement.parentNode.removeChild(webviewElement);
             }
-            
-            // Only attach if not already attached to this container
             if (webviewElement.parentNode !== container) {
                 container.appendChild(webviewElement);
             }
-            
             webview = webviewElement;
+        }
+
+        // Set src AFTER listeners and DOM attachment so did-fail-load is caught
+        if (isNewWebview && webviewElement) {
+            requestAnimationFrame(() => { webviewElement.src = app.url; });
         }
 
         // Listen for tab reload events from TabBar
@@ -415,36 +503,63 @@
 
         window.addEventListener('reloadTab', handleTabReload);
 
-        // IPC handlers for context menu actions
-        const handleOpenLinkNewTab = (url) => {
-            if (!isActive) return; // Only the active tab should handle this
-            if (!url) return;
-            
-            // Create new app/app
-            const newApp = appStore.addApp(
-                {
-                    name: "New Tab",
-                    url: url,
-                    icon: null,
-                    color: "#4285f4",
-                },
-                null,
-                null,
-                null,
-                workspaceStore.activeWorkspace?.id,
-            );
+        // globalThis flag prevents duplicate processing when multiple ServiceView instances
+        // all receive the same IPC event simultaneously
+        const globalFlagKey = '__ServiceView_tabOpenProcessing';
 
-            if (workspaceStore.activeWorkspace && newApp) {
-                workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id);
+        const handleOpenLinkNewTab = (url) => {
+            // Guard: if this component instance has been destroyed, do nothing
+            // This prevents stale/zombie handlers from tab B and C (closed earlier)
+            // from firing after the component unmounted
+            if (isDestroyed) return;
+            
+            if (!isActive) { return; }
+            if (!app) { return; }
+            if (!url) { return; }
+
+            // Skip if already processing (prevent duplicate opens from ALL ServiceView instances)
+            if (globalThis[globalFlagKey]) {
+                return;
+            }
+            globalThis[globalFlagKey] = true;
+
+            // Reset flag after a delay to allow future opens
+            setTimeout(() => {
+                globalThis[globalFlagKey] = false;
+            }, 1000);
+
+            try {
+                const workspaceId = workspaceStore.activeWorkspace?.id;
+                if (!workspaceId) return;
+
+                const currentAppId = app?.id;
+
+                const newApp = appStore.addApp(
+                    {
+                        name: "New Tab",
+                        url: url,
+                        icon: null,
+                        color: "#4285f4",
+                    },
+                    null,
+                    null,
+                    null,
+                    workspaceId,
+                );
+
+                if (newApp?.id) {
+                    workspaceStore.addAppToWorkspace(workspaceId, newApp.id, currentAppId)
+                        .catch(err => console.warn('[ServiceView] addAppToWorkspace failed:', err));
+                }
+            } catch (e) {
+                console.warn('[ServiceView] Failed to open link in new tab:', e);
             }
         };
 
         const handleDownloadImage = (imageUrl) => {
-            // Image downloads are now handled entirely in the main process
-            // (context menu "Simpan Gambar Sebagai..." uses direct aria2/net.fetch)
-            // This handler is kept as a fallback but should not be triggered
+            // Image downloads are handled by the main process; this is a fallback only
             if (!imageUrl) return;
-            console.warn("handleDownloadImage called unexpectedly — image saves should be handled by main process");
+            console.warn('[ServiceView] handleDownloadImage called unexpectedly');
         };
 
         const handleReloadWebview = () => {
@@ -457,62 +572,60 @@
             }
         };
 
-        // Register IPC listeners
-        const removeOpenLinkListener = window.api?.onOpenLinkNewTab?.(handleOpenLinkNewTab);
-        const removeDownloadImageListener = window.api?.onDownloadImage?.(handleDownloadImage);
-        const removeReloadWebviewListener = window.api?.onReloadWebview?.(handleReloadWebview);
+        _removeOpenLinkListener    = window.api?.onOpenLinkNewTab?.(handleOpenLinkNewTab);
+        _removeDownloadImageListener = window.api?.onDownloadImage?.(handleDownloadImage);
+        _removeReloadWebviewListener = window.api?.onReloadWebview?.(handleReloadWebview);
+
+        // Listen for webview window.open / target="_blank" from main process
+        const removeWebviewOpenListener = window.api?.onWebviewOpenNewWindow?.(handleWebviewOpenNewWindow);
 
         return () => {
             window.removeEventListener('reloadTab', handleTabReload);
-            
-            // Cleanup IPC listeners if they exist
-            if (typeof removeOpenLinkListener === 'function') removeOpenLinkListener();
-            if (typeof removeDownloadImageListener === 'function') removeDownloadImageListener();
-            if (typeof removeReloadWebviewListener === 'function') removeReloadWebviewListener();
+            if (typeof _removeOpenLinkListener === 'function')    { _removeOpenLinkListener();    _removeOpenLinkListener = null; }
+            if (typeof _removeDownloadImageListener === 'function') { _removeDownloadImageListener(); _removeDownloadImageListener = null; }
+            if (typeof _removeReloadWebviewListener === 'function') { _removeReloadWebviewListener(); _removeReloadWebviewListener = null; }
+            if (typeof removeWebviewOpenListener === 'function') { removeWebviewOpenListener(); }
         };
     });
     
-    // Effect to handle unloading/reloading webview based on shouldUnload flag
     $effect(() => {
+        if (!app?.id) return;
         const webviewElement = webviewRegistry.get(app.id);
-        
-        if (shouldUnload && webviewElement && webviewElement.parentNode) {
-            // Unload: remove webview from DOM to free memory
-            try {
-                webviewElement.parentNode.removeChild(webviewElement);
-                webview = null;
-            } catch (e) {
-                // Ignore errors
-            }
+
+        if (shouldUnload && webviewElement?.parentNode) {
+            try { webviewElement.parentNode.removeChild(webviewElement); webview = null; } catch (e) {}
         } else if (!shouldUnload && webviewElement && container && !webviewElement.parentNode) {
-            // Re-attach webview back to DOM (without reloading - preserves page state)
             try {
                 container.appendChild(webviewElement);
                 webview = webviewElement;
-                // NOTE: Do NOT call reload() here!
-                // Reloading causes issues with Cloudflare/Security verification pages
-                // and creates infinite reload loops. The webview preserves its state
-                // when removed from DOM and will continue where it left off.
-            } catch (e) {
-                // Ignore errors
-            }
+                // Do NOT call reload() — preserves page state and avoids Cloudflare/security loops
+            } catch (e) {}
         }
     });
 
     onDestroy(() => {
-        // Detach webview from container but DON'T destroy it
-        if (webview && webview.parentNode === container) {
-            try {
-                webview.parentNode.removeChild(webview);
-            } catch (e) {
-                // Ignore errors
-            }
+        // Prevent any still-queued IPC callbacks from executing on stale state
+        isDestroyed = true;
+
+        // Safety net: remove IPC listeners (onMount cleanup does this too,
+        // but onDestroy guarantees it even on race conditions)
+        if (typeof _removeOpenLinkListener === 'function')    { _removeOpenLinkListener();    _removeOpenLinkListener = null; }
+        if (typeof _removeDownloadImageListener === 'function') { _removeDownloadImageListener(); _removeDownloadImageListener = null; }
+        if (typeof _removeReloadWebviewListener === 'function') { _removeReloadWebviewListener(); _removeReloadWebviewListener = null; }
+
+        const webviewElement = webviewRegistry.get(app?.id);
+        if (webviewElement?._cleanup) {
+            webviewElement._cleanup();
+            webviewElement._cleanup = null;
         }
-        
-        // Clean up reload tracker for this app to prevent memory leaks
-        reloadTracker.delete(app.id);
-        
-        // Reset local state but keep webview in registry
+
+        // Detach from DOM but keep in registry (preserves webview state)
+        if (webview && webview.parentNode === container) {
+            try { webview.parentNode.removeChild(webview); } catch (e) {}
+        }
+
+        if (app?.id) reloadTracker.delete(app.id);
+
         webview = null;
         loadingState = false;
         domReadyState = false;
@@ -524,12 +637,12 @@
     style:display={isActive ? "flex" : "none"}
 >
     <div class="flex-1 relative bg-gray-50">
-        <!-- Webview container - managed by registry pattern -->
+        <!-- Webview container - hidden when error overlay is shown (webview renders as native layer on top) -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div 
-            bind:this={container} 
-            class="w-full h-full" 
+        <div
+            bind:this={container}
+            class="w-full h-full"
             data-webview-container="true"
         ></div>
         
@@ -550,13 +663,7 @@
             </div>
         {/if}
         
-        <!-- Chrome-style loading progress bar (top of webview) -->
-        {#if loadingState && isActive}
-            <div class="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 z-20">
-                <div class="h-full bg-blue-600 animate-pulse" style="width: 70%; animation: loading-progress 2s ease-in-out infinite;"></div>
-            </div>
-        {/if}
-    </div>
+        </div>
 
     <!-- Zoom Indicator -->
     {#if showZoomIndicator}
@@ -607,27 +714,4 @@
         </div>
     {/if}
 </div>
-
-<style>
-    @keyframes loading-progress {
-        0% {
-            width: 0%;
-            opacity: 1;
-        }
-        50% {
-            width: 70%;
-            opacity: 0.8;
-        }
-        100% {
-            width: 100%;
-            opacity: 0;
-        }
-    }
-</style>
-
-
-
-
-
-
 

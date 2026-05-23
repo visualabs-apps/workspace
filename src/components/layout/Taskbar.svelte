@@ -58,7 +58,7 @@
     <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-2">
         {#each minimizedWindows as windowItem}
             <div
-                class="group relative h-10 px-4 pr-10 bg-white hover:bg-gray-50 rounded-lg border border-gray-200 shadow-md hover:shadow-lg flex items-center gap-2 text-gray-700 font-medium text-sm transition-all cursor-pointer"
+                class="group relative h-10 px-4 pr-10 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-750 shadow-md hover:shadow-lg flex items-center gap-2 text-gray-700 dark:text-gray-200 font-medium text-sm transition-all cursor-pointer"
                 onclick={() => restoreWindow(windowItem)}
                 role="button"
                 tabindex="0"
@@ -70,7 +70,7 @@
                 <!-- Close button -->
                 <button
                     onclick={(e) => closeWindow(windowItem, e)}
-                    class="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                    class="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                     title="Close window"
                 >
                     <X size={14} />
