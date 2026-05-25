@@ -1076,8 +1076,10 @@ var require_passwordCapture = __commonJS({
       let lastCapturedUsername = "";
       let lastCapturedPassword = "";
       let credentialsCaptured = false;
-      const USERNAME_NAMES = ["email", "user", "login", "account", "username", "user_email", "user_login", "identifier"];
-      const USERNAME_AUTOCOMPLETE = ["email", "username", "email-address"];
+      let autofillAttempts = 0;
+      const MAX_AUTOFILL_ATTEMPTS = 3;
+      const USERNAME_NAMES = ["email", "user", "login", "account", "username", "user_email", "user_login", "identifier", "userid", "user-name", "user-id", "loginid", "login-id"];
+      const USERNAME_AUTOCOMPLETE = ["email", "username", "email-address", "user", "login"];
       function isLoginForm(form) {
         const passwordFields = form.querySelectorAll('input[type="password"]');
         if (passwordFields.length === 0) return false;
@@ -1133,14 +1135,23 @@ var require_passwordCapture = __commonJS({
       function setInputValue(element, value) {
         if (!element || !value) return;
         try {
-          const setter = Object.getOwnPropertyDescriptor(
+          const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
             element.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
             "value"
           )?.set;
-          if (setter) setter.call(element, value);
-          else element.value = value;
-          element.dispatchEvent(new Event("input", { bubbles: true }));
-          element.dispatchEvent(new Event("change", { bubbles: true }));
+          if (nativeInputValueSetter) {
+            nativeInputValueSetter.call(element, value);
+          } else {
+            element.value = value;
+          }
+          element.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+          element.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+          element.dispatchEvent(new Event("keyup", { bubbles: true, cancelable: true }));
+          element.dispatchEvent(new Event("blur", { bubbles: true, cancelable: true }));
+          const tracker = element._valueTracker;
+          if (tracker) {
+            tracker.setValue("");
+          }
         } catch (e) {
           element.value = value;
         }
@@ -1153,38 +1164,80 @@ var require_passwordCapture = __commonJS({
           if (!isLoginForm(form)) return;
           const passwordInput = form.querySelector('input[type="password"]');
           if (!passwordInput) return;
+          if (passwordInput.offsetParent === null || passwordInput.disabled) return;
           setInputValue(passwordInput, cred.password);
           const inputs = form.querySelectorAll("input");
+          let usernameFilled = false;
           for (const input of inputs) {
             const type = (input.type || "text").toLowerCase();
             const name = (input.name || "").toLowerCase();
             const id = (input.id || "").toLowerCase();
             const ac = (input.getAttribute("autocomplete") || "").toLowerCase();
+            const placeholder = (input.placeholder || "").toLowerCase();
             if (type === "password" || type === "hidden") continue;
-            if (type === "email" || type === "tel" || USERNAME_NAMES.some((p) => name.includes(p) || id.includes(p)) || USERNAME_AUTOCOMPLETE.includes(ac)) {
+            if (input.offsetParent === null || input.disabled) continue;
+            if (type === "email" || type === "tel" || USERNAME_NAMES.some((p) => name.includes(p) || id.includes(p)) || USERNAME_AUTOCOMPLETE.includes(ac) || placeholder.includes("email") || placeholder.includes("username")) {
               setInputValue(input, cred.username);
+              usernameFilled = true;
               break;
+            }
+          }
+          if (!usernameFilled && cred.username) {
+            const allInputs = Array.from(inputs);
+            const pwIndex = allInputs.indexOf(passwordInput);
+            for (let i = pwIndex - 1; i >= 0; i--) {
+              const inp = allInputs[i];
+              const type = (inp.type || "text").toLowerCase();
+              if (["text", "email", "tel", ""].includes(type) && inp.offsetParent !== null && !inp.disabled) {
+                setInputValue(inp, cred.username);
+                break;
+              }
             }
           }
         });
         const standalonePasswords = document.querySelectorAll('input[type="password"]');
         standalonePasswords.forEach((pwInput) => {
           if (pwInput.closest("form")) return;
+          if (pwInput.offsetParent === null || pwInput.disabled) return;
           const matchingCred = credentials.find((c) => !c.username || c.username === "") || credentials[0];
-          if (matchingCred) setInputValue(pwInput, matchingCred.password);
+          if (matchingCred) {
+            setInputValue(pwInput, matchingCred.password);
+            if (matchingCred.username) {
+              const container = pwInput.closest('div, section, [role="dialog"]') || document.body;
+              const nearbyInputs = container.querySelectorAll("input");
+              const pwIndex = Array.from(nearbyInputs).indexOf(pwInput);
+              for (let i = pwIndex - 1; i >= 0; i--) {
+                const inp = nearbyInputs[i];
+                const type = (inp.type || "text").toLowerCase();
+                if (["text", "email", "tel", ""].includes(type) && inp.offsetParent !== null && !inp.disabled) {
+                  setInputValue(inp, matchingCred.username);
+                  break;
+                }
+              }
+            }
+          }
         });
       }
       async function triggerAutofill() {
         try {
           const loginForm = findLoginForm();
-          if (!loginForm) return;
+          if (!loginForm) {
+            if (autofillAttempts < MAX_AUTOFILL_ATTEMPTS) {
+              autofillAttempts++;
+              setTimeout(triggerAutofill, 500 * autofillAttempts);
+            }
+            return;
+          }
           const result = await ipcRenderer2.invoke("password-autofill-lookup", {
             profileId: null,
             origin: window.location.origin
           });
           if (result?.success && result.credentials?.length > 0) {
             console.log(`[PasswordCapture] Autofilling ${result.credentials.length} credentials for ${window.location.origin}`);
-            autofillCredentials(result.credentials);
+            setTimeout(() => {
+              autofillCredentials(result.credentials);
+              autofillAttempts = 0;
+            }, 100);
           }
         } catch (e) {
           console.error("[PasswordCapture] Autofill error:", e);
@@ -1235,6 +1288,7 @@ var require_passwordCapture = __commonJS({
         const observer = new MutationObserver((mutations) => {
           let hasNewForm = false;
           let hasNewPassword = false;
+          let hasAttributeChange = false;
           for (const mutation of mutations) {
             if (mutation.type === "childList") {
               for (const node of mutation.addedNodes) {
@@ -1250,9 +1304,15 @@ var require_passwordCapture = __commonJS({
                 }
               }
             }
-            if (hasNewForm || hasNewPassword) break;
+            if (mutation.type === "attributes" && mutation.target.nodeName === "INPUT") {
+              const input = mutation.target;
+              if (input.type === "password") {
+                hasNewPassword = true;
+              }
+            }
+            if (hasNewForm || hasNewPassword || hasAttributeChange) break;
           }
-          if (hasNewForm || hasNewPassword) {
+          if (hasNewForm || hasNewPassword || hasAttributeChange) {
             setTimeout(() => {
               scanForLoginForms();
               triggerAutofill();
@@ -1263,7 +1323,9 @@ var require_passwordCapture = __commonJS({
         if (!target) return;
         observer.observe(target, {
           childList: true,
-          subtree: true
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["type", "style", "class"]
         });
       }
       function setupClickCapture() {
@@ -1334,7 +1396,7 @@ var require_passwordCapture = __commonJS({
         }, true);
       }
       function sendCapture() {
-        if (!lastCapturedUsername || !lastCapturedPassword) return;
+        if (!lastCapturedPassword) return;
         let pid = cachedProfileId;
         if (!pid) {
           try {
@@ -1347,7 +1409,7 @@ var require_passwordCapture = __commonJS({
         ipcRenderer2.send("password-capture-urgent", {
           profileId: pid,
           origin: window.location.origin,
-          username: lastCapturedUsername,
+          username: lastCapturedUsername || "",
           password: lastCapturedPassword,
           title: document.title,
           url: window.location.href
@@ -1364,6 +1426,22 @@ var require_passwordCapture = __commonJS({
           setupClickCapture();
           setupMutationObserver();
           triggerAutofill();
+          setTimeout(() => {
+            const iframes = document.querySelectorAll("iframe");
+            iframes.forEach((iframe) => {
+              try {
+                if (iframe.contentDocument) {
+                  const iframeDoc = iframe.contentDocument;
+                  const passwordFields = iframeDoc.querySelectorAll('input[type="password"]');
+                  if (passwordFields.length > 0) {
+                    console.log("[PasswordCapture] Found login form in iframe");
+                    triggerAutofill();
+                  }
+                }
+              } catch (e) {
+              }
+            });
+          }, 500);
         } catch (error) {
         }
       }
@@ -1388,6 +1466,19 @@ var require_passwordCapture = __commonJS({
               lastCapturedUsername = input.value || "";
             }
           }
+        } else if (type === "password" && !form) {
+          lastCapturedPassword = input.value || "";
+          const container = input.closest('div, section, [role="dialog"]') || document.body;
+          const nearbyInputs = container.querySelectorAll("input");
+          const pwIndex = Array.from(nearbyInputs).indexOf(input);
+          for (let i = pwIndex - 1; i >= 0; i--) {
+            const inp = nearbyInputs[i];
+            const inpType = (inp.type || "text").toLowerCase();
+            if (["text", "email", "tel", ""].includes(inpType) && inp.value) {
+              lastCapturedUsername = inp.value;
+              break;
+            }
+          }
         }
       }, true);
       window.addEventListener("beforeunload", () => {
@@ -1409,10 +1500,12 @@ var require_passwordCapture = __commonJS({
       });
       window.addEventListener("hashchange", () => {
         credentialsCaptured = false;
+        autofillAttempts = 0;
         setTimeout(triggerAutofill, 300);
       });
       window.addEventListener("popstate", () => {
         credentialsCaptured = false;
+        autofillAttempts = 0;
         setTimeout(triggerAutofill, 500);
       });
     }
@@ -1473,6 +1566,75 @@ var require_vboxApiStealth = __commonJS({
   }
 });
 
+// electron/webview/scrollbar.cjs
+var require_scrollbar = __commonJS({
+  "electron/webview/scrollbar.cjs"(exports2, module2) {
+    function initScrollbarStyles2() {
+      try {
+        let injectStyles2 = function() {
+          const style = document.createElement("style");
+          style.id = "vbox-custom-scrollbar";
+          style.textContent = `
+                /* Custom scrollbar - Modern rounded style */
+                ::-webkit-scrollbar {
+                    width: 10px !important;
+                    height: 10px !important;
+                }
+
+                ::-webkit-scrollbar-track {
+                    background: transparent !important;
+                }
+
+                ::-webkit-scrollbar-thumb {
+                    background: #c1c1c1 !important;
+                    border-radius: 10px !important;
+                    min-height: 40px !important;
+                }
+
+                ::-webkit-scrollbar-thumb:hover {
+                    background: #a8a8a8 !important;
+                }
+
+                /* Dark mode scrollbar */
+                @media (prefers-color-scheme: dark) {
+                    ::-webkit-scrollbar-thumb {
+                        background: #5a5a5a !important;
+                    }
+
+                    ::-webkit-scrollbar-thumb:hover {
+                        background: #6e6e6e !important;
+                    }
+                }
+
+                ::-webkit-scrollbar-corner {
+                    background: transparent !important;
+                }
+            `;
+          if (document.head) {
+            document.head.appendChild(style);
+          } else {
+            const observer = new MutationObserver(() => {
+              if (document.head) {
+                document.head.appendChild(style);
+                observer.disconnect();
+              }
+            });
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+          }
+        };
+        var injectStyles = injectStyles2;
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", injectStyles2);
+        } else {
+          injectStyles2();
+        }
+      } catch (error) {
+      }
+    }
+    module2.exports = { init: initScrollbarStyles2 };
+  }
+});
+
 // electron/webview-preload.cjs
 var { contextBridge, ipcRenderer } = require("electron");
 var { init: initThemeOverride } = require_theme();
@@ -1481,9 +1643,11 @@ var { init: initConsoleOverride } = require_consoleOverride();
 var { init: initVBoxApi2 } = require_vboxApi();
 var { init: initPasswordCapture } = require_passwordCapture();
 var { init: initVBoxApiStealth } = require_vboxApiStealth();
+var { init: initScrollbarStyles } = require_scrollbar();
 initThemeOverride(ipcRenderer);
 initContextBridge(contextBridge, ipcRenderer);
 initConsoleOverride(ipcRenderer);
 initVBoxApi2();
 initPasswordCapture(ipcRenderer);
+initScrollbarStyles();
 initVBoxApiStealth();

@@ -31,6 +31,9 @@
     import { onMount } from "svelte";
     import { Loader2, Plus, Rocket } from "lucide-svelte";
 
+    import { aiChatStore } from "./lib/stores/aiChatStore.svelte.js";
+    import AIChatPanel from "./components/panels/AIChatPanel.svelte";
+
     let isOnline = $state(navigator.onLine);
 
     // Password Manager popup state
@@ -138,6 +141,8 @@
     let isNotificationCenterOpen = $derived(
         notificationStore.isNotificationCenterOpen,
     );
+
+    let isAIChatOpen = $derived(aiChatStore.isOpen);
 
     // Apply theme function
     function applyTheme(theme) {
@@ -625,8 +630,13 @@
                     <TabBar app={activeApp} />
                 {/if}
 
-                <!-- Content Area -->
-                <div class="flex-1 relative overflow-hidden">
+                <!-- Content Area: Webview Container + AI Chat Panel -->
+                <div class="flex-1 flex relative overflow-hidden">
+                    <!-- Webview Container - shrinks when AI chat is open -->
+                    <div 
+                        class="flex-1 relative overflow-hidden transition-all duration-300"
+                        style="width: {isAIChatOpen ? 'calc(100% - 320px)' : '100%'};"
+                    >
                     {#if isLoadingWorkspaces}
                         <!-- Loading workspaces state -->
                         <div
@@ -802,6 +812,10 @@
                             style="pointer-events: auto;"
                         ></div>
                     {/if}
+                    </div>
+
+                    <!-- AI Chat Panel - inside content area -->
+                    <AIChatPanel />
                 </div>
             </div>
 

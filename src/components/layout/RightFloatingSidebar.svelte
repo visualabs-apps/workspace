@@ -1,8 +1,9 @@
 <script>
-    import { Target, Cookie, Bookmark, ChevronLeft } from "lucide-svelte";
+    import { Target, Cookie, Bookmark, ChevronLeft, Sparkles } from "lucide-svelte";
     import { workspaceStore } from "../../lib/stores/workspaces.svelte.js";
     import { openPredefinedWindow } from "../../lib/utils/childWindow.js";
     import { panelStore } from "../../lib/stores/panels.svelte.js";
+    import { aiChatStore } from "../../lib/stores/aiChatStore.svelte.js";
     
     let { 
         onOpenTarget = () => {}
@@ -28,6 +29,10 @@
     function handleBookmarks() {
         panelStore.openBookmarks();
     }
+
+    function handleAIChat() {
+        aiChatStore.toggle();
+    }
     
     // Computed classes
     let containerClass = $derived(isActive ? 'right-0' : '-right-20');
@@ -47,10 +52,21 @@
     style="box-shadow: 0 10px 40px -10px rgba(0,0,0,0.15);"
 >
     
+    <!-- Sidebar Item - AI Chat -->
+    <button
+        onclick={handleAIChat}
+        class="sidebarItem relative flex flex-col items-center justify-center w-full py-3 px-2 border-b border-gray-200/50 dark:border-gray-700/50 transition-all duration-300 group hover:bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 dark:hover:from-blue-900/30 dark:hover:to-purple-900/30 rounded-tl-2xl"
+    >
+        <div class="p-2 rounded-xl bg-white dark:bg-gray-700 group-hover:bg-gradient-to-br group-hover:from-blue-500 group-hover:to-purple-500 transition-all duration-300 shadow-sm group-hover:shadow-md group-hover:scale-110">
+            <Sparkles size={22} class="text-gray-600 dark:text-gray-300 group-hover:text-white transition-all duration-300" strokeWidth={2} />
+        </div>
+        <span class="text-[10px] text-gray-500 dark:text-gray-400 group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-blue-600 group-hover:to-purple-600 dark:group-hover:from-blue-400 dark:group-hover:to-purple-400 font-medium mt-1 transition-colors">AI Agent</span>
+    </button>
+
     <!-- Sidebar Item - Target -->
     <button
         onclick={onOpenTarget}
-        class="sidebarItem relative flex flex-col items-center justify-center w-full py-3 px-2 border-b border-gray-200/50 dark:border-gray-700/50 transition-all duration-300 group hover:bg-blue-50/80 dark:hover:bg-blue-900/30 rounded-tl-2xl"
+        class="sidebarItem relative flex flex-col items-center justify-center w-full py-3 px-2 border-b border-gray-200/50 dark:border-gray-700/50 transition-all duration-300 group hover:bg-blue-50/80 dark:hover:bg-blue-900/30"
     >
         <div class="p-2 rounded-xl bg-white dark:bg-gray-700 group-hover:bg-blue-500 transition-all duration-300 shadow-sm group-hover:shadow-md group-hover:scale-110">
             <Target size={22} class="text-gray-600 dark:text-gray-300 group-hover:text-white transition-all duration-300" strokeWidth={2} />

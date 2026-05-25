@@ -23,16 +23,45 @@ console.log('Open tabs:', tabs);`;
 
 export const apiSections = [
     {
+        title: 'Navigation',
+        color: '#f59e0b',
+        apis: [
+            {
+                method: 'POST',
+                name: 'vbox.navigate(url)',
+                description: 'Navigates the current webview to the specified URL. Returns after navigation completes and page loads.',
+                params: [{ name: 'url', type: 'string — full URL to navigate to' }],
+                returns: 'Promise<{ success, url? }>',
+                example: `// Navigate to a new page\nawait vbox.navigate('https://example.com');\nawait vbox.waitForNetworkIdle();`
+            },
+            {
+                method: 'POST',
+                name: 'vbox.goBack()',
+                description: 'Navigates back in the browser history, equivalent to clicking the browser back button.',
+                returns: 'Promise<{ success }>',
+                example: `await vbox.goBack();\nawait vbox.waitForNetworkIdle();`
+            },
+            {
+                method: 'POST',
+                name: 'vbox.goForward()',
+                description: 'Navigates forward in the browser history, equivalent to clicking the browser forward button.',
+                returns: 'Promise<{ success }>',
+                example: `await vbox.goForward();\nawait vbox.waitForNetworkIdle();`
+            },
+            {
+                method: 'POST',
+                name: 'vbox.reload()',
+                description: 'Reloads the current page.',
+                returns: 'Promise<{ success }>',
+                example: `await vbox.reload();\nawait vbox.waitForNetworkIdle();`
+            }
+        ]
+    },
+    {
         title: 'Core APIs',
         color: '#6366f1',
         apis: [
-            {
-                method: 'GET',
-                name: 'vbox.isVBox()',
-                description: 'Returns true if the script is running inside a VBox webview environment. Use this to guard code that depends on VBox-specific APIs.',
-                returns: 'boolean',
-                example: `if (vbox.isVBox()) {\n    console.log('Running in VBox!');\n}`
-            },
+
             {
                 method: 'GET',
                 name: 'vbox.getPageInfo()',
@@ -50,60 +79,11 @@ export const apiSections = [
                 ],
                 example: `vbox.toast('Processing...', 'info');\nvbox.toast('Done!', 'success');\nvbox.toast('Something went wrong', 'error');`
             },
-            {
-                method: 'POST',
-                name: 'vbox.evaluate(code)',
-                description: 'Evaluates a JavaScript code string in the page context and returns the result. Use this for dynamic expressions or when you need to run arbitrary JS that is not covered by other VBox APIs.',
-                params: [{ name: 'code', type: 'string — JavaScript code to evaluate' }],
-                returns: 'any — the result of the evaluated expression',
-                note: 'Uses raw eval(). Be cautious with untrusted input.',
-                example: `const title = vbox.evaluate('document.title');\nconst linkCount = vbox.evaluate('document.querySelectorAll("a").length');`
-            },
-            {
-                method: 'GET',
-                name: 'vbox.getActiveProfile()',
-                description: 'Returns information about the currently active workspace/profile, including its ID, name, and the URL currently loaded in the active tab. This is an async call that queries the main process.',
-                returns: 'Promise<{ success, id?, name?, url?, error? }>',
-                note: 'Works in both main window and webview context.',
-                example: `const profile = await vbox.getActiveProfile();\nif (profile.success) {\n    console.log('Profile:', profile.name);\n    console.log('ID:', profile.id);\n}`
-            }
+
+
         ]
     },
-    {
-        title: 'Navigation',
-        color: '#f59e0b',
-        apis: [
-            {
-                method: 'POST',
-                name: 'vbox.navigate(url)',
-                description: 'Navigates the current webview to the specified URL. WARNING: This destroys the current JavaScript context — any code after this call will NOT execute. Use this as the last statement in your script, or use the MCP navigateAndWait() API instead.',
-                params: [{ name: 'url', type: 'string — full URL to navigate to' }],
-                returns: 'Promise<{ success, url? }>',
-                example: `// Navigate to a new page\nawait vbox.navigate('https://example.com');\n// WARNING: Code here will NOT run — context is destroyed`
-            },
-            {
-                method: 'POST',
-                name: 'vbox.goBack()',
-                description: 'Navigates back in the browser history, equivalent to clicking the browser back button. Same context-destruction warning as navigate() applies.',
-                returns: 'Promise<{ success }>',
-                example: `await vbox.goBack();`
-            },
-            {
-                method: 'POST',
-                name: 'vbox.goForward()',
-                description: 'Navigates forward in the browser history, equivalent to clicking the browser forward button.',
-                returns: 'Promise<{ success }>',
-                example: `await vbox.goForward();`
-            },
-            {
-                method: 'POST',
-                name: 'vbox.reload()',
-                description: 'Reloads the current page. Same context-destruction warning as navigate() applies — code after this call will not execute.',
-                returns: 'Promise<{ success }>',
-                example: `await vbox.reload();`
-            }
-        ]
-    },
+
     {
         title: 'DOM Manipulation',
         color: '#10b981',
@@ -111,21 +91,23 @@ export const apiSections = [
             {
                 method: 'POST',
                 name: 'vbox.click(selector)',
-                description: 'Simulates a real mouse click on the first element matching the CSS selector. Dispatches mousedown, mouseup, and click events in sequence. Triggers native click handlers, onclick attributes, and framework event listeners.',
+                description: 'Simulates a real mouse click on the first element matching the CSS selector. Dispatches mousedown, mouseup, and click events in sequence. Triggers native click handlers, onclick attributes, and framework event listeners. Throws error if element not found.',
                 params: [{ name: 'selector', type: 'string — CSS selector (e.g. "button.submit", "#login-btn")' }],
                 returns: 'boolean — true if element was found and clicked',
-                example: `vbox.click('button.submit');\nvbox.click('#login-btn');\nvbox.click('[data-testid="confirm"]');`
+                note: 'Best practice: Use vbox.waitForElement() first to ensure element exists',
+                example: `// Safe pattern\nawait vbox.waitForElement('button.submit');\nvbox.click('button.submit');\n\n// Direct click\nvbox.click('#login-btn');`
             },
             {
                 method: 'POST',
                 name: 'vbox.type(selector, text, options)',
-                description: 'Simulates typing text into an input field, textarea, or contenteditable element. Uses the native value setter to ensure compatibility with React, Vue, Svelte, and other frameworks that intercept input events. Supports character-by-character typing with configurable delay.',
+                description: 'Simulates typing text into an input field, textarea, or contenteditable element. Uses the native value setter to ensure compatibility with React, Vue, Svelte, and other frameworks that intercept input events. Supports character-by-character typing with configurable delay. Throws error if element not found.',
                 params: [
                     { name: 'selector', type: 'string — CSS selector for the input element' },
                     { name: 'text', type: 'string — text to type' },
                     { name: 'options', type: '{ delay?: number (ms between chars), clear?: boolean (clear existing text first) }' }
                 ],
-                example: `// Simple type (replaces existing text)\nvbox.type('#email', 'user@example.com');\n\n// Type with delay (simulates human typing)\nawait vbox.type('#search', 'query', { delay: 100 });\n\n// Append without clearing\nawait vbox.type('#notes', ' more text', { clear: false });`
+                note: 'Framework-compatible: Triggers native setter + input/change events for React/Vue/Svelte',
+                example: `// Simple type (replaces existing text by default)\nvbox.type('#email', 'user@example.com');\n\n// Type with delay (simulates human typing)\nawait vbox.type('#search', 'query', { delay: 100 });\n\n// Append without clearing\nawait vbox.type('#notes', ' more text', { clear: false });`
             },
             {
                 method: 'POST',
@@ -237,21 +219,23 @@ export const apiSections = [
             {
                 method: 'GET',
                 name: 'vbox.waitForElement(selector, timeout)',
-                description: 'Waits until an element matching the selector appears in the DOM. Polls every 100ms until found or timeout is reached. Essential for handling dynamically loaded content (AJAX, SPA renders, lazy loading).',
+                description: 'Waits until an element matching the selector appears in the DOM. Uses MutationObserver for efficient detection. Essential for handling dynamically loaded content (AJAX, SPA renders, lazy loading). Rejects promise if timeout is reached.',
                 params: [
                     { name: 'selector', type: 'string — CSS selector to wait for' },
                     { name: 'timeout', type: 'number — max wait time in ms (default: 5000)' }
                 ],
-                returns: 'Promise<boolean> — true if found, false if timed out',
-                example: `// Wait up to 5 seconds for a modal\nawait vbox.waitForElement('.modal');\n\n// Wait up to 10 seconds for search results\nawait vbox.waitForElement('#results', 10000);`
+                returns: 'Promise<boolean> — resolves true if found, rejects on timeout',
+                note: 'Always use this before interacting with dynamic content',
+                example: `// Wait up to 5 seconds for a modal\nawait vbox.waitForElement('.modal');\nvbox.click('.modal .close-btn');\n\n// Wait up to 10 seconds for search results\nawait vbox.waitForElement('#results', 10000);\nconst data = vbox.extractData({ title: '#results h1' });`
             },
             {
                 method: 'POST',
                 name: 'vbox.autoScroll(options)',
-                description: 'Automatically scrolls the page to the bottom, useful for infinite-scroll pages (social media feeds, product listings). Stops when the page height stops increasing or maxScrolls is reached.',
-                params: [{ name: 'options', type: '{ delay?: number (ms between scrolls), maxScrolls?: number }' }],
+                description: 'Automatically scrolls the page to the bottom, useful for infinite-scroll pages (social media feeds, product listings). Stops when the page height stops increasing or maxScrolls is reached. Uses recursive setTimeout to avoid race conditions.',
+                params: [{ name: 'options', type: '{ delay?: number (ms between scrolls, default: 1000), maxScrolls?: number (default: 10) }' }],
                 returns: 'Promise<number> — total number of scrolls performed',
-                example: `// Scroll with 1 second delay, max 10 scrolls\nconst scrolls = await vbox.autoScroll({ delay: 1000, maxScrolls: 10 });\nconsole.log('Scrolled', scrolls, 'times');`
+                note: 'Waits for page height to stabilize between scrolls',
+                example: `// Scroll with 1 second delay, max 10 scrolls\nconst scrolls = await vbox.autoScroll({ delay: 1000, maxScrolls: 10 });\nconsole.log('Scrolled', scrolls, 'times');\n\n// Extract data after scrolling\nconst items = vbox.scrapeLinks({ selector: '.product-item a' });`
             }
         ]
     },
@@ -375,42 +359,7 @@ export const apiSections = [
             }
         ]
     },
-    {
-        title: 'Tab & Profile Management',
-        color: '#3b82f6',
-        apis: [
-            {
-                method: 'GET',
-                name: 'vbox.listProfiles()',
-                description: 'Lists all workspace profiles (browser instances) with their IDs and names. Each profile has isolated cookies, localStorage, and sessions.',
-                returns: 'Promise<{ success, profiles: Array<{ id, name }> }>',
-                example: `const result = await vbox.listProfiles();\nresult.profiles.forEach(p => console.log(p.id, p.name));`
-            },
-            {
-                method: 'GET',
-                name: 'vbox.listTabs()',
-                description: 'Lists all open tabs across all profiles. Each tab entry includes its ID, the profile it belongs to, the loaded URL, and the page title.',
-                returns: 'Promise<{ success, tabs: Array<{ id, profileId, url, title }> }>',
-                example: `const result = await vbox.listTabs();\nresult.tabs.forEach(t => console.log(t.id, t.url));`
-            },
-            {
-                method: 'PUT',
-                name: 'vbox.switchTab(tabId)',
-                description: 'Switches the active view to the specified tab. The tab becomes visible and focused in the VBox UI.',
-                params: [{ name: 'tabId', type: 'string — the tab ID from listTabs()' }],
-                returns: 'Promise<{ success }>',
-                example: `const tabs = await vbox.listTabs();\nawait vbox.switchTab(tabs.tabs[0].id);`
-            },
-            {
-                method: 'GET',
-                name: 'vbox.getTabInfo(tabId?)',
-                description: 'Gets detailed page information for a specific tab. If no tabId is provided, returns info for the current active tab.',
-                params: [{ name: 'tabId', type: 'string — tab ID (optional, defaults to active tab)' }],
-                returns: 'Promise<{ success, id?, url?, title? }>',
-                example: `// Get current tab info\nconst info = await vbox.getTabInfo();\nconsole.log('Current URL:', info.url);`
-            }
-        ]
-    },
+
     {
         title: 'User Input',
         color: '#a855f7',
@@ -474,17 +423,7 @@ export const apiSections = [
                 returns: 'Promise<{ success, path? }>',
                 example: `// Save an HTML report\nconst result = await vbox.saveFile(\n    '<h1>Report</h1><p>Data here</p>',\n    'report.html',\n    'text/html'\n);`
             },
-            {
-                method: 'POST',
-                name: 'vbox.shouldDownload(filepath, filename)',
-                description: 'Registers an existing file in the VBox download manager, making it visible in the downloads panel with progress tracking.',
-                params: [
-                    { name: 'filepath', type: 'string — absolute path to the file' },
-                    { name: 'filename', type: 'string — display filename' }
-                ],
-                returns: 'Promise<{ success }>',
-                example: `await vbox.shouldDownload('/path/to/file.pdf', 'report.pdf');`
-            }
+
         ]
     }
 ];

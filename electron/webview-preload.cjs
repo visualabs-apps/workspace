@@ -5,12 +5,14 @@ const { init: initConsoleOverride } = require('./webview/consoleOverride.cjs');
 const { init: initVBoxApi } = require('./webview/vboxApi.cjs');
 const { init: initPasswordCapture } = require('./webview/passwordCapture.cjs');
 const { init: initVBoxApiStealth } = require('./webview/vboxApiStealth.cjs');
+const { init: initScrollbarStyles } = require('./webview/scrollbar.cjs');
 
 initThemeOverride(ipcRenderer);
 initContextBridge(contextBridge, ipcRenderer);
 initConsoleOverride(ipcRenderer);
 initVBoxApi();
 initPasswordCapture(ipcRenderer);
+initScrollbarStyles();
 
 // Hide VBox API globals after initialization
 initVBoxApiStealth();

@@ -68,6 +68,7 @@
     let _removeOpenLinkListener = null;
     let _removeDownloadImageListener = null;
     let _removeReloadWebviewListener = null;
+    let _removeWebviewOpenListener = null;
 
     // Track if webview should be unloaded (removed from DOM)
     let shouldUnload = $derived(app.isUnloaded === true && !isActive);
@@ -160,6 +161,22 @@
     function getZoomPercent() {
         const zoomLevel = app.zoomLevel ?? 0;
         return Math.round(Math.pow(1.2, zoomLevel) * 100);
+    }
+
+    function handleWebviewOpenNewWindow(url) {
+        // Guard: prevent zombie handlers from closed tabs
+        if (isDestroyed) return;
+        if (!isActive || !app?.id || !url) return;
+        
+        // Create new tab in v-box
+        const newApp = appStore.addApp(
+            { name: "New Tab", url, icon: null, color: "#4285f4" },
+            null, null, null,
+            workspaceStore.activeWorkspace?.id,
+        );
+        if (workspaceStore.activeWorkspace && newApp) {
+            workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id, app?.id);
+        }
     }
 
     function setupWebviewListeners(webviewElement) {
@@ -332,20 +349,6 @@
             if (!app?.id) return;
             if (e.favicons?.length > 0) {
                 appStore.updateApp(app.id, { icon: e.favicons[0] });
-            }
-        };
-
-        const handleWebviewOpenNewWindow = (url) => {
-            if (!isActive || !app?.id || !url) return;
-            
-            // Create new tab in v-box
-            const newApp = appStore.addApp(
-                { name: "New Tab", url, icon: null, color: "#4285f4" },
-                null, null, null,
-                workspaceStore.activeWorkspace?.id,
-            );
-            if (workspaceStore.activeWorkspace && newApp) {
-                workspaceStore.addAppToWorkspace(workspaceStore.activeWorkspace.id, newApp.id, app?.id);
             }
         };
 
@@ -577,14 +580,14 @@
         _removeReloadWebviewListener = window.api?.onReloadWebview?.(handleReloadWebview);
 
         // Listen for webview window.open / target="_blank" from main process
-        const removeWebviewOpenListener = window.api?.onWebviewOpenNewWindow?.(handleWebviewOpenNewWindow);
+        _removeWebviewOpenListener = window.api?.onWebviewOpenNewWindow?.(handleWebviewOpenNewWindow);
 
         return () => {
             window.removeEventListener('reloadTab', handleTabReload);
             if (typeof _removeOpenLinkListener === 'function')    { _removeOpenLinkListener();    _removeOpenLinkListener = null; }
             if (typeof _removeDownloadImageListener === 'function') { _removeDownloadImageListener(); _removeDownloadImageListener = null; }
             if (typeof _removeReloadWebviewListener === 'function') { _removeReloadWebviewListener(); _removeReloadWebviewListener = null; }
-            if (typeof removeWebviewOpenListener === 'function') { removeWebviewOpenListener(); }
+            if (typeof _removeWebviewOpenListener === 'function') { _removeWebviewOpenListener(); _removeWebviewOpenListener = null; }
         };
     });
     
@@ -612,6 +615,7 @@
         if (typeof _removeOpenLinkListener === 'function')    { _removeOpenLinkListener();    _removeOpenLinkListener = null; }
         if (typeof _removeDownloadImageListener === 'function') { _removeDownloadImageListener(); _removeDownloadImageListener = null; }
         if (typeof _removeReloadWebviewListener === 'function') { _removeReloadWebviewListener(); _removeReloadWebviewListener = null; }
+        if (typeof _removeWebviewOpenListener === 'function') { _removeWebviewOpenListener(); _removeWebviewOpenListener = null; }
 
         const webviewElement = webviewRegistry.get(app?.id);
         if (webviewElement?._cleanup) {

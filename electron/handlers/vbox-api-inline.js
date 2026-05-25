@@ -297,7 +297,7 @@
             var el = document.querySelector(selector);
             if (!el) throw new Error('Element not found: ' + selector);
             var delay = options.delay || 0;
-            var clear = options.clear || false;
+            var clear = options.clear !== false; // Default to true for consistency
             
             // Use native setter to trigger framework change detection
             var nativeInputValueSetter;
@@ -677,10 +677,19 @@
             };
         },
         
-        // Click an element by selector
+        // Click an element by selector (with visibility check)
         click: function(selector) {
             var el = document.querySelector(selector);
             if (!el) throw new Error('Element not found: ' + selector);
+            
+            // Check visibility
+            if (el.offsetParent === null && el.tagName !== 'BODY') {
+                throw new Error('Element is hidden: ' + selector);
+            }
+            if (el.disabled) {
+                throw new Error('Element is disabled: ' + selector);
+            }
+            
             el.click();
             return true;
         },
@@ -691,7 +700,7 @@
             var el = document.querySelector(selector);
             if (!el) throw new Error('Element not found: ' + selector);
             var delay = options.delay || 0;
-            var clear = options.clear || false;
+            var clear = options.clear !== false; // Default to true for consistency
             
             var nativeInputValueSetter;
             try {
@@ -864,11 +873,15 @@
                 var observer = new MutationObserver(function() {
                     if (document.querySelector(selector)) {
                         observer.disconnect();
+                        clearTimeout(timeoutId);
                         resolve(true);
                     }
                 });
                 observer.observe(document.body, { childList: true, subtree: true });
-                setTimeout(function() { observer.disconnect(); reject(new Error('Timeout')); }, timeout);
+                var timeoutId = setTimeout(function() { 
+                    observer.disconnect(); 
+                    reject(new Error('Timeout waiting for element: ' + selector)); 
+                }, timeout);
             });
         },
         
@@ -1008,8 +1021,8 @@
             });
         },
         
-        // Evaluate arbitrary JavaScript code
-        evaluate: function(code) { return eval(code); },
+        // REMOVED: evaluate() - Too dangerous for AI automation
+        // Use specific APIs instead: getText(), getAttribute(), extractData(), etc.
         
         // Show toast notification in console
         toast: function(msg, type) {
