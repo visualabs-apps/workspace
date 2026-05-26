@@ -159,6 +159,36 @@ function initVBoxApi() {
             return document.querySelectorAll(selector).length;
         },
 
+        query: function(selector, attribute) {
+            const elements = document.querySelectorAll(selector);
+            if (elements.length === 0) {
+                return [];
+            }
+
+            const results = [];
+            elements.forEach((el, index) => {
+                const item = {
+                    index: index,
+                    tag: el.tagName.toLowerCase(),
+                    text: el.textContent.trim().substring(0, 200)
+                };
+
+                if (attribute) {
+                    item[attribute] = el.getAttribute(attribute);
+                } else {
+                    if (el.id) item.id = el.id;
+                    if (el.className) item.class = el.className;
+                    if (el.href) item.href = el.href;
+                    if (el.src) item.src = el.src;
+                    if (el.value !== undefined) item.value = el.value;
+                }
+
+                results.push(item);
+            });
+
+            return results;
+        },
+
         scrapeLinks: function(options) {
             if (options === undefined) options = {};
             const {

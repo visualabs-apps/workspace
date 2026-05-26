@@ -140,10 +140,20 @@ function registerInjectorRoutes(getMainWindow) {
         return WebviewController.getPageInfo(event, tabId, getMainWindow);
     });
     
+    ipcMain.handle('webview-create-tab', (event, params) => {
+        return WebviewController.createTab(event, params, getMainWindow);
+    });
+    
     // ─── MCP-level Navigation (main window → specific webview) ───
     
     ipcMain.handle('mcp-navigate-and-wait', (event, params) => {
         return WebviewController.navigateAndWait(event, params, getMainWindow);
+    });
+    
+    // ─── VBox API Execution (MCP → webview) ──────────────────────
+    
+    ipcMain.handle('vbox-api-execute', (event, params) => {
+        return WebviewController.executeVBoxAPI(event, params, getMainWindow);
     });
     
 }

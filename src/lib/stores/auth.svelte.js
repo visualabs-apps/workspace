@@ -98,8 +98,54 @@ function createAuthStore() {
                 const result = await apiLogin(email, password);
 
                 if (result.success) {
+                    // Check if this is a different user than the last logged in user
+                    const lastUserId = localStorage.getItem('last_user_id');
+                    const currentUserId = result.user?.id?.toString();
+                    const isDifferentUser = lastUserId && currentUserId && lastUserId !== currentUserId;
+                    
+                    // If different user, cleanup all previous user data
+                    if (isDifferentUser) {
+                        console.log('[Auth] Different user detected, cleaning up previous user data...');
+                        
+                        try {
+                            // Clear all local data for multi-user safety
+                            if (window.api?.clearAllLocalData) {
+                                await window.api.clearAllLocalData();
+                            }
+                            if (window.api?.clearSessionPartitions) {
+                                await window.api.clearSessionPartitions();
+                            }
+                            
+                            // Reset all stores to prevent stale data from previous user
+                            workspaceStore.reset();
+                            appStore.clearAll();
+                            appStateStore.clearAll();
+                            
+                            // Clear localStorage except email suggestions and user preferences
+                            const emailSuggestions = localStorage.getItem('email_suggestions');
+                            const approvalMode = localStorage.getItem('ai_chat_approval_mode');
+                            localStorage.clear();
+                            if (emailSuggestions) {
+                                localStorage.setItem('email_suggestions', emailSuggestions);
+                            }
+                            if (approvalMode) {
+                                localStorage.setItem('ai_chat_approval_mode', approvalMode);
+                            }
+                            
+                            console.log('[Auth] Previous user data cleaned up successfully');
+                        } catch (cleanupErr) {
+                            console.error('[Auth] Cleanup error:', cleanupErr);
+                        }
+                    }
+                    
+                    // Set new user
                     user = result.user;
                     isLoggedIn = true;
+                    
+                    // Store current user ID for future comparison
+                    if (currentUserId) {
+                        localStorage.setItem('last_user_id', currentUserId);
+                    }
                     
                     // Save email to suggestions for future logins
                     emailSuggestionsStore.addEmail(email);
@@ -150,31 +196,18 @@ function createAuthStore() {
             try {
                 await apiLogout();
                 
-                // Clear all local data for multi-user safety
-                if (window.api?.clearAllLocalData) {
-                    await window.api.clearAllLocalData();
-                }
-                if (window.api?.clearSessionPartitions) {
-                    await window.api.clearSessionPartitions();
-                }
+                // DO NOT cleanup data here - data will be cleaned up on next login
+                // if a different user logs in. This preserves user data between sessions.
                 
-                // Reset all stores to prevent stale data from previous user
-                workspaceStore.reset();
-                appStore.clearAll();
-                appStateStore.clearAll();
-                
-                // Clear localStorage
-                localStorage.clear();
             } catch (err) {
-                console.error('Logout cleanup error:', err);
+                console.error('Logout error:', err);
             } finally {
                 user = null;
                 isLoggedIn = false;
                 isLoading = false;
                 error = null;
 
-                // Clear storage
-                localStorage.clear();
+                // Clear session storage only (not localStorage to preserve user data)
                 sessionStorage.clear();
 
                 // SPA Transition: Just update states (user, isLoggedIn, isLoading, error)

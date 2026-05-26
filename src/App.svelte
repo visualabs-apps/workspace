@@ -246,6 +246,7 @@
         window.scriptInputStore = scriptInputStore;
         window.workspaceStore = workspaceStore;
         window.appStore = appStore;
+        window.appStateStore = appStateStore;
         
         // Load and apply theme
         try {

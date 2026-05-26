@@ -135,6 +135,19 @@ function initDatabase(app) {
                 created_at INTEGER NOT NULL
             )
         `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS ai_chat_messages (
+                id TEXT PRIMARY KEY,
+                profile_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                model TEXT,
+                pricing_json TEXT,
+                is_error INTEGER DEFAULT 0,
+                created_at INTEGER NOT NULL
+            )
+        `);
         
         // Migration: Add gid and download_speed columns if they don't exist
         try {
@@ -164,6 +177,8 @@ function initDatabase(app) {
             CREATE INDEX IF NOT EXISTS idx_downloads_profile_id ON downloads(profile_id);
             CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
             CREATE INDEX IF NOT EXISTS idx_passwords_profile_id ON passwords(profile_id);
+            CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_profile_id ON ai_chat_messages(profile_id);
+            CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_created_at ON ai_chat_messages(profile_id, created_at);
         `);
         
         // Cleanup orphaned downloads (downloads that were interrupted by app close)

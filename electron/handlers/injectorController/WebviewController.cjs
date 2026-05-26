@@ -397,6 +397,175 @@ class WebviewController {
             return { success: false, error: error.message };
         }
     }
+
+    /**
+     * Create a new tab with URL
+     * Called from main window (MCP), creates tab in active workspace
+     */
+    static async createTab(event, { url, title = 'New Tab' }, getMainWindow) {
+        try {
+            const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : getMainWindow;
+            if (!mainWindow) return { success: false, error: 'Main window not found' };
+
+            // Validate URL
+            if (!url || typeof url !== 'string') {
+                return { success: false, error: 'URL is required' };
+            }
+
+            // Try to parse URL, add https:// if needed
+            let parsedUrl;
+            try {
+                parsedUrl = new URL(url);
+            } catch {
+                try {
+                    parsedUrl = new URL('https://' + url);
+                    url = parsedUrl.href;
+                } catch {
+                    return { success: false, error: 'Invalid URL: ' + url };
+                }
+            }
+
+            // Execute in main window to create app (which creates tab)
+            const result = await mainWindow.webContents.executeJavaScript(`
+                (function() {
+                    try {
+                        if (typeof window.workspaceStore === 'undefined' || typeof window.appStore === 'undefined') {
+                            return { success: false, error: 'Stores not available' };
+                        }
+                        
+                        const workspace = window.workspaceStore.activeWorkspace;
+                        if (!workspace) {
+                            return { success: false, error: 'No active workspace' };
+                        }
+                        
+                        // Create new app in workspace (this will create tab automatically)
+                        const newApp = window.appStore.addApp({
+                            name: '${title.replace(/'/g, "\\'")}',
+                            url: '${url}',
+                            icon: '',
+                            isPinned: false
+                        });
+                        
+                        // Add app to workspace
+                        window.workspaceStore.addAppToWorkspace(workspace.id, newApp.id);
+                        
+                        // Set as active app
+                        window.appStore.setActive(newApp.id);
+                        
+                        return {
+                            success: true,
+                            tab: {
+                                id: newApp.id,
+                                url: newApp.url,
+                                title: newApp.name
+                            }
+                        };
+                    } catch (e) {
+                        return { success: false, error: e.message };
+                    }
+                })()
+            `);
+            
+            return result;
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Execute VBox API method in active webview
+     * Called from main window (MCP), executes in webview context
+     */
+    static async executeVBoxAPI(event, { method, params = [], tabId = null }, getMainWindow) {
+        try {
+            const mainWindow = typeof getMainWindow === 'function' ? getMainWindow() : getMainWindow;
+            if (!mainWindow) {
+                return { success: false, error: 'Main window not found' };
+            }
+
+            // Find webview element and get its webContents ID
+            const webContentsId = await mainWindow.webContents.executeJavaScript(`
+                (function() {
+                    let wv = null;
+                    if (${tabId ? `'${tabId}'` : 'null'}) {
+                        // Find webview inside wrapper with data-app-id
+                        const wrapper = document.querySelector('[data-app-id="${tabId}"]');
+                        if (wrapper) {
+                            wv = wrapper.querySelector('webview[data-webview="true"]');
+                        }
+                    } else {
+                        // Find active webview (visible one)
+                        const wrappers = document.querySelectorAll('[data-app-id]');
+                        for (const wrapper of wrappers) {
+                            if (wrapper.style.visibility !== 'hidden') {
+                                wv = wrapper.querySelector('webview[data-webview="true"]');
+                                if (wv) break;
+                            }
+                        }
+                    }
+                    if (!wv) return null;
+                    return wv.getWebContentsId ? wv.getWebContentsId() : null;
+                })()
+            `);
+
+            if (!webContentsId) {
+                return { success: false, error: 'No active webview found' };
+            }
+
+            const { webContents } = require('electron');
+            const targetWebContents = webContents.fromId(webContentsId);
+            if (!targetWebContents) {
+                return { success: false, error: 'Webview webContents not found' };
+            }
+
+            // Execute VBox API method in webview
+            const result = await targetWebContents.executeJavaScript(`
+                (async function() {
+                    try {
+                        // Try to get VBox API
+                        let vbox = window.__VBOX_API__;
+                        
+                        // Try stealth accessor if not found
+                        if (!vbox && typeof window.getVBoxAPI === 'function') {
+                            vbox = window.getVBoxAPI();
+                        }
+                        
+                        // Try Symbol access
+                        if (!vbox) {
+                            const VBOX_SYMBOL = Symbol.for('__vbox_internal__');
+                            vbox = window[VBOX_SYMBOL];
+                        }
+                        
+                        if (!vbox) {
+                            return { 
+                                success: false, 
+                                error: 'VBox API not available in this page'
+                            };
+                        }
+                        
+                        const method = '${method}';
+                        const params = ${JSON.stringify(params)};
+                        
+                        if (typeof vbox[method] !== 'function') {
+                            return { 
+                                success: false, 
+                                error: 'Method not found: ' + method
+                            };
+                        }
+                        
+                        const result = await vbox[method](...params);
+                        return { success: true, data: result };
+                    } catch (error) {
+                        return { success: false, error: error.message };
+                    }
+                })()
+            `);
+
+            return result;
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
 }
 
 module.exports = { WebviewController };

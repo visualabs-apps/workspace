@@ -466,6 +466,31 @@ var require_vboxApi = __commonJS({
         count: function(selector) {
           return document.querySelectorAll(selector).length;
         },
+        query: function(selector, attribute) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length === 0) {
+            return [];
+          }
+          const results = [];
+          elements.forEach((el, index) => {
+            const item = {
+              index,
+              tag: el.tagName.toLowerCase(),
+              text: el.textContent.trim().substring(0, 200)
+            };
+            if (attribute) {
+              item[attribute] = el.getAttribute(attribute);
+            } else {
+              if (el.id) item.id = el.id;
+              if (el.className) item.class = el.className;
+              if (el.href) item.href = el.href;
+              if (el.src) item.src = el.src;
+              if (el.value !== void 0) item.value = el.value;
+            }
+            results.push(item);
+          });
+          return results;
+        },
         scrapeLinks: function(options) {
           if (options === void 0) options = {};
           const {
@@ -1513,59 +1538,6 @@ var require_passwordCapture = __commonJS({
   }
 });
 
-// electron/webview/vboxApiStealth.cjs
-var require_vboxApiStealth = __commonJS({
-  "electron/webview/vboxApiStealth.cjs"(exports2, module2) {
-    function initVBoxApiStealth2() {
-      const VBOX_SYMBOL = Symbol.for("__vbox_internal__");
-      if (typeof window.__VBOX_API__ !== "undefined") {
-        window[VBOX_SYMBOL] = window.__VBOX_API__;
-        try {
-          delete window.__VBOX_API__;
-        } catch (_) {
-          window.__VBOX_API__ = void 0;
-        }
-      }
-      Object.defineProperty(window, "getVBoxAPI", {
-        value: function() {
-          return window[VBOX_SYMBOL];
-        },
-        writable: false,
-        enumerable: false,
-        // Hidden from Object.keys()
-        configurable: false
-      });
-      const vboxGlobals = [
-        "vboxConsole",
-        "vboxPowerPoint",
-        "vboxDownloads",
-        "vboxInput",
-        "vboxScreenshot",
-        "vboxFile",
-        "vboxContext",
-        "vboxNavigation",
-        "vboxCookies",
-        "vboxDialog",
-        "vboxTabs",
-        "vboxPassword"
-      ];
-      vboxGlobals.forEach((key) => {
-        if (typeof window[key] !== "undefined") {
-          const descriptor = Object.getOwnPropertyDescriptor(window, key);
-          if (descriptor && descriptor.configurable) {
-            Object.defineProperty(window, key, {
-              ...descriptor,
-              enumerable: false
-              // Hide from Object.keys() and for...in loops
-            });
-          }
-        }
-      });
-    }
-    module2.exports = { init: initVBoxApiStealth2 };
-  }
-});
-
 // electron/webview/scrollbar.cjs
 var require_scrollbar = __commonJS({
   "electron/webview/scrollbar.cjs"(exports2, module2) {
@@ -1642,7 +1614,6 @@ var { init: initContextBridge } = require_contextBridge();
 var { init: initConsoleOverride } = require_consoleOverride();
 var { init: initVBoxApi2 } = require_vboxApi();
 var { init: initPasswordCapture } = require_passwordCapture();
-var { init: initVBoxApiStealth } = require_vboxApiStealth();
 var { init: initScrollbarStyles } = require_scrollbar();
 initThemeOverride(ipcRenderer);
 initContextBridge(contextBridge, ipcRenderer);
@@ -1650,4 +1621,6 @@ initConsoleOverride(ipcRenderer);
 initVBoxApi2();
 initPasswordCapture(ipcRenderer);
 initScrollbarStyles();
-initVBoxApiStealth();
+if (typeof window.__VBOX_API__ !== "undefined") {
+  contextBridge.exposeInMainWorld("__VBOX_API__", window.__VBOX_API__);
+}

@@ -362,7 +362,7 @@ function registerDatabaseHandlers() {
         try {
             if (!db) return { success: false, error: 'Database not initialized' };
             
-            const tables = ['downloads', 'tabs', 'bookmarks', 'profile_colors', 'app_settings'];
+            const tables = ['downloads', 'tabs', 'bookmarks', 'profile_colors', 'app_settings', 'ai_chat_messages'];
             for (const table of tables) {
                 try {
                     db.exec(`DELETE FROM ${table}`);
@@ -469,6 +469,82 @@ function registerDatabaseHandlers() {
             return { success: true };
         } catch (error) {
             console.error('db-delete-password error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // AI Chat Messages
+    ipcMain.handle('db-save-ai-message', async (event, profileId, message) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            const stmt = db.prepare(`
+                INSERT OR REPLACE INTO ai_chat_messages (id, profile_id, role, content, model, pricing_json, is_error, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            
+            // Convert timestamp to milliseconds if it's a Date object or string
+            let timestamp;
+            if (message.timestamp instanceof Date) {
+                timestamp = message.timestamp.getTime();
+            } else if (typeof message.timestamp === 'string') {
+                timestamp = new Date(message.timestamp).getTime();
+            } else if (typeof message.timestamp === 'number') {
+                timestamp = message.timestamp;
+            } else {
+                timestamp = Date.now();
+            }
+            
+            stmt.run(
+                message.id,
+                profileId,
+                message.role,
+                message.content,
+                message.model || null,
+                message.pricing ? JSON.stringify(message.pricing) : null,
+                message.isError ? 1 : 0,
+                timestamp
+            );
+            return { success: true };
+        } catch (error) {
+            console.error('db-save-ai-message error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('db-get-ai-messages', async (event, profileId) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized', messages: [] };
+            const stmt = db.prepare(`
+                SELECT id, role, content, model, pricing_json, is_error as isError, created_at as timestamp
+                FROM ai_chat_messages
+                WHERE profile_id = ?
+                ORDER BY created_at ASC
+            `);
+            const messages = stmt.all(profileId);
+            
+            // Parse pricing JSON
+            const parsedMessages = messages.map(msg => ({
+                ...msg,
+                pricing: msg.pricing_json ? JSON.parse(msg.pricing_json) : null,
+                isError: msg.isError === 1,
+                timestamp: new Date(msg.timestamp)
+            }));
+            
+            return { success: true, messages: parsedMessages };
+        } catch (error) {
+            console.error('db-get-ai-messages error:', error);
+            return { success: false, error: error.message, messages: [] };
+        }
+    });
+
+    ipcMain.handle('db-clear-ai-messages', async (event, profileId) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            const stmt = db.prepare('DELETE FROM ai_chat_messages WHERE profile_id = ?');
+            stmt.run(profileId);
+            return { success: true };
+        } catch (error) {
+            console.error('db-clear-ai-messages error:', error);
             return { success: false, error: error.message };
         }
     });

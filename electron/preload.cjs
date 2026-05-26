@@ -89,6 +89,11 @@ const api = {
         getPassword: (id) => ipcRenderer.invoke('db-get-password', id),
         savePassword: (passwordData) => ipcRenderer.invoke('db-save-password', passwordData),
         deletePassword: (id) => ipcRenderer.invoke('db-delete-password', id),
+
+        // AI Chat Messages
+        saveAiMessage: (profileId, message) => ipcRenderer.invoke('db-save-ai-message', profileId, message),
+        getAiMessages: (profileId) => ipcRenderer.invoke('db-get-ai-messages', profileId),
+        clearAiMessages: (profileId) => ipcRenderer.invoke('db-clear-ai-messages', profileId),
     },
 
     // Password Manager API (Chrome-like)
@@ -400,7 +405,9 @@ const api = {
         listTabs: () => ipcRenderer.invoke('webview-list-tabs'),
         switchTab: (tabId) => ipcRenderer.invoke('webview-switch-tab', tabId),
         getPageInfo: (tabId) => ipcRenderer.invoke('webview-get-page-info', tabId || null),
+        createTab: (url, title) => ipcRenderer.invoke('webview-create-tab', { url, title }),
         navigateAndWait: (params) => ipcRenderer.invoke('mcp-navigate-and-wait', params),
+        executeVBoxAPI: (params) => ipcRenderer.invoke('vbox-api-execute', params),
     },
 
     // Listen for API logs from main process (available on demand, not auto-forwarded to reduce console noise)

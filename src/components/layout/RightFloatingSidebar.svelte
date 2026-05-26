@@ -48,7 +48,7 @@
 
 <!-- Fixed Sidebar Right -->
 <div 
-    class="fixed z-[200] top-1/2 -translate-y-1/2 flex flex-col justify-center items-center w-20 bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 rounded-tl-2xl rounded-bl-2xl border border-gray-200 dark:border-gray-700 backdrop-blur-sm transition-all duration-300 ease-in-out {containerClass}"
+    class="fixed z-[200] top-1/2 -translate-y-1/2 flex flex-col justify-center items-center w-20 bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 rounded-tl-2xl rounded-bl-2xl border border-gray-200 dark:border-gray-700 backdrop-blur-sm transition-all duration-300 ease-in-out select-none {containerClass}"
     style="box-shadow: 0 10px 40px -10px rgba(0,0,0,0.15);"
 >
     

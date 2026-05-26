@@ -56,6 +56,18 @@ input, textarea, button, select {
   -webkit-app-region: no-drag;
 }
 
+/* Prevent text selection on UI elements but allow in webview content */
+webview {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Allow selection inside webview content */
+webview::part(inner) {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -136,3 +148,52 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 } */
+
+/* Tool Result Accordion */
+.markdown-content details.tool-result-accordion {
+    margin: 0.5rem 0;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 0.375rem;
+    overflow: hidden;
+}
+
+.markdown-content details.tool-result-accordion summary.tool-result-summary {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    background-color: rgba(0, 0, 0, 0.05);
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.875rem;
+}
+
+.markdown-content details.tool-result-accordion summary.tool-result-summary::-webkit-details-marker {
+    display: none;
+}
+
+.markdown-content details.tool-result-accordion summary.tool-result-summary::after {
+    content: 'Show more';
+    font-size: 0.75rem;
+    color: rgba(0, 0, 0, 0.5);
+    font-weight: normal;
+}
+
+.markdown-content details.tool-result-accordion[open] summary.tool-result-summary::after {
+    content: 'Show less';
+}
+
+.markdown-content details.tool-result-accordion summary.tool-result-summary:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+.markdown-content details.tool-result-accordion .tool-result-content {
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+.markdown-content details.tool-result-accordion .tool-result-content pre {
+    margin-bottom: 0;
+}

@@ -19,13 +19,17 @@
     "restart": "npm run kill:electron && npm run dev",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
-    "build": "npm run build:preload && dotenv -e .env.production -- vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis",
+    "build": "npm run build:preload && dotenv -e .env.production -- vite build",
     "build:frontend": "vite build",
     "build:frontend:production": "dotenv -e .env.production -- vite build",
+    "build:win": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win nsis portable",
+    "build:mac": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
+    "build:mac:universal": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac universal",
     "preview": "vite preview",
-    "dist": "npm run build",
-    "dist:win": "npm run build",
-    "dist:nsis": "npm run build",
+    "dist": "npm run build:win",
+    "dist:win": "npm run build:win",
+    "dist:mac": "npm run build:mac",
+    "dist:nsis": "npm run build:win",
     "release": "node scripts/pre-release.mjs",
     "test": "vitest run",
     "test:ui": "vitest --ui",
@@ -74,6 +78,36 @@
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "sign": null,
       "signingHashAlgorithms": []
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "darkModeSupport": true,
+      "extendInfo": {
+        "NSCameraUsageDescription": "VisualBox requires camera access.",
+        "NSMicrophoneUsageDescription": "VisualBox requires microphone access."
+      }
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -125,11 +159,13 @@
     "codemirror": "^6.0.2",
     "dexie": "^4.3.0",
     "docxtemplater": "^3.68.7",
+    "draggabilly": "^3.0.0",
     "electron-dl": "^4.0.0",
     "electron-store": "^8.2.0",
     "fs-extra": "^11.3.4",
     "keytar": "^7.9.0",
     "lucide-svelte": "^0.563.0",
+    "marked": "^18.0.4",
     "pizzip": "^3.2.0",
     "pptxgenjs": "^4.0.1",
     "sharp": "^0.34.5",

@@ -8,6 +8,7 @@
         Pin,
         Share2,
         Cookie,
+        VolumeX,
     } from "lucide-svelte";
     import { slide, fade } from 'svelte/transition';
     import { appStateStore } from "../../lib/stores/appState.svelte.js";
@@ -16,7 +17,8 @@
     import { navigationStore } from "../../lib/managers/navigation.svelte.js";
     import { toastStore } from "../../lib/managers/toast.svelte.js";
     import Favicon from "../ui/Favicon.svelte";
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
+    import Draggabilly from "draggabilly";
 
     let { app = null } = $props();
     
@@ -83,9 +85,9 @@
 
     let activeTabId = $derived(appStore.activeAppId);
 
-    // Drag and drop state
-    let draggedTabId = $state(null);
-    let dragOverTabId = $state(null);
+    // Draggabilly instances
+    let draggabillies = [];
+    let draggedTabId = null;
 
     // Context menu state
     let contextMenu = $state({ show: false, x: 0, y: 0, tabId: null });
@@ -100,6 +102,199 @@
                 });
             }, 0);
         }
+    });
+    
+    // Setup Draggabilly for tabs
+    function setupDraggabilly() {
+        // Cleanup old instances
+        draggabillies.forEach(d => d.destroy());
+        draggabillies = [];
+        
+        // Query all tab elements by data attribute
+        const tabElements = document.querySelectorAll('[data-tab-id]');
+        
+        tabElements.forEach((element) => {
+            const tabId = element.getAttribute('data-tab-id');
+            if (!tabId) return;
+            
+            const tab = tabsData.find(t => t.id === tabId);
+            if (!tab) return;
+            
+            const draggabilly = new Draggabilly(element, {
+                axis: 'x'
+            });
+            
+            draggabillies.push(draggabilly);
+            
+            let originalIndex = -1;
+            let currentHoverIndex = -1;
+            
+            draggabilly.on('dragStart', () => {
+                draggedTabId = tabId;
+                appStateStore.setDragging(true);
+                element.style.zIndex = '1000';
+                element.style.opacity = '0.7';
+                element.style.cursor = 'grabbing';
+                element.style.transition = 'none'; // Disable transition during drag
+                
+                // Store original index
+                const allTabs = Array.from(tabElements);
+                originalIndex = allTabs.findIndex((el) => el.getAttribute('data-tab-id') === tabId);
+                currentHoverIndex = originalIndex;
+            });
+            
+            draggabilly.on('dragMove', () => {
+                // Visual feedback during drag
+                const currentRect = element.getBoundingClientRect();
+                const currentCenter = currentRect.left + currentRect.width / 2;
+                
+                const allTabs = Array.from(tabElements);
+                let newHoverIndex = originalIndex;
+                let closestDistance = Infinity;
+                
+                // Find which tab we're hovering over
+                allTabs.forEach((el, index) => {
+                    const id = el.getAttribute('data-tab-id');
+                    if (id === tabId || !el) return;
+                    
+                    const targetTab = tabsData.find(t => t.id === id);
+                    const draggedTab = tabsData.find(t => t.id === draggedTabId);
+                    
+                    // Only consider tabs with same pinned status
+                    if (targetTab && draggedTab && targetTab.isPinned === draggedTab.isPinned) {
+                        const rect = el.getBoundingClientRect();
+                        const center = rect.left + rect.width / 2;
+                        const distance = Math.abs(currentCenter - center);
+                        
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            newHoverIndex = index;
+                        }
+                    }
+                });
+                
+                // If hover index changed, animate other tabs
+                if (newHoverIndex !== currentHoverIndex) {
+                    currentHoverIndex = newHoverIndex;
+                    
+                    // Animate all tabs except the dragged one
+                    allTabs.forEach((el, index) => {
+                        const id = el.getAttribute('data-tab-id');
+                        if (id === tabId) return;
+                        
+                        const targetTab = tabsData.find(t => t.id === id);
+                        const draggedTab = tabsData.find(t => t.id === draggedTabId);
+                        
+                        // Only animate tabs with same pinned status
+                        if (targetTab && draggedTab && targetTab.isPinned === draggedTab.isPinned) {
+                            // Calculate shift amount
+                            let shift = 0;
+                            
+                            if (originalIndex < currentHoverIndex) {
+                                // Dragging right
+                                if (index > originalIndex && index <= currentHoverIndex) {
+                                    shift = -element.offsetWidth - 4; // Shift left (gap included)
+                                }
+                            } else if (originalIndex > currentHoverIndex) {
+                                // Dragging left
+                                if (index < originalIndex && index >= currentHoverIndex) {
+                                    shift = element.offsetWidth + 4; // Shift right (gap included)
+                                }
+                            }
+                            
+                            el.style.transition = 'transform 0.2s ease';
+                            el.style.transform = shift !== 0 ? `translateX(${shift}px)` : '';
+                        }
+                    });
+                }
+            });
+            
+            draggabilly.on('dragEnd', () => {
+                appStateStore.setDragging(false);
+                
+                // Immediately disable transition and reset position
+                element.style.transition = 'none';
+                element.style.transform = '';
+                element.style.left = '';
+                element.style.zIndex = '';
+                element.style.opacity = '';
+                element.style.cursor = '';
+                
+                // Reset all tab transforms immediately
+                const allTabs = Array.from(tabElements);
+                allTabs.forEach((el) => {
+                    el.style.transition = 'none';
+                    el.style.transform = '';
+                });
+                
+                // Calculate new position based on visual order
+                const currentIndex = allTabs.findIndex((el) => el.getAttribute('data-tab-id') === tabId);
+                
+                if (currentIndex === -1) {
+                    draggedTabId = null;
+                    return;
+                }
+                
+                const closestIndex = currentHoverIndex;
+                
+                // Reorder if position changed
+                if (closestIndex !== currentIndex && workspaceStore.activeWorkspace) {
+                    // Get the IDs in current visual order
+                    const visualOrder = allTabs.map(el => el.getAttribute('data-tab-id'));
+                    
+                    // Remove dragged tab from its current position
+                    visualOrder.splice(currentIndex, 1);
+                    
+                    // Insert at new position
+                    visualOrder.splice(closestIndex, 0, tabId);
+                    
+                    // Update workspace apps order directly - use untrack to prevent reactivity
+                    const workspace = workspaceStore.activeWorkspace;
+                    
+                    // Directly mutate the array without triggering Svelte reactivity
+                    workspace.apps.length = 0;
+                    workspace.apps.push(...visualOrder);
+                    
+                    // Save to SQLite asynchronously
+                    (async () => {
+                        try {
+                            const plainApps = [...visualOrder];
+                            await window.api.db.saveSetting(`workspace_apps_${workspace.id}`, plainApps);
+                        } catch (error) {
+                            console.error('Failed to save workspace apps order:', error);
+                        }
+                    })();
+                }
+                
+                // Re-enable transitions after a short delay
+                setTimeout(() => {
+                    allTabs.forEach((el) => {
+                        el.style.transition = '';
+                    });
+                }, 50);
+                
+                draggedTabId = null;
+            });
+        });
+    }
+    
+    // Watch for tab changes and setup draggabilly
+    $effect(() => {
+        if (tabsData.length > 0) {
+            // Small delay to ensure DOM is updated
+            setTimeout(() => {
+                setupDraggabilly();
+            }, 50);
+        }
+        
+        return () => {
+            draggabillies.forEach(d => d.destroy());
+            draggabillies = [];
+        };
+    });
+    
+    onDestroy(() => {
+        draggabillies.forEach(d => d.destroy());
     });
 
     // Keyboard shortcuts
@@ -400,137 +595,52 @@
         appStore.setActive(tabId);
     }
 
-    // Native HTML5 Drag and Drop functions
-    function handleDragStart(e, tabId) {
-        draggedTabId = tabId;
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', tabId);
-        
-        // Add visual feedback
-        e.target.style.opacity = '0.5';
-        
-        // Set global drag state to prevent webview interactions
-        appStateStore.setDragging(true);
-    }
 
-    function handleDragEnd(e) {
-        // Reset visual feedback
-        e.target.style.opacity = '1';
-        draggedTabId = null;
-        dragOverTabId = null;
-        appStateStore.setDragging(false);
-    }
-
-    function handleDragOver(e, tabId) {
-        e.preventDefault();
-        
-        if (draggedTabId && draggedTabId !== tabId) {
-            // Check if both tabs have the same pinned status
-            const draggedTab = tabsData.find(t => t.id === draggedTabId);
-            const targetTab = tabsData.find(t => t.id === tabId);
-            
-            // Only allow drag over if both are pinned or both are unpinned
-            if (draggedTab && targetTab && draggedTab.isPinned === targetTab.isPinned) {
-                e.dataTransfer.dropEffect = 'move';
-                dragOverTabId = tabId;
-            } else {
-                e.dataTransfer.dropEffect = 'none';
-                dragOverTabId = null;
-            }
-        }
-    }
-
-    function handleDragLeave(e) {
-        // Only clear dragOverTabId if we're actually leaving the tab area
-        if (!e.currentTarget.contains(e.relatedTarget)) {
-            dragOverTabId = null;
-        }
-    }
-
-    function handleDrop(e, dropTabId) {
-        e.preventDefault();
-        
-        if (draggedTabId && draggedTabId !== dropTabId) {
-            // Check if both tabs have the same pinned status
-            const draggedTab = tabsData.find(t => t.id === draggedTabId);
-            const targetTab = tabsData.find(t => t.id === dropTabId);
-            
-            // Only allow drop if both are pinned or both are unpinned
-            if (!draggedTab || !targetTab || draggedTab.isPinned !== targetTab.isPinned) {
-                dragOverTabId = null;
-                return;
-            }
-            
-            // Work directly with appStore.apps
-            const currentServices = [...appStore.apps];
-            const draggedIndex = currentServices.findIndex(s => s.id === draggedTabId);
-            const dropIndex = currentServices.findIndex(s => s.id === dropTabId);
-            
-            if (draggedIndex !== -1 && dropIndex !== -1) {
-                // Remove dragged app
-                const [draggedService] = currentServices.splice(draggedIndex, 1);
-                
-                // Insert at correct position
-                let insertIndex;
-                if (draggedIndex < dropIndex) {
-                    // Moving right - after removal, dropIndex shifts left by 1
-                    insertIndex = dropIndex;
-                } else {
-                    // Moving left - dropIndex unchanged
-                    insertIndex = dropIndex;
-                }
-                
-                currentServices.splice(insertIndex, 0, draggedService);
-                
-                // Update app store
-                appStore.reorderApps(currentServices);
-            }
-        }
-        
-        dragOverTabId = null;
-    }
 </script>
 
 <div
-    class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 inline-flex items-center px-1.5 py-1.5 gap-1 overflow-x-auto overflow-y-hidden w-full"
+    class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 inline-flex items-center px-1.5 py-1.5 gap-1 overflow-x-auto overflow-y-hidden w-full select-none"
 >
     {#if tabsData.length > 0}
-        {@const tabCount = tabsData.length}
-        {@const availableWidth = 1200}
+        {@const pinnedTabs = tabsData.filter(t => t.isPinned)}
+        {@const unpinnedTabs = tabsData.filter(t => !t.isPinned)}
+        {@const pinnedCount = pinnedTabs.length}
+        {@const unpinnedCount = unpinnedTabs.length}
+        
+        <!-- Calculate available width for tabs -->
+        {@const containerWidth = typeof window !== 'undefined' ? window.innerWidth : 1200}
+        {@const sidebarWidth = 220}
         {@const buttonWidth = 40}
-        {@const usableWidth = availableWidth - buttonWidth - 20}
-        {@const idealTabWidth = Math.max(
-            80,
-            Math.min(200, Math.floor(usableWidth / tabCount)),
-        )}
+        {@const padding = 20}
+        {@const availableWidth = containerWidth - sidebarWidth - buttonWidth - padding}
+        
+        <!-- Calculate tab widths -->
+        {@const pinnedTabWidth = 60}
+        {@const totalPinnedWidth = pinnedCount * (pinnedTabWidth + 4)}
+        {@const remainingWidth = availableWidth - totalPinnedWidth}
+        
+        <!-- Unpinned tabs share remaining width equally -->
+        {@const unpinnedTabWidth = unpinnedCount > 0 
+            ? Math.max(100, Math.min(240, Math.floor(remainingWidth / unpinnedCount) - 4))
+            : 240}
 
         <div class="flex items-center gap-1">
             {#each tabsData as tab (tab.id)}
                 {@const isActive = activeTabId === tab.id}
                 {@const isPinned = tab.isPinned || false}
                 {@const isMuted = tab.isMuted || false}
-                {@const isDraggedOver = dragOverTabId === tab.id}
+                {@const tabWidth = isPinned ? pinnedTabWidth : unpinnedTabWidth}
 
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
-                    class="group flex items-center gap-2 px-3 py-1.5 transition-all shrink-0 cursor-pointer rounded-t-lg
+                    data-tab-id={tab.id}
+                    class="group flex items-center gap-2 px-3 py-1.5 transition-all shrink-0 cursor-grab active:cursor-grabbing rounded-t-lg
                         {isActive
                         ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-t-2 border-blue-500 shadow-sm'
                         : 'bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 border-t-2 border-transparent'}
-                        {isDraggedOver ? 'border-l-2 border-blue-500' : ''}
                         {isPinned && !isActive ? 'border-l-2 border-blue-500' : ''}"
-                    style="max-width: {isPinned
-                        ? '60px'
-                        : idealTabWidth + 'px'}; min-width: {isPinned
-                        ? '60px'
-                        : '100px'};"
-                    draggable="true"
-                    ondragstart={(e) => handleDragStart(e, tab.id)}
-                    ondragend={handleDragEnd}
-                    ondragover={(e) => handleDragOver(e, tab.id)}
-                    ondragleave={handleDragLeave}
-                    ondrop={(e) => handleDrop(e, tab.id)}
+                    style="width: {tabWidth}px; min-width: {tabWidth}px; max-width: {tabWidth}px;"
                     onclick={(e) => {
                         // Don't trigger if clicking close button
                         if (!e.target.closest("button")) {
@@ -728,15 +838,6 @@
         100% {
             transform: rotate(360deg);
         }
-    }
-
-    /* Drag and drop visual feedback */
-    .group[draggable="true"]:hover {
-        cursor: grab;
-    }
-
-    .group[draggable="true"]:active {
-        cursor: grabbing;
     }
 
     /* Smooth transitions for drag feedback */

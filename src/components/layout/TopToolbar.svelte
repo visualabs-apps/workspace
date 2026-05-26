@@ -442,7 +442,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-    class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex items-center shrink-0 h-12 px-1 gap-2"
+    class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 flex items-center shrink-0 h-12 px-1 gap-2 select-none"
     style="-webkit-app-region: drag"
     role="toolbar"
     aria-label="Browser toolbar"

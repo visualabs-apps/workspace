@@ -13,6 +13,13 @@
 
     onMount(() => {
         console.log('[LoginPage] Mounted. api exists:', !!window.api, 'resetWindowHitTest exists:', !!window.api?.resetWindowHitTest);
+        
+        // Load last logged in email
+        const lastEmail = localStorage.getItem('last_login_email');
+        if (lastEmail) {
+            email = lastEmail;
+        }
+        
         // Fix input clickability by forcing Electron/Windows OS to re-evaluate hit-test regions
         window.api?.resetWindowHitTest?.();
         
@@ -21,8 +28,16 @@
             console.log('[LoginPage] Triggering secondary hit-test reset');
             window.api?.resetWindowHitTest?.();
             if (emailInput && !isLoading) {
-                emailInput.focus();
-                console.log('[LoginPage] Focused email input programmatically');
+                // If email is autofilled, focus password field instead
+                if (lastEmail) {
+                    const passwordInput = document.getElementById('password');
+                    if (passwordInput) {
+                        passwordInput.focus();
+                    }
+                } else {
+                    emailInput.focus();
+                }
+                console.log('[LoginPage] Focused input programmatically');
             }
         }, 400);
     });
@@ -59,6 +74,9 @@
             const result = await authStore.login(email.trim(), password);
             if (!result.success) {
                 errorMessage = result.error || "Login gagal";
+            } else {
+                // Save email for autofill on next login
+                localStorage.setItem('last_login_email', email.trim());
             }
         } catch (error) {
             errorMessage = "Terjadi kesalahan yang tidak terduga";
