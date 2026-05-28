@@ -146,6 +146,21 @@
         }
     });
 
+    // Listen for monitoring-started from Staff Monitoring child window
+    $effect(() => {
+        if (window.api?.onParentMessage) {
+            const cleanup = window.api.onParentMessage('monitoring-started', async (data) => {
+                console.log('[Sidebar] Monitoring started:', data);
+                if (data?.userId) {
+                    await workspaceStore.startMonitoring(data.userId);
+                    toastStore.success(`Monitoring ${data.userName || 'user'}'s profiles`);
+                }
+            });
+
+            return cleanup;
+        }
+    });
+
     function toggleAddModal(e) {
         if (e) {
             e.stopPropagation();

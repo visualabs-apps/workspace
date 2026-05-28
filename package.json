@@ -96,12 +96,16 @@
           ]
         }
       ],
+      "icon": "public/VBOXICON.png",
       "category": "public.app-category.productivity",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "darkModeSupport": true,
       "extendInfo": {
+        "CFBundleName": "VisualBox",
+        "CFBundleDisplayName": "VisualBox",
+        "CFBundleExecutable": "VisualBox",
         "NSCameraUsageDescription": "VisualBox requires camera access.",
         "NSMicrophoneUsageDescription": "VisualBox requires microphone access."
       }
