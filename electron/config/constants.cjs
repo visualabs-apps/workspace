@@ -28,21 +28,29 @@ function loadEnvFile() {
 }
 loadEnvFile();
 
-const CHROME_VERSION = '132.0.0.0';
-const CHROME_VERSION_FULL = '132.0.6834.210';
+const CHROME_VERSION = '148.0.0.0';
+const CHROME_VERSION_FULL = '148.0.6778.69';
 
 // Platform-aware User-Agent strings
 const UA_WINDOWS = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
 const UA_MAC = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
+const UA_LINUX = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VERSION} Safari/537.36`;
 
 // Select UA based on current platform
-const CHROME_UA = process.platform === 'darwin' ? UA_MAC : UA_WINDOWS;
+let CHROME_UA;
+if (process.platform === 'darwin') {
+    CHROME_UA = UA_MAC;
+} else if (process.platform === 'linux') {
+    CHROME_UA = UA_LINUX;
+} else {
+    CHROME_UA = UA_WINDOWS;
+}
 
 // Platform-aware Client Hints — must include "Google Chrome" brand
-const SEC_CH_UA = `"Chromium";v="132", "Not_A Brand";v="24", "Google Chrome";v="132"`;
+const SEC_CH_UA = `"Chromium";v="148", "Not_A Brand";v="24", "Google Chrome";v="148"`;
 // For Google login: don't claim "Google Chrome" (Google can verify this cryptographically)
-const SEC_CH_UA_GOOGLE = `"Chromium";v="132", "Not_A Brand";v="24"`;
-const SEC_CH_UA_PLATFORM = process.platform === 'darwin' ? '"macOS"' : '"Windows"';
+const SEC_CH_UA_GOOGLE = `"Chromium";v="148", "Not_A Brand";v="24"`;
+const SEC_CH_UA_PLATFORM = process.platform === 'darwin' ? '"macOS"' : process.platform === 'linux' ? '"Linux"' : '"Windows"';
 
 // Accept-Language header (natural browsing pattern)
 const ACCEPT_LANGUAGE = 'en-US,en;q=0.9';

@@ -169,7 +169,7 @@ function initDatabase(app) {
         
         if (cleanupResult.changes > 0) {
         }
-        
+
         db.exec(`
             CREATE INDEX IF NOT EXISTS idx_tabs_profile_id ON tabs(profile_id);
             CREATE INDEX IF NOT EXISTS idx_tabs_position ON tabs(profile_id, position);

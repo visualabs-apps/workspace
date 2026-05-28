@@ -1,7 +1,7 @@
 /**
  * Stealth Evasion Bundle
  * Auto-generated from puppeteer-extra-plugin-stealth
- * Generated at: 2026-05-28T14:34:51.215Z
+ * Generated at: 2026-05-28T18:00:49.721Z
  * 
  * Included evasions: chrome.app, chrome.csi, chrome.loadTimes, chrome.runtime, iframe.contentWindow, media.codecs, navigator.hardwareConcurrency, navigator.languages, navigator.permissions, navigator.plugins, navigator.vendor, navigator.webdriver, window.outerdimensions
  * 

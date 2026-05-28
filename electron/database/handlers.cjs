@@ -550,6 +550,148 @@ function registerDatabaseHandlers() {
             return { success: false, error: error.message };
         }
     });
+
+    // ── Extension CRUD ──────────────────────────────────────────────────
+
+    // Save extension metadata
+    ipcMain.handle('db-save-extension', async (event, extData) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            const stmt = db.prepare(`
+                INSERT OR REPLACE INTO extensions (id, name, description, version, icon_path, manifest, source_path, enabled, partition, is_unpacked, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            const now = Date.now();
+            stmt.run(
+                extData.id,
+                extData.name,
+                extData.description || '',
+                extData.version,
+                extData.iconPath || '',
+                typeof extData.manifest === 'string' ? extData.manifest : JSON.stringify(extData.manifest),
+                extData.sourcePath,
+                extData.enabled !== undefined ? (extData.enabled ? 1 : 0) : 1,
+                extData.partition,
+                extData.isUnpacked ? 1 : 0,
+                extData.createdAt || now,
+                now
+            );
+            return { success: true };
+        } catch (error) {
+            console.error('db-save-extension error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Get extensions by partition
+    ipcMain.handle('db-get-extensions', async (event, partition) => {
+        try {
+            if (!db) return { success: true, extensions: [] };
+            const stmt = db.prepare('SELECT * FROM extensions WHERE partition = ? ORDER BY created_at DESC');
+            const rows = stmt.all(partition);
+            const extensions = rows.map(row => ({
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                version: row.version,
+                iconPath: row.icon_path,
+                manifest: JSON.parse(row.manifest),
+                sourcePath: row.source_path,
+                enabled: row.enabled === 1,
+                partition: row.partition,
+                isUnpacked: row.is_unpacked === 1,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at
+            }));
+            return { success: true, extensions };
+        } catch (error) {
+            console.error('db-get-extensions error:', error);
+            return { success: false, error: error.message, extensions: [] };
+        }
+    });
+
+    // Get all extensions (all partitions)
+    ipcMain.handle('db-get-all-extensions', async () => {
+        try {
+            if (!db) return { success: true, extensions: [] };
+            const stmt = db.prepare('SELECT * FROM extensions ORDER BY partition, created_at DESC');
+            const rows = stmt.all();
+            const extensions = rows.map(row => ({
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                version: row.version,
+                iconPath: row.icon_path,
+                manifest: JSON.parse(row.manifest),
+                sourcePath: row.source_path,
+                enabled: row.enabled === 1,
+                partition: row.partition,
+                isUnpacked: row.is_unpacked === 1,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at
+            }));
+            return { success: true, extensions };
+        } catch (error) {
+            console.error('db-get-all-extensions error:', error);
+            return { success: false, error: error.message, extensions: [] };
+        }
+    });
+
+    // Get single extension
+    ipcMain.handle('db-get-extension', async (event, extId) => {
+        try {
+            if (!db) return { success: true, extension: null };
+            const stmt = db.prepare('SELECT * FROM extensions WHERE id = ?');
+            const row = stmt.get(extId);
+            if (!row) return { success: true, extension: null };
+            return {
+                success: true,
+                extension: {
+                    id: row.id,
+                    name: row.name,
+                    description: row.description,
+                    version: row.version,
+                    iconPath: row.icon_path,
+                    manifest: JSON.parse(row.manifest),
+                    sourcePath: row.source_path,
+                    enabled: row.enabled === 1,
+                    partition: row.partition,
+                    isUnpacked: row.is_unpacked === 1,
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at
+                }
+            };
+        } catch (error) {
+            console.error('db-get-extension error:', error);
+            return { success: false, error: error.message, extension: null };
+        }
+    });
+
+    // Toggle extension enabled/disabled
+    ipcMain.handle('db-toggle-extension', async (event, extId, enabled) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            const stmt = db.prepare('UPDATE extensions SET enabled = ?, updated_at = ? WHERE id = ?');
+            stmt.run(enabled ? 1 : 0, Date.now(), extId);
+            return { success: true };
+        } catch (error) {
+            console.error('db-toggle-extension error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Delete extension metadata
+    ipcMain.handle('db-delete-extension', async (event, extId) => {
+        try {
+            if (!db) return { success: false, error: 'Database not initialized' };
+            const stmt = db.prepare('DELETE FROM extensions WHERE id = ?');
+            stmt.run(extId);
+            return { success: true };
+        } catch (error) {
+            console.error('db-delete-extension error:', error);
+            return { success: false, error: error.message };
+        }
+    });
 }
 
 module.exports = { registerDatabaseHandlers };

@@ -17,10 +17,14 @@
         Info,
         Moon,
         Sun,
+        Puzzle,
+        Trash2,
+        Plus,
     } from "lucide-svelte";
     import { toastStore } from "../lib/managers/toast.svelte.js";
     import { tabLifetimeManager } from "../lib/managers/tabLifetime.svelte.js";
     import { dataSyncManager } from "../lib/managers/dataSync.svelte.js";
+    import { workspaceStore } from "../lib/stores/workspaces.svelte.js";
 
     const WINDOW_ID = "settings-window";
 
@@ -55,6 +59,60 @@
         assetSize: 0,
     });
     let updateError = $state("");
+    
+    // Extensions state
+    let extensions = $state([]);
+    let isLoadingExtensions = $state(false);
+
+    // Get workspace list for partition selector
+    let workspaceList = $derived(workspaceStore.workspaces);
+    
+    async function loadExtensions() {
+        isLoadingExtensions = true;
+        try {
+            const result = await window.api.extensions.getExtensions();
+            if (result.success) {
+                extensions = result.extensions;
+            } else {
+                toastStore.error(result.error || 'Failed to load extensions');
+            }
+        } catch (error) {
+            toastStore.error(error.message);
+        } finally {
+            isLoadingExtensions = false;
+        }
+    }
+    
+    async function handleLoadExtension() {
+        try {
+            const dirResult = await window.api.extensions.selectDirectory();
+            if (!dirResult.success || dirResult.canceled) return;
+
+            const result = await window.api.extensions.loadExtension(dirResult.path);
+            if (result.success) {
+                toastStore.success(`Extension "${result.extension.name}" loaded`);
+                await loadExtensions();
+            } else {
+                toastStore.error(result.error || 'Failed to load extension');
+            }
+        } catch (error) {
+            toastStore.error(error.message);
+        }
+    }
+    
+    async function handleRemoveExtension(ext) {
+        try {
+            const result = await window.api.extensions.removeExtension(ext.id);
+            if (result.success) {
+                toastStore.success(`Extension "${ext.name}" removed`);
+                await loadExtensions();
+            } else {
+                toastStore.error(result.error || 'Failed to remove extension');
+            }
+        } catch (error) {
+            toastStore.error(error.message);
+        }
+    }
 
     async function checkUpdate() {
         updateStatus = "checking";
@@ -117,6 +175,7 @@
         { id: "appearance", label: "Appearance", icon: Palette },
         { id: "tabs", label: "Tabs", icon: Layers },
         { id: "search", label: "Search", icon: Search },
+        { id: "extensions", label: "Extensions", icon: Puzzle },
         { id: "dataSync", label: "Data Sync", icon: Database },
         { id: "developer", label: "Developer", icon: Code },
         { id: "update", label: "About", icon: Info },
@@ -228,6 +287,7 @@
     // Load settings on mount
     $effect(() => {
         loadSettings();
+        loadExtensions();
         // Load current version
         window.api
             .getAppVersion?.()
@@ -719,6 +779,82 @@
                                     {/each}
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                {:else if activeTab === "extensions"}
+                    <div class="space-y-6">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                                Extensions
+                            </h3>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">
+                                Manage Chrome extensions globally
+                            </p>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button
+                                onclick={handleLoadExtension}
+                                class="flex items-center gap-2 px-4 py-2 bg-purple-500 dark:bg-purple-600 text-white rounded-lg hover:bg-purple-600 dark:hover:bg-purple-700 transition-colors text-sm font-medium"
+                            >
+                                <Plus size={16} />
+                                Load Extension
+                            </button>
+                        </div>
+
+                        {#if isLoadingExtensions}
+                            <div class="flex items-center justify-center py-12">
+                                <RefreshCw size={24} class="animate-spin text-gray-400" />
+                                <span class="ml-2 text-sm text-gray-500 dark:text-gray-400">Loading...</span>
+                            </div>
+                        {:else if extensions.length === 0}
+                            <div class="text-center py-12">
+                                <Puzzle size={48} class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+                                <p class="text-sm text-gray-500 dark:text-gray-400">
+                                    No extensions installed
+                                </p>
+                                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                                    Load an extension folder or install from Chrome Web Store
+                                </p>
+                            </div>
+                        {:else}
+                            <div class="space-y-2">
+                                {#each extensions as ext (ext.id)}
+                                    <div class="flex items-center gap-3 p-3 bg-white dark:bg-gray-750 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                        <div class="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
+                                            <Puzzle size={20} class="text-purple-600 dark:text-purple-400" />
+                                        </div>
+
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                                    {ext.name}
+                                                </h4>
+                                                <span class="text-xs text-gray-400 dark:text-gray-500">
+                                                    v{ext.version}
+                                                </span>
+                                            </div>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                                {ext.description || 'No description'}
+                                            </p>
+                                        </div>
+
+                                        <button
+                                            onclick={() => handleRemoveExtension(ext)}
+                                            title="Remove"
+                                            class="p-2 text-gray-400 hover:text-red-500 dark:hover:text-red-400 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                {/each}
+                            </div>
+                        {/if}
+
+                        <div class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <p class="text-xs text-blue-600 dark:text-blue-400">
+                                💡 Load unpacked extension folders or download .crx files manually
+                            </p>
                         </div>
                     </div>
                 {:else if activeTab === "dataSync"}

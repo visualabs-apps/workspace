@@ -51,6 +51,9 @@ app.on('ready', async () => {
     // Initialize database first
     initDatabase(app);
     
+    // Set user agent for default session to match Chrome
+    session.defaultSession.setUserAgent(CHROME_UA);
+    
     // Apply saved theme to Electron's nativeTheme BEFORE creating windows.
     // This controls window background color, prefers-color-scheme in webviews,
     // scrollbars, and other OS-level theme behaviors.
