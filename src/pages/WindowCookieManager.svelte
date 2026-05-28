@@ -71,9 +71,63 @@
 
     $effect(() => {
         if (isOpen && profileId) {
-            loadCookiesFromServer();
+            // Upload local cookies to server first, then load from server
+            uploadThenLoad();
         }
     });
+
+    /**
+     * Build a unique key for a cookie (name + domain + path).
+     */
+    function cookieKey(c) {
+        return `${c.name}|${c.domain}|${c.path || '/'}`;
+    }
+
+    /**
+     * Upload local browsing cookies to server, then reload from server.
+     * Self-contained — does NOT depend on workspaceStore or dataSyncManager
+     * (those are not initialized in child window context).
+     */
+    async function uploadThenLoad() {
+        console.log('[CookieManager] uploadThenLoad called', { profileId, partition });
+
+        if (!profileId || !partition) {
+            // No partition info — skip upload, just load from server
+            console.warn('[CookieManager] Missing profileId or partition, skipping upload');
+            await loadCookiesFromServer();
+            return;
+        }
+
+        try {
+            // Step 1: Read local cookies from Electron partition session
+            // Local cookies = source of truth. If a cookie is gone locally
+            // (e.g. user logged out), it will also be removed from server.
+            let localCookies = [];
+            try {
+                localCookies = await window.api.db.getCookiesFromPartition(partition) || [];
+                console.log(`[CookieManager] Read ${localCookies.length} local cookies from partition "${partition}"`);
+            } catch (err) {
+                console.warn('[CookieManager] Failed to read local cookies:', err);
+            }
+
+            // Step 2: Upload local cookies to server (local = source of truth)
+            // This replaces all server cookies with local cookies.
+            // If user logged out → cookie gone locally → also gone from server.
+            const safeCookies = JSON.parse(JSON.stringify(localCookies));
+            const uploadResult = await updateChromeProfile(profileId, { cookies: safeCookies });
+
+            if (uploadResult.success) {
+                console.log(`[CookieManager] Synced ${localCookies.length} local cookies to server (replaced server state)`);
+            } else {
+                console.warn('[CookieManager] Upload failed:', uploadResult.error);
+            }
+        } catch (e) {
+            console.warn('[CookieManager] Pre-load upload failed:', e);
+        }
+
+        // Step 5: Load from server (includes the cookies we just uploaded)
+        await loadCookiesFromServer();
+    }
 
     /**
      * Load cookies from backend server (source of truth)

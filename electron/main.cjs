@@ -22,7 +22,7 @@ app.setName(isDevEnvironment ? 'VisualBox Dev' : 'VisualBox');
 // Initialize aria2
 const aria2 = new Aria2Manager();
 
-const { CHROME_UA, VERSION_CHECK_INTERVAL } = require('./config/constants.cjs');
+const { CHROME_UA, SEC_CH_UA, SEC_CH_UA_PLATFORM, ACCEPT_LANGUAGE, VERSION_CHECK_INTERVAL, getUserAgentForURL, getSecChUaForURL } = require('./config/constants.cjs');
 app.userAgentFallback = CHROME_UA;
 
 // Import modules
@@ -151,21 +151,44 @@ app.on('ready', async () => {
 
     const defaultSession = session.defaultSession;
 
-    defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-        details.requestHeaders['User-Agent'] = CHROME_UA;
-        
-        // Add Chrome Client Hints headers to match Chrome 131 (current stable)
-        details.requestHeaders['sec-ch-ua'] = '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"';
-        details.requestHeaders['sec-ch-ua-mobile'] = '?0';
-        details.requestHeaders['sec-ch-ua-platform'] = '"Windows"';
-        
-        callback({ requestHeaders: details.requestHeaders });
-    });
+    // ✅ STEALTH: Reusable header spoofing function for any session (default + webview partitions)
+    // Uses per-URL logic learned from v-box-latest (Wexond):
+    // - For Google login URLs: removes Chrome component from UA, doesn't claim "Google Chrome" brand
+    // - For all other URLs: full Chrome UA with "Google Chrome" brand
+    function applyStealthHeaders(ses) {
+        ses.webRequest.onBeforeSendHeaders((details, callback) => {
+            const url = details.url || '';
+            
+            // Per-URL User-Agent (like v-box-latest getUserAgentForURL)
+            // For Google login: removes Chrome component to avoid version mismatch detection
+            details.requestHeaders['User-Agent'] = getUserAgentForURL(url);
+            
+            // Per-URL sec-ch-ua (Client Hints)
+            // For Google login: only "Chromium" brand, not "Google Chrome"
+            details.requestHeaders['sec-ch-ua'] = getSecChUaForURL(url);
+            details.requestHeaders['sec-ch-ua-mobile'] = '?0';
+            details.requestHeaders['sec-ch-ua-platform'] = SEC_CH_UA_PLATFORM;
+            
+            // Natural Accept-Language
+            if (!details.requestHeaders['Accept-Language']) {
+                details.requestHeaders['Accept-Language'] = ACCEPT_LANGUAGE;
+            }
+            
+            // Remove automation/framework headers that expose Electron
+            delete details.requestHeaders['X-Requested-With'];
+            delete details.requestHeaders['X-DevTools-Emulate-Network-Conditions-Client-Id'];
+            
+            callback({ requestHeaders: details.requestHeaders });
+        });
 
-    defaultSession.webRequest.onHeadersReceived((details, callback) => {
-        delete details.responseHeaders?.['x-frame-options'];
-        callback({ responseHeaders: details.responseHeaders });
-    });
+        ses.webRequest.onHeadersReceived((details, callback) => {
+            delete details.responseHeaders?.['x-frame-options'];
+            callback({ responseHeaders: details.responseHeaders });
+        });
+    }
+
+    // Apply stealth headers to default session (main window)
+    applyStealthHeaders(defaultSession);
 
     setTimeout(() => {
         checkForNewVersion(app, mainWindow, isDevEnvironment);
@@ -202,6 +225,10 @@ app.on('ready', async () => {
 
             const ses = contents.session;
             if (ses) {
+                // ✅ STEALTH: Apply header spoofing to webview partition session
+                // This is critical — without it, webviews send raw Electron headers to sites like Google
+                applyStealthHeaders(ses);
+
                 // Register aria2 download handler for webview session too (only if aria2 is ready)
                 if (aria2.isReady) {
                     handleAria2Download(ses, aria2, mainWindow);
@@ -221,6 +248,24 @@ app.on('ready', async () => {
                     if (!data) return;
 
                     try {
+                        // Fallback: resolve profileId from webview's session partition
+                        // Partition format: "persist:workspace-${workspaceId}"
+                        if (!data.profileId) {
+                            try {
+                                const partition = contents.session?.partition || '';
+                                const match = partition.match(/^persist:workspace-(.+)$/);
+                                if (match) {
+                                    data.profileId = match[1];
+                                    console.log(`🔐 [Main] Resolved profileId from partition: ${data.profileId}`);
+                                }
+                            } catch (e) {}
+                        }
+
+                        if (!data.profileId) {
+                            console.warn('🔐 [Main] password-capture-urgent: no profileId, skipping');
+                            return;
+                        }
+
                         // Check never-save
                         const isNever = await passwordService.isNeverSave(data.profileId, data.origin);
                         if (isNever) return;
@@ -239,7 +284,7 @@ app.on('ready', async () => {
 
                         // Relay save prompt to main window
                         const mainWindow = getMainWindow();
-                        if (mainWindow && !mainWindow.isDestroy()) {
+                        if (mainWindow && !mainWindow.isDestroyed()) {
                             mainWindow.webContents.send('password-show-save-prompt', {
                                 profileId: data.profileId,
                                 origin: data.origin,

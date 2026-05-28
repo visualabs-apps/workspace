@@ -300,6 +300,41 @@ function registerSettingsHandlers(isDevEnvironment = false) {
             return { success: false, error: error.message, enabled: false };
         }
     });
+
+    // Hardware Acceleration
+    ipcMain.handle('settings-hardware-acceleration', async (event, enabled) => {
+        try {
+            if (db) {
+                const stmt = db.prepare(`
+                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                `);
+                stmt.run('hardwareAcceleration', JSON.stringify(enabled), Date.now());
+            }
+            return { success: true, enabled };
+        } catch (error) {
+            console.error('settings-hardware-acceleration error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('settings-get-hardware-acceleration', async (event) => {
+        try {
+            if (!db) return { success: true, enabled: true }; // Default: enabled
+            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+            const row = stmt.get('hardwareAcceleration');
+            if (!row) return { success: true, enabled: true }; // Default: enabled
+            try {
+                const enabled = JSON.parse(row.value);
+                return { success: true, enabled };
+            } catch {
+                return { success: true, enabled: true };
+            }
+        } catch (error) {
+            console.error('settings-get-hardware-acceleration error:', error);
+            return { success: false, error: error.message, enabled: true };
+        }
+    });
 }
 
 module.exports = { registerSettingsHandlers, isDeveloperModeEnabled };

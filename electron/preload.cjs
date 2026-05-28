@@ -170,6 +170,8 @@ const api = {
         getDataSyncInterval: () => ipcRenderer.invoke('settings-get-data-sync-interval'),
         setDataSyncEnabled: (enabled) => ipcRenderer.invoke('settings-data-sync-enabled', enabled),
         getDataSyncEnabled: () => ipcRenderer.invoke('settings-get-data-sync-enabled'),
+        setHardwareAcceleration: (enabled) => ipcRenderer.invoke('settings-hardware-acceleration', enabled),
+        getHardwareAcceleration: () => ipcRenderer.invoke('settings-get-hardware-acceleration'),
     },
 
     // Favicon fetching (main process handles CORS)

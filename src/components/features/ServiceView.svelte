@@ -457,9 +457,11 @@
             webviewElement.partition = app.partition;
             webviewElement.allowpopups = true;
             webviewElement.preload = preloadPath;
-            // Use Chrome 131 User-Agent (stable version)
+            // Use Chrome 132 User-Agent — must match constants.cjs CHROME_VERSION
+            // Note: onBeforeSendHeaders overrides this per-URL anyway, but the initial
+            // webview attribute should match to avoid version mismatch detection
             webviewElement.useragent = app.userAgent ||
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36";
             webviewElement.style.width = '100%';
             webviewElement.style.height = '100%';
             webviewElement.setAttribute('data-webview', 'true');

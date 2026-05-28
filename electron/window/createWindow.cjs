@@ -7,6 +7,7 @@ const { getDatabase } = require('../database/index.cjs');
 const { handlePermissions } = require('../utils/permissions.cjs');
 const { handleAria2Download, getAria2Downloads, getAria2Instance } = require('../handlers/downloads.cjs');
 const { isDeveloperModeEnabled } = require('../handlers/settings.cjs');
+const { CHROME_UA } = require('../config/constants.cjs');
 
 let mainWindow = null;
 let isQuitting = false;
@@ -17,11 +18,13 @@ function createWindow(isDevEnvironment, aria2) {
         app.commandLine.appendSwitch('disk-cache-size', '0');
     }
 
-    // ✅ FIX: Use real Chrome 131 User-Agent (not future version)
-    // IMPORTANT: Clear browser cache if you see old version (136)
-    app.commandLine.appendSwitch('disable-http-cache');
-    app.commandLine.appendSwitch('disable-cache');
-    app.commandLine.appendSwitch('disable-application-cache');
+    // ✅ Cache disabling — only in dev environment to avoid detection
+    // Production: these flags are unusual and create a unique fingerprint
+    if (isDevEnvironment) {
+        app.commandLine.appendSwitch('disable-http-cache');
+        app.commandLine.appendSwitch('disable-cache');
+        app.commandLine.appendSwitch('disable-application-cache');
+    }
     
     // ✅ STEALTH: Disable automation detection
     app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
@@ -33,9 +36,28 @@ function createWindow(isDevEnvironment, aria2) {
     // ✅ STEALTH: Prevent "headless" detection via navigator.plugins / mimeTypes
     app.commandLine.removeSwitch('headless');
     
-    // ✅ STEALTH: Enable WebGL (required for proper fingerprinting)
-    app.commandLine.appendSwitch('enable-webgl');
-    app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+    // Hardware acceleration — controlled by user setting (default: enabled)
+    // Read from database before window creation
+    let hwAccelEnabled = true; // default
+    try {
+        const { getDatabase } = require('../database/index.cjs');
+        const db = getDatabase();
+        if (db) {
+            const stmt = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+            const row = stmt.get('hardwareAcceleration');
+            if (row) {
+                hwAccelEnabled = JSON.parse(row.value);
+            }
+        }
+    } catch (e) {
+        // Database not ready yet, use default
+    }
+
+    if (hwAccelEnabled) {
+        // ✅ STEALTH: Enable WebGL (required for proper fingerprinting)
+        app.commandLine.appendSwitch('enable-webgl');
+        app.commandLine.appendSwitch('enable-accelerated-2d-canvas');
+    }
     
     // ✅ STEALTH: Disable automation-related features
     app.commandLine.appendSwitch('disable-dev-shm-usage');
@@ -255,7 +277,7 @@ function createWindow(isDevEnvironment, aria2) {
                             } catch (e) { }
                         }
 
-                        const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+                        const userAgent = CHROME_UA; // Platform-aware UA from constants
 
                         // Delete existing file if user chose to replace
                         if (fs.existsSync(savePath)) {

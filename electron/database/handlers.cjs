@@ -358,11 +358,13 @@ function registerDatabaseHandlers() {
     });
 
     // Clear ALL local data on logout (multi-user safety)
+    // NOTE: 'app_settings' is EXCLUDED from cleanup — device-level settings
+    // (hardware acceleration, theme, notifications, etc.) persist across user logins.
     ipcMain.handle('clear-all-local-data', async () => {
         try {
             if (!db) return { success: false, error: 'Database not initialized' };
             
-            const tables = ['downloads', 'tabs', 'bookmarks', 'profile_colors', 'app_settings', 'ai_chat_messages'];
+            const tables = ['downloads', 'tabs', 'bookmarks', 'profile_colors', 'ai_chat_messages'];
             for (const table of tables) {
                 try {
                     db.exec(`DELETE FROM ${table}`);

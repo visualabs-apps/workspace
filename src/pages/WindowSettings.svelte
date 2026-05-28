@@ -41,6 +41,9 @@
     let dataSyncEnabled = $state(false);
     let dataSyncInterval = $state("30");
 
+    // Hardware Acceleration
+    let hardwareAcceleration = $state(true);
+
     // ── Update state ─────────────────────────────────────────────────────────
     let currentVersion = $state("");
     let updateStatus = $state("idle"); // idle | checking | upToDate | available | downloading | done | error
@@ -203,6 +206,9 @@
                 seconds: Number(dataSyncInterval),
             });
 
+            // Save hardware acceleration (requires app restart to take effect)
+            await window.api.settings.setHardwareAcceleration(hardwareAcceleration);
+
             // Dispatch event to notify other components about settings update
             window.dispatchEvent(new CustomEvent("settings-updated"));
 
@@ -329,6 +335,12 @@
             const syncIntervalResult = await window.api.settings.getDataSyncInterval();
             if (syncIntervalResult.success) {
                 dataSyncInterval = String(syncIntervalResult.seconds);
+            }
+
+            // Load hardware acceleration
+            const hwAccelResult = await window.api.settings.getHardwareAcceleration();
+            if (hwAccelResult.success) {
+                hardwareAcceleration = hwAccelResult.enabled;
             }
 
             // Load theme
@@ -889,6 +901,26 @@
                                         class="text-sm font-medium text-gray-900 dark:text-gray-100"
                                     >
                                         Developer Mode
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label
+                                class="flex items-start gap-3 cursor-pointer"
+                            >
+                                <input
+                                    type="checkbox"
+                                    class="mt-1 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:bg-gray-700"
+                                    bind:checked={hardwareAcceleration}
+                                />
+                                <div>
+                                    <div
+                                        class="text-sm font-medium text-gray-900 dark:text-gray-100"
+                                    >
+                                        Hardware Acceleration
+                                    </div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                        Enable GPU acceleration for WebGL and canvas rendering. Improves performance but may cause issues on some systems. Requires app restart.
                                     </div>
                                 </div>
                             </label>

@@ -77,15 +77,18 @@
         filterPasswords();
     });
 
-    // Receive data from parent window via IPC
+    // ✅ FIX: Register window-data listener at MODULE LEVEL (not in onMount)
+    // This prevents a race condition where 'dom-ready' fires before onMount runs,
+    // causing the window-data IPC message to be lost and profileId to stay null.
+    if (typeof window !== 'undefined' && window.api?.onWindowData) {
+        window.api.onWindowData((data) => {
+            if (data?.profileId) {
+                profileId = data.profileId;
+            }
+        });
+    }
+
     onMount(() => {
-        const handleWindowData = (data) => {
-            if (data.profileId) profileId = data.profileId;
-        };
-        if (window.api?.onWindowData) {
-            window.api.onWindowData(handleWindowData);
-        }
-        
         const cleanupTheme = initTheme();
         return () => { cleanupTheme?.then(fn => fn?.()); };
     });

@@ -1,5 +1,5 @@
-// Data Sync Manager - Periodic cookie sync from server + profile refresh
-import { getChromeProfile } from '../api/api.js';
+// Data Sync Manager - Periodic bidirectional cookie sync + profile refresh
+import { getChromeProfile, updateChromeProfile } from '../api/api.js';
 import { workspaceStore } from '../stores/workspaces.svelte.js';
 import { authStore } from '../stores/auth.svelte.js';
 
@@ -70,6 +70,53 @@ function createDataSyncManager() {
     }
 
     /**
+     * Upload local cookies from Electron session to backend server.
+     * Local cookies = source of truth. Server state is replaced with local state.
+     *
+     * This means:
+     *   - New cookies from browsing → uploaded to server ✓
+     *   - Deleted cookies (logout) → removed from server ✓
+     *   - Expired cookies → removed from server ✓
+     *
+     * @param {Object} workspace - Workspace object with .id
+     * @returns {Promise<boolean>} true if upload succeeded
+     */
+    async function uploadLocalCookiesToServer(workspace) {
+        if (!workspace?.id) return false;
+
+        const partition = `persist:workspace-${workspace.id}`;
+
+        try {
+            // Read local cookies from Electron session (source of truth)
+            let localCookies = [];
+            try {
+                localCookies = await window.api.db.getCookiesFromPartition(partition) || [];
+            } catch (err) {
+                console.warn('[DataSync] Failed to read local cookies for upload:', err);
+                return false;
+            }
+
+            // Upload local cookies to server — replaces entire server state
+            // This ensures logout/deletion propagates to server
+            const safeCookies = JSON.parse(JSON.stringify(localCookies));
+            const result = await updateChromeProfile(workspace.id, {
+                cookies: safeCookies,
+            });
+
+            if (result.success) {
+                console.log(`[DataSync] Synced ${localCookies.length} local cookies to server for workspace ${workspace.id}`);
+                return true;
+            } else {
+                console.warn('[DataSync] Failed to upload cookies:', result.error);
+                return false;
+            }
+        } catch (error) {
+            console.error('[DataSync] Upload cookies error:', error);
+            return false;
+        }
+    }
+
+    /**
      * Sync cookies for a specific workspace from server to local session
      */
     async function syncCookiesForWorkspace(workspace) {
@@ -99,9 +146,10 @@ function createDataSyncManager() {
     }
 
     /**
-     * Perform a full sync cycle:
-     * 1. Sync cookies for active workspace
-     * 2. Refresh workspace/profile list from server
+     * Perform a full bidirectional sync cycle:
+     * 1. Upload local cookies to server (Local → Server)
+     * 2. Download server cookies to local (Server → Local)
+     * 3. Refresh workspace/profile list from server
      */
     async function performSync() {
         if (!authStore?.isLoggedIn) return;
@@ -113,13 +161,16 @@ function createDataSyncManager() {
         if (indicatorTimeout) clearTimeout(indicatorTimeout);
 
         try {
-            // 1. Sync cookies for the active workspace
             const activeWorkspace = workspaceStore.activeWorkspace;
             if (activeWorkspace) {
+                // Step 1: Upload local cookies to server (Local → Server)
+                await uploadLocalCookiesToServer(activeWorkspace);
+
+                // Step 2: Download & apply server cookies to local (Server → Local)
                 await syncCookiesForWorkspace(activeWorkspace);
             }
 
-            // 2. Refresh workspace list (detects new/deleted profiles from other users)
+            // Step 3: Refresh workspace list (detects new/deleted profiles from other users)
             await workspaceStore.refresh();
 
             syncStatus = 'success';
@@ -247,6 +298,7 @@ function createDataSyncManager() {
         stopSync,
         updateSettings,
         performSync,
+        uploadLocalCookiesToServer,
         destroy,
     };
 }
