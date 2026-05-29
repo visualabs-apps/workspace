@@ -1914,7 +1914,7 @@ var require_stealthBundle = __commonJS({
     var stealthCode = `/**
  * Stealth Evasion Bundle
  * Auto-generated from puppeteer-extra-plugin-stealth
- * Generated at: 2026-05-28T18:00:49.721Z
+ * Generated at: 2026-05-29T05:51:52.524Z
  * 
  * Included evasions: chrome.app, chrome.csi, chrome.loadTimes, chrome.runtime, iframe.contentWindow, media.codecs, navigator.hardwareConcurrency, navigator.languages, navigator.permissions, navigator.plugins, navigator.vendor, navigator.webdriver, window.outerdimensions
  * 

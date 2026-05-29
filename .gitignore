@@ -46,6 +46,7 @@ dist-electron
 release-builds/
 *.blockmap
 *.exe
+!bin/**/*.exe
 *.dmg
 *.AppImage
 *.deb

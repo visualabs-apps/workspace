@@ -46,14 +46,25 @@ function createAppStore() {
     // This fixes any data saved with an old/wrong partition value
     let needsMigration = false;
     storedApps = storedApps.map(app => {
+        let migrated = { ...app };
+        
+        // Fix partition
         if (app.workspaceId) {
             const correctPartition = `persist:workspace-${app.workspaceId}`;
             if (app.partition !== correctPartition) {
                 needsMigration = true;
-                return { ...app, partition: correctPartition };
+                migrated.partition = correctPartition;
             }
         }
-        return app;
+        
+        // Migrate zoom → zoomLevel (fix auto-zoom bug)
+        if ('zoom' in app && !('zoomLevel' in app)) {
+            needsMigration = true;
+            migrated.zoomLevel = 0; // Reset to default
+            delete migrated.zoom;
+        }
+        
+        return migrated;
     });
     if (needsMigration) {
         try {
@@ -151,7 +162,7 @@ function createAppStore() {
                 workspaceId: workspaceId,
                 isMuted: false,
                 userAgent: '',
-                zoom: 1.0,
+                zoomLevel: 0,
                 unreadCount: 0,
                 isLoading: true,
                 isUnloaded: false

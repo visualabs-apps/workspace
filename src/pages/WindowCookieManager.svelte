@@ -225,33 +225,36 @@
             );
 
             // Step 3: Remove local cookies that no longer exist on server
+            const deletePromises = [];
             for (const localCookie of localCookies) {
                 const key = `${localCookie.name}|${localCookie.domain}|${localCookie.path || '/'}`;
                 if (!serverCookieKeys.has(key)) {
-                    try {
-                        await window.api.db.deleteCookieFromPartition(
+                    deletePromises.push(
+                        window.api.db.deleteCookieFromPartition(
                             partition,
                             localCookie.name,
                             localCookie.domain,
                             localCookie.path,
                             localCookie.secure
-                        );
-                    } catch (err) {
-                        // Cookie may already be gone, ignore
-                    }
+                        ).catch(() => {}) // Ignore errors
+                    );
                 }
             }
+            await Promise.all(deletePromises);
 
             // Step 4: Add/update all server cookies to local session
+            const setPromises = [];
             for (const cookie of targetCookies) {
                 if (!cookie.name || !cookie.domain) continue;
                 if (cookie.value === undefined || cookie.value === null) cookie.value = '';
-                try {
-                    await window.api.db.setCookieToPartition(partition, cookie);
-                } catch (err) {
-                    // Ignore individual cookie errors
-                }
+                setPromises.push(
+                    window.api.db.setCookieToPartition(partition, cookie).catch(() => {}) // Ignore errors
+                );
             }
+            await Promise.all(setPromises);
+            
+            // ✅ FIX: Wait extra 100ms to ensure cookies are fully flushed to disk
+            await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
             console.error('[CookieManager] Apply to local session error:', error);
         }

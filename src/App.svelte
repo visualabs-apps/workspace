@@ -409,9 +409,10 @@
             // Reload active webview to apply new cookies
             if (data.profileId && workspaceStore.activeWorkspace?.id === data.profileId) {
                 toastStore.success('Cookies updated! Reloading page...');
+                // ✅ FIX: Increase delay to 800ms to ensure cookies are fully flushed
                 setTimeout(() => {
                     navigationStore.reload();
-                }, 500);
+                }, 800);
             }
         });
 
